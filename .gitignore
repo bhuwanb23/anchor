@@ -25,6 +25,9 @@
 .env.local
 .env.*.local
 
+# Agent config (may contain tokens)
+agent/config.yaml
+
 # Next.js
 /dashboard/.next/
 /dashboard/out/
