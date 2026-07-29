@@ -203,8 +203,7 @@ install_binary() {
 
   cat > /etc/yourplatform/config.yaml <<EOF
 control_plane_url: ${BASE_URL}
-agent_token: ${TOKEN}
-server_id: ""
+registration_token: ${TOKEN}
 docker_socket: unix:///var/run/docker.sock
 caddy_config_dir: /etc/caddy
 backup_dest: ""
