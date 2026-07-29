@@ -134,7 +134,7 @@ check_deps() {
 TMPDIR=""
 
 download() {
-  local download_url="${BASE_URL}/releases/v${AGENT_VERSION}/yourplatform-agent-${OS_ID}-${ARCH}"
+  local download_url="${BASE_URL}/releases/v${AGENT_VERSION}/yourplatform-agent-linux-${ARCH}"
   local checksum_url="${download_url}.sha256"
 
   TMPDIR=$(mktemp -d)
