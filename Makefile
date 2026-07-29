@@ -1,12 +1,9 @@
 # Makefile — run from repo root
-# Windows-compatible: uses cmd.exe for shell commands
-
-SHELL := cmd.exe
-.ONESHELL:
+# Windows-compatible with GnuWin32 Make
 
 .PHONY: all dev dev-backend dev-agent dev-frontend \
         build build-backend build-agent build-frontend \
-        clean tidy lint test db-reset help
+        clean tidy lint test db-reset
 
 # ─────────────────────────────────────────────
 # Development
@@ -72,22 +69,3 @@ clean:
 	@if exist control-plane\tmp rmdir /s /q control-plane\tmp
 	@if exist agent\tmp rmdir /s /q agent\tmp
 	@if exist dashboard\.next rmdir /s /q dashboard\.next
-
-help:
-	@echo.
-	@echo Available targets:
-	@echo   dev              Start all services (backend + frontend)
-	@echo   dev-backend      Start control plane with hot reload
-	@echo   dev-agent        Build and run agent locally
-	@echo   dev-frontend     Start Next.js dev server
-	@echo   build            Build all binaries + frontend
-	@echo   build-backend    Build control plane binary
-	@echo   build-agent      Build agent binary
-	@echo   build-frontend   Build Next.js for production
-	@echo   tidy             Tidy Go modules
-	@echo   lint             Run linters (go vet + eslint)
-	@echo   test             Run all tests
-	@echo   db-reset         Delete SQLite database
-	@echo   clean            Remove build artifacts
-	@echo   help             Show this help
-	@echo.
