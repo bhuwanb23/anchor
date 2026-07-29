@@ -24,6 +24,8 @@ func NewRouter(database *sql.DB, cfg *config.Config) http.Handler {
 
 	r.Get("/health", handlers.Health)
 
+	server := &handlers.Server{DB: database}
+
 	r.Route("/api/v1", func(r chi.Router) {
 		r.Post("/auth/register", handlers.Register)
 		r.Post("/auth/login", handlers.Login)
@@ -32,8 +34,8 @@ func NewRouter(database *sql.DB, cfg *config.Config) http.Handler {
 			r.Use(middleware.Auth(&auth.Config{
 				Secret: cfg.JWTSecret,
 			}))
-			r.Get("/servers", handlers.ListServers)
-			r.Post("/servers", handlers.CreateServer)
+			r.Get("/servers", server.ListServers)
+			r.Post("/servers", server.CreateServer)
 			r.Post("/deploy", handlers.DeployApp)
 			r.Get("/deployments", handlers.GetDeploymentStatus)
 		})

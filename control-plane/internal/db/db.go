@@ -4,7 +4,6 @@ import (
 	"database/sql"
 	"fmt"
 	"os"
-	"time"
 
 	_ "modernc.org/sqlite"
 	"github.com/yourname/yourplatform/control-plane/internal/db/queries"

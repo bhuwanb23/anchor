@@ -1,19 +1,25 @@
 package handlers
 
 import (
+	"database/sql"
 	"encoding/json"
 	"log/slog"
 	"net/http"
 
 	"github.com/google/uuid"
-	"github.com/yourname/yourplatform/control-plane/internal/db"
 )
 
-func ListServers(w http.ResponseWriter, r *http.Request) {
-	// TODO: get user_id from JWT context
+type Server struct {
+	DB *sql.DB
+}
+
+func (s *Server) ListServers(w http.ResponseWriter, r *http.Request) {
 	userID := "placeholder"
 
-	rows, err := db.QueryServersByUser(userID)
+	rows, err := s.DB.Query(
+		"SELECT id, name, status, connected_at, last_seen FROM servers WHERE user_id = ?",
+		userID,
+	)
 	if err != nil {
 		slog.Error("query servers", "error", err)
 		http.Error(w, "internal server error", http.StatusInternalServerError)
@@ -29,11 +35,11 @@ func ListServers(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		servers = append(servers, map[string]interface{}{
-			"id":             id,
-			"name":           name,
-			"status":         status,
-			"connected_at":   connectedAt,
-			"last_seen":      lastSeen,
+			"id":           id,
+			"name":         name,
+			"status":       status,
+			"connected_at": connectedAt,
+			"last_seen":    lastSeen,
 		})
 	}
 
@@ -41,8 +47,7 @@ func ListServers(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(servers)
 }
 
-func CreateServer(w http.ResponseWriter, r *http.Request) {
-	// TODO: get user_id from JWT context
+func (s *Server) CreateServer(w http.ResponseWriter, r *http.Request) {
 	userID := "placeholder"
 
 	var req struct {
@@ -61,7 +66,11 @@ func CreateServer(w http.ResponseWriter, r *http.Request) {
 	serverID := uuid.New().String()
 	token := uuid.New().String()
 
-	if err := db.InsertServer(serverID, userID, req.Name, token); err != nil {
+	_, err := s.DB.Exec(
+		"INSERT INTO servers (id, user_id, name, token) VALUES (?, ?, ?, ?)",
+		serverID, userID, req.Name, token,
+	)
+	if err != nil {
 		slog.Error("insert server", "error", err)
 		http.Error(w, "internal server error", http.StatusInternalServerError)
 		return
@@ -70,9 +79,9 @@ func CreateServer(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(map[string]string{
-		"id":     serverID,
-		"name":   req.Name,
-		"token":  token,
+		"id":              serverID,
+		"name":            req.Name,
+		"token":           token,
 		"install_command": "curl -fsSL https://get.yourplatform.com/install.sh | sudo sh -s -- --token=" + token,
 	})
 }
