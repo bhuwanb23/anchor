@@ -3,11 +3,15 @@ package docker
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"log/slog"
+	"time"
 
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/client"
+	"github.com/docker/docker/pkg/jsonmessage"
+	"github.com/docker/go-connections/nat"
 )
 
 type Client struct {
@@ -27,16 +31,16 @@ func NewClient(dockerSocket string) (*Client, error) {
 	return &Client{cli: cli}, nil
 }
 
-func (c *Client) PullImage(ctx context.Context, image string) error {
-	slog.Info("pulling image", "image", image)
+func (c *Client) PullImage(ctx context.Context, ref string) error {
+	slog.Info("pulling image", "image", ref)
 
-	reader, err := c.cli.ImagePull(ctx, image, types.ImagePullOptions{})
+	reader, err := c.cli.ImagePull(ctx, ref, types.ImagePullOptions{})
 	if err != nil {
 		return err
 	}
 	defer reader.Close()
 
-	var progress types.JSONMessage
+	var progress jsonmessage.JSONMessage
 	decoder := json.NewDecoder(reader)
 	for decoder.More() {
 		if err := decoder.Decode(&progress); err != nil {
@@ -44,7 +48,7 @@ func (c *Client) PullImage(ctx context.Context, image string) error {
 			continue
 		}
 		if progress.Status != "" {
-			slog.Info("pull progress", "image", image, "status", progress.Status)
+			slog.Info("pull progress", "image", ref, "status", progress.Status)
 		}
 	}
 
@@ -80,8 +84,8 @@ func (c *Client) StartContainer(ctx context.Context, id string) error {
 
 func (c *Client) StopContainer(ctx context.Context, id string) error {
 	slog.Info("stopping container", "id", id)
-	timeout := 10
-	return c.cli.ContainerStop(ctx, id, container.StopOptions{Timeout: &timeout})
+	timeout := 10 * time.Second
+	return c.cli.ContainerStop(ctx, id, &timeout)
 }
 
 func (c *Client) RemoveContainer(ctx context.Context, id string) error {
@@ -93,7 +97,7 @@ func (c *Client) ListContainers(ctx context.Context) ([]types.Container, error) 
 	return c.cli.ContainerList(ctx, types.ContainerListOptions{All: true})
 }
 
-func (c *Client) GetContainerLogs(ctx context.Context, id string) (<-chan types.Message, error) {
+func (c *Client) GetContainerLogs(ctx context.Context, id string) (io.ReadCloser, error) {
 	return c.cli.ContainerLogs(ctx, id, types.ContainerLogsOptions{
 		ShowStdout: true,
 		ShowStderr: true,
@@ -105,7 +109,7 @@ func (c *Client) GetContainerLogs(ctx context.Context, id string) (<-chan types.
 type CreateContainerOpts struct {
 	Name         string
 	Image        string
-	PortBindings map[container.Port][]container.PortBinding
-	ExposedPorts map[container.Port]struct{}
+	PortBindings nat.PortMap
+	ExposedPorts nat.PortSet
 	Env          []string
 }
