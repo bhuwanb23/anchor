@@ -1,8 +1,10 @@
 package config
 
 import (
+	"fmt"
 	"os"
 
+	"github.com/joho/godotenv"
 	"gopkg.in/yaml.v3"
 )
 
@@ -18,14 +20,30 @@ type Config struct {
 }
 
 func Load(path string) (*Config, error) {
+	_ = godotenv.Load()
+
+	if path == "" {
+		path = resolveConfigPath()
+	}
+
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("read config %s: %w", path, err)
 	}
 
 	var cfg Config
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("parse config: %w", err)
+	}
+
+	if v := os.Getenv("CONTROL_PLANE_URL"); v != "" {
+		cfg.ControlPlaneURL = v
+	}
+	if v := os.Getenv("AGENT_TOKEN"); v != "" {
+		cfg.AgentToken = v
+	}
+	if v := os.Getenv("SERVER_ID"); v != "" {
+		cfg.ServerID = v
 	}
 
 	if cfg.DockerSocket == "" {
@@ -42,4 +60,27 @@ func Load(path string) (*Config, error) {
 	}
 
 	return &cfg, nil
+}
+
+func (c *Config) Validate() error {
+	if c.ControlPlaneURL == "" {
+		return fmt.Errorf("control_plane_url is required")
+	}
+	if c.AgentToken == "" {
+		return fmt.Errorf("agent_token is required")
+	}
+	if c.ServerID == "" {
+		return fmt.Errorf("server_id is required")
+	}
+	return nil
+}
+
+func resolveConfigPath() string {
+	if v := os.Getenv("AGENT_CONFIG_PATH"); v != "" {
+		return v
+	}
+	if _, err := os.Stat("/etc/yourplatform/config.yaml"); err == nil {
+		return "/etc/yourplatform/config.yaml"
+	}
+	return "./config.yaml"
 }
