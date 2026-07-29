@@ -9,7 +9,7 @@ import { useServers } from "@/hooks/use-server";
 import { ServerCard } from "@/components/dashboard/server-card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogTrigger } from "@radix-ui/react-dialog";
 import api from "@/lib/api";
 import { Server, Plus, Copy } from "lucide-react";
