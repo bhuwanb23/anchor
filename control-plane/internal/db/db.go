@@ -39,6 +39,7 @@ func Migrate(database *sql.DB) error {
 		"001_users.sql",
 		"002_servers.sql",
 		"003_deployments.sql",
+		"004_tokens.sql",
 	}
 
 	for _, migration := range migrations {
@@ -82,4 +83,20 @@ func InsertDeployment(db *sql.DB, id, serverID, appName, image string, port int,
 
 func QueryDeploymentsByServer(db *sql.DB, serverID string) (*sql.Rows, error) {
 	return queries.QueryDeploymentsByServer(db, serverID)
+}
+
+func CreateRegistrationToken(db *sql.DB, id, tokenHash, userID, serverName, expiresAt string) error {
+	return queries.CreateRegistrationToken(db, id, tokenHash, userID, serverName, expiresAt)
+}
+
+func FindRegistrationTokenByHash(db *sql.DB, tokenHash string) (id, userID, serverName, expiresAt string, err error) {
+	return queries.FindRegistrationTokenByHash(db, tokenHash)
+}
+
+func MarkRegistrationTokenUsed(db *sql.DB, tokenID, ip string) error {
+	return queries.MarkRegistrationTokenUsed(db, tokenID, ip)
+}
+
+func DeleteExpiredRegistrationTokens(db *sql.DB) error {
+	return queries.DeleteExpiredRegistrationTokens(db)
 }
