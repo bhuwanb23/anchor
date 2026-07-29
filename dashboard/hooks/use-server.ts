@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import api from "@/lib/api";
 import type { Server } from "@/types";
 
-export function useServers() {
+export function useServers(pollIntervalMs = 5000) {
   const [servers, setServers] = useState<Server[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -30,12 +30,18 @@ export function useServers() {
 
   useEffect(() => {
     mountedRef.current = true;
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     fetchServers();
     return () => {
       mountedRef.current = false;
     };
   }, [fetchServers]);
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      fetchServers();
+    }, pollIntervalMs);
+    return () => clearInterval(interval);
+  }, [fetchServers, pollIntervalMs]);
 
   return { servers, isLoading, error, refetch: fetchServers };
 }
