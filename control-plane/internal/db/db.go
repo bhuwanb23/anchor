@@ -40,6 +40,7 @@ func Migrate(database *sql.DB) error {
 		"002_servers.sql",
 		"003_deployments.sql",
 		"004_tokens.sql",
+		"005_servers_agent.sql",
 	}
 
 	for _, migration := range migrations {
@@ -89,7 +90,7 @@ func CreateRegistrationToken(db *sql.DB, id, tokenHash, userID, serverName, expi
 	return queries.CreateRegistrationToken(db, id, tokenHash, userID, serverName, expiresAt)
 }
 
-func FindRegistrationTokenByHash(db *sql.DB, tokenHash string) (id, userID, serverName, expiresAt string, err error) {
+func FindRegistrationTokenByHash(db *sql.DB, tokenHash string) (id, userID, serverName, expiresAt string, usedAt sql.NullString, err error) {
 	return queries.FindRegistrationTokenByHash(db, tokenHash)
 }
 
@@ -99,4 +100,16 @@ func MarkRegistrationTokenUsed(db *sql.DB, tokenID, ip string) error {
 
 func DeleteExpiredRegistrationTokens(db *sql.DB) error {
 	return queries.DeleteExpiredRegistrationTokens(db)
+}
+
+func InsertServerWithAgent(db *sql.DB, id, userID, name, agentID, agentSecretHash, osInfo, arch string, ramMB, diskGB int, ipAddress string) error {
+	return queries.InsertServerWithAgent(db, id, userID, name, agentID, agentSecretHash, osInfo, arch, ramMB, diskGB, ipAddress)
+}
+
+func GetServerByAgentID(db *sql.DB, agentID string) (id, userID, name, agentSecretHash, status string, err error) {
+	return queries.GetServerByAgentID(db, agentID)
+}
+
+func UpdateServerConnection(db *sql.DB, serverID, status string) error {
+	return queries.UpdateServerConnection(db, serverID, status)
 }
