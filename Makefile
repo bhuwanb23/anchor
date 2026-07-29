@@ -1,7 +1,7 @@
 # Makefile — run from repo root
-# On Windows: ensure GnuWin32\bin is in PATH, or run from Git Bash
+# On Windows: requires Git Bash (sh.exe) in PATH
 
-SHELL := /bin/bash
+SHELL := C:/Program Files/Git/bin/bash.exe
 
 .PHONY: all dev dev-backend dev-agent dev-frontend \
         build build-backend build-agent build-frontend \
