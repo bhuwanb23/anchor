@@ -1,12 +1,18 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"os"
+	"os/exec"
 	"os/signal"
+	"runtime"
+	"strconv"
+	"strings"
 	"syscall"
 
 	"github.com/yourname/yourplatform/agent/internal/backup"
@@ -57,9 +63,24 @@ func run(configPath string) {
 		os.Exit(1)
 	}
 
+	if cfg.NeedsRegistration() {
+		slog.Info("registration token detected, registering with control plane")
+		if err := registerAgent(cfg, configPath); err != nil {
+			slog.Error("registration failed", "error", err)
+			os.Exit(1)
+		}
+		cfg, err = config.Load(configPath)
+		if err != nil {
+			slog.Error("failed to reload config after registration", "error", err)
+			os.Exit(1)
+		}
+		slog.Info("registration successful", "agent_id", cfg.AgentID, "server_id", cfg.ServerID)
+	}
+
 	slog.Info("agent starting",
 		"version", Version,
 		"control_plane", cfg.ControlPlaneURL,
+		"agent_id", cfg.AgentID,
 		"server_id", cfg.ServerID,
 	)
 
@@ -76,7 +97,8 @@ func run(configPath string) {
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 
-	wsClient := ws.NewClient(cfg.ControlPlaneURL, cfg.AgentToken, cfg.WSReconnectSec)
+	wsURL := cfg.ControlPlaneURL + "/ws/agent"
+	wsClient := ws.NewClient(wsURL, cfg.AgentID, cfg.AgentSecret, cfg.WSReconnectSec)
 
 	go wsClient.Run(ctx)
 
@@ -130,6 +152,130 @@ func run(configPath string) {
 			}
 		}
 	}
+}
+
+func registerAgent(cfg *config.Config, configPath string) error {
+	info := collectServerInfo()
+
+	body := map[string]interface{}{
+		"token": cfg.RegistrationToken,
+		"server_info": info,
+	}
+
+	bodyBytes, err := json.Marshal(body)
+	if err != nil {
+		return fmt.Errorf("marshal request: %w", err)
+	}
+
+	url := cfg.ControlPlaneURL + "/api/v1/agent/register"
+	resp, err := http.Post(url, "application/json", bytes.NewReader(bodyBytes))
+	if err != nil {
+		return fmt.Errorf("POST %s: %w", url, err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusCreated {
+		var errResp struct {
+			Error string `json:"error"`
+		}
+		json.NewDecoder(resp.Body).Decode(&errResp)
+		return fmt.Errorf("registration failed (%d): %s", resp.StatusCode, errResp.Error)
+	}
+
+	var result struct {
+		AgentID     string `json:"agent_id"`
+		AgentSecret string `json:"agent_secret"`
+		ServerID    string `json:"server_id"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return fmt.Errorf("decode response: %w", err)
+	}
+
+	if err := config.SaveCredentials(configPath, result.AgentID, result.AgentSecret, result.ServerID); err != nil {
+		return fmt.Errorf("save credentials: %w", err)
+	}
+
+	return nil
+}
+
+type serverInfo struct {
+	OS        string `json:"os"`
+	Arch      string `json:"arch"`
+	RAMMB     int    `json:"ram_mb"`
+	DiskGB    int    `json:"disk_gb"`
+	IPAddress string `json:"ip_address"`
+}
+
+func collectServerInfo() serverInfo {
+	info := serverInfo{
+		OS:   detectOS(),
+		Arch: runtime.GOARCH,
+	}
+
+	info.RAMMB = detectRAM()
+	info.DiskGB = detectDisk()
+	info.IPAddress = detectIP()
+
+	return info
+}
+
+func detectOS() string {
+	data, err := os.ReadFile("/etc/os-release")
+	if err != nil {
+		return runtime.GOOS
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		if strings.HasPrefix(line, "ID=") {
+			return strings.Trim(strings.TrimPrefix(line, "ID="), "\"")
+		}
+	}
+	return runtime.GOOS
+}
+
+func detectRAM() int {
+	data, err := os.ReadFile("/proc/meminfo")
+	if err != nil {
+		return 0
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		if strings.HasPrefix(line, "MemTotal:") {
+			fields := strings.Fields(line)
+			if len(fields) >= 2 {
+				kb, _ := strconv.Atoi(fields[1])
+				return kb / 1024
+			}
+		}
+	}
+	return 0
+}
+
+func detectDisk() int {
+	out, err := exec.Command("df", "-BG", "/").Output()
+	if err != nil {
+		return 0
+	}
+	lines := strings.Split(string(out), "\n")
+	if len(lines) < 2 {
+		return 0
+	}
+	fields := strings.Fields(lines[1])
+	if len(fields) >= 2 {
+		gb, _ := strconv.Atoi(strings.TrimSuffix(fields[1], "G"))
+		return gb
+	}
+	return 0
+}
+
+func detectIP() string {
+	out, err := exec.Command("hostname", "-I").Output()
+	if err != nil {
+		return ""
+	}
+	fields := strings.Fields(string(out))
+	if len(fields) > 0 {
+		return fields[0]
+	}
+	return ""
 }
 
 func runPreflight() {
