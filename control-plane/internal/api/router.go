@@ -22,6 +22,9 @@ func NewRouter(database *sql.DB, cfg *config.Config) http.Handler {
 	r.Use(appmiddleware.CORS(cfg.FrontendURL))
 
 	r.Get("/health", handlers.Health)
+	r.Get("/install.sh", func(w http.ResponseWriter, r *http.Request) {
+		http.ServeFile(w, r, "./scripts/install.sh")
+	})
 
 	authHandler := &handlers.Auth{DB: database, Cfg: cfg}
 	server := &handlers.Server{DB: database}
