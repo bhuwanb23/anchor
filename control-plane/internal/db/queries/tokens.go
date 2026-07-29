@@ -12,11 +12,11 @@ func CreateRegistrationToken(db *sql.DB, id, tokenHash, userID, serverName, expi
 	return err
 }
 
-func FindRegistrationTokenByHash(db *sql.DB, tokenHash string) (id, userID, serverName, expiresAt string, err error) {
+func FindRegistrationTokenByHash(db *sql.DB, tokenHash string) (id, userID, serverName, expiresAt string, usedAt sql.NullString, err error) {
 	err = db.QueryRow(
-		"SELECT id, user_id, server_name, expires_at FROM registration_tokens WHERE token_hash = ?",
+		"SELECT id, user_id, server_name, expires_at, used_at FROM registration_tokens WHERE token_hash = ?",
 		tokenHash,
-	).Scan(&id, &userID, &serverName, &expiresAt)
+	).Scan(&id, &userID, &serverName, &expiresAt, &usedAt)
 	return
 }
 
