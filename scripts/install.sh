@@ -248,12 +248,17 @@ install_service() {
 Description=YourPlatform Agent
 After=network-online.target docker.service
 Wants=network-online.target
+Requires=docker.service
 
 [Service]
 Type=simple
-ExecStart=/usr/local/bin/yourplatform-agent run
+ExecStart=/usr/local/bin/yourplatform-agent run --config /etc/yourplatform/config.yaml
 Restart=always
-RestartSec=5
+RestartSec=10
+StartLimitInterval=200
+StartLimitBurst=5
+MemoryMax=256M
+CPUQuota=20%
 StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=yourplatform-agent
