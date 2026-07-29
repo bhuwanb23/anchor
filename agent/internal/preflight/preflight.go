@@ -143,3 +143,12 @@ func PreflightLog(results []CheckResult) {
 		}
 	}
 }
+
+func HasErrors(results []CheckResult) bool {
+	for _, r := range results {
+		if r.Status == "missing" || r.Status == "error" {
+			return true
+		}
+	}
+	return false
+}
