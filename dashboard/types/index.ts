@@ -49,3 +49,9 @@ export interface CreateServerResponse {
   token: string
   install_command: string
 }
+
+export interface RegistrationTokenResponse {
+  token: string
+  install_command: string
+  expires_at: string
+}
