@@ -2,6 +2,7 @@ package ws
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -15,6 +16,8 @@ import (
 
 type Client struct {
 	url          string
+	agentID      string
+	agentSecret  string
 	token        string
 	conn         *websocket.Conn
 	reconnectSec int
@@ -43,10 +46,11 @@ type ResultPayload struct {
 	Error     string `json:"error,omitempty"`
 }
 
-func NewClient(url, token string, reconnectSec int) *Client {
+func NewClient(url, agentID, agentSecret string, reconnectSec int) *Client {
 	return &Client{
 		url:          url,
-		token:        token,
+		agentID:      agentID,
+		agentSecret:  agentSecret,
 		reconnectSec: reconnectSec,
 		sendChan:     make(chan []byte, 256),
 		recvChan:     make(chan Message, 256),
@@ -66,7 +70,8 @@ func (c *Client) Connect(ctx context.Context) error {
 	}
 
 	header := make(http.Header)
-	header.Set("Authorization", "Bearer "+c.token)
+	credentials := base64.StdEncoding.EncodeToString([]byte(c.agentID + ":" + c.agentSecret))
+	header.Set("Authorization", "Basic "+credentials)
 
 	conn, _, err := dialer.DialContext(ctx, c.url, header)
 	if err != nil {
