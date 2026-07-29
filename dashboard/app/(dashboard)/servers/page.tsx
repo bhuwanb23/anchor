@@ -13,7 +13,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogTrigger } from "@radix-ui/react-dialog";
 import api from "@/lib/api";
 import { Server, Plus, Copy } from "lucide-react";
-import type { CreateServerResponse } from "@/types";
+import type { RegistrationTokenResponse } from "@/types";
 
 const createServerSchema = z.object({
   name: z.string().min(1, "Server name is required"),
@@ -25,7 +25,7 @@ export default function ServersPage() {
   const { servers, isLoading, error, refetch } = useServers();
   const [isCreating, setIsCreating] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
-  const [newServer, setNewServer] = useState<CreateServerResponse | null>(null);
+  const [newServer, setNewServer] = useState<RegistrationTokenResponse | null>(null);
 
   const {
     register,
@@ -39,9 +39,9 @@ export default function ServersPage() {
   async function onSubmit(data: CreateServerForm) {
     setIsCreating(true);
     try {
-      const res = await api.post<CreateServerResponse>("/api/v1/servers", data);
+      const res = await api.post<RegistrationTokenResponse>("/api/v1/servers/registration-token", data);
       setNewServer(res.data);
-      toast.success("Server created");
+      toast.success("Registration token generated");
       refetch();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Failed to create server");
