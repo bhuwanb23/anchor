@@ -20,27 +20,33 @@ import (
 
 const Version = "0.1.0-dev"
 
+const connectedFile = "/var/lib/yourplatform/agent.connected"
+
 func main() {
 	args := os.Args[1:]
+	configPath := ""
 
-	if len(args) > 0 {
-		switch args[0] {
-		case "preflight":
+	for i := 0; i < len(args); i++ {
+		switch {
+		case args[i] == "preflight":
 			runPreflight()
 			return
-		case "--version", "-v":
+		case args[i] == "--version" || args[i] == "-v":
 			fmt.Printf("yourplatform-agent %s\n", Version)
 			return
-		case "run":
-			// fall through to main run loop
+		case args[i] == "--config" && i+1 < len(args):
+			configPath = args[i+1]
+			i++
+		case args[i] == "run":
+			// continue to run loop
 		}
 	}
 
-	run()
+	run(configPath)
 }
 
-func run() {
-	cfg, err := config.Load("")
+func run(configPath string) {
+	cfg, err := config.Load(configPath)
 	if err != nil {
 		slog.Error("failed to load config", "error", err)
 		os.Exit(1)
@@ -74,10 +80,16 @@ func run() {
 
 	go wsClient.Run(ctx)
 
+	connected := false
+
 	for {
 		select {
 		case <-ctx.Done():
 			slog.Info("shutting down agent")
+			if connected {
+				os.Remove(connectedFile)
+				slog.Info("removed agent.connected file")
+			}
 			wsClient.Close()
 			return
 		case msg, ok := <-wsClient.Recv():
@@ -101,6 +113,14 @@ func run() {
 
 			case "register_ack":
 				slog.Info("registered with control plane", "server_id", cfg.ServerID)
+				if !connected {
+					if err := os.WriteFile(connectedFile, []byte(cfg.ServerID), 0644); err != nil {
+						slog.Warn("failed to write connected file", "error", err)
+					} else {
+						slog.Info("wrote agent.connected file")
+					}
+					connected = true
+				}
 
 			case "heartbeat":
 				slog.Debug("heartbeat received")
@@ -115,4 +135,7 @@ func run() {
 func runPreflight() {
 	results := preflight.RunAll()
 	preflight.PreflightLog(results)
+	if preflight.HasErrors(results) {
+		os.Exit(1)
+	}
 }
