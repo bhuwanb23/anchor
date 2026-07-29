@@ -74,5 +74,20 @@ clean: ## Remove build artifacts
 	rm -rf dashboard/.next/
 
 help: ## Show this help
-	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
-	| awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-20s\033[0m %s\n", $$1, $$2}'
+	@echo ""
+	@echo "Available targets:"
+	@echo "  dev              Start all services (backend + frontend)"
+	@echo "  dev-backend      Start control plane with hot reload"
+	@echo "  dev-agent        Build and run agent locally"
+	@echo "  dev-frontend     Start Next.js dev server"
+	@echo "  build            Build all binaries + frontend"
+	@echo "  build-backend    Build control plane binary"
+	@echo "  build-agent      Build agent binary"
+	@echo "  build-frontend   Build Next.js for production"
+	@echo "  tidy             Tidy Go modules"
+	@echo "  lint             Run linters (go vet + eslint)"
+	@echo "  test             Run all tests"
+	@echo "  db-reset         Delete SQLite database"
+	@echo "  clean            Remove build artifacts"
+	@echo "  help             Show this help"
+	@echo ""
