@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -28,7 +29,7 @@ func main() {
 			runPreflight()
 			return
 		case "--version", "-v":
-			slog.Info("version", "version", Version)
+			fmt.Printf("yourplatform-agent %s\n", Version)
 			return
 		case "run":
 			// fall through to main run loop
