@@ -7,10 +7,9 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/yourname/yourplatform/control-plane/internal/api/handlers"
-	"github.com/yourname/yourplatform/control-plane/internal/api/middleware"
+	appmiddleware "github.com/yourname/yourplatform/control-plane/internal/api/middleware"
 	"github.com/yourname/yourplatform/control-plane/internal/auth"
 	"github.com/yourname/yourplatform/control-plane/internal/config"
-	"github.com/yourname/yourplatform/control-plane/internal/db"
 )
 
 func NewRouter(database *sql.DB, cfg *config.Config) http.Handler {
@@ -20,7 +19,7 @@ func NewRouter(database *sql.DB, cfg *config.Config) http.Handler {
 	r.Use(middleware.RealIP)
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
-	r.Use(middleware.CORS(cfg.FrontendURL))
+	r.Use(appmiddleware.CORS(cfg.FrontendURL))
 
 	r.Get("/health", handlers.Health)
 
@@ -31,7 +30,7 @@ func NewRouter(database *sql.DB, cfg *config.Config) http.Handler {
 		r.Post("/auth/login", handlers.Login)
 
 		r.Group(func(r chi.Router) {
-			r.Use(middleware.Auth(&auth.Config{
+			r.Use(appmiddleware.Auth(&auth.Config{
 				Secret: cfg.JWTSecret,
 			}))
 			r.Get("/servers", server.ListServers)
