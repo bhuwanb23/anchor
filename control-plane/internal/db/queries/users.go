@@ -2,9 +2,6 @@ package queries
 
 import (
 	"database/sql"
-	"time"
-
-	"github.com/google/uuid"
 )
 
 func InsertUser(db *sql.DB, id, email, passwordHash string) error {

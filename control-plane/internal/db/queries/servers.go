@@ -3,8 +3,6 @@ package queries
 import (
 	"database/sql"
 	"time"
-
-	"github.com/google/uuid"
 )
 
 func InsertServer(db *sql.DB, id, userID, name, token string) error {
