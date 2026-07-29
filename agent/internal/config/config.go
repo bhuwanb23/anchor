@@ -10,13 +10,18 @@ import (
 
 type Config struct {
 	ControlPlaneURL string `yaml:"control_plane_url"`
-	AgentToken      string `yaml:"agent_token"`
-	ServerID        string `yaml:"server_id"`
-	DockerSocket    string `yaml:"docker_socket"`
-	CaddyConfigDir  string `yaml:"caddy_config_dir"`
-	BackupDest      string `yaml:"backup_dest"`
-	WSReconnectSec  int    `yaml:"ws_reconnect_sec"`
-	LogLevel        string `yaml:"log_level"`
+	// Registration mode (first run)
+	RegistrationToken string `yaml:"registration_token,omitempty"`
+	// Authenticated mode (after registration)
+	AgentID     string `yaml:"agent_id,omitempty"`
+	AgentSecret string `yaml:"agent_secret,omitempty"`
+	// Shared fields
+	ServerID       string `yaml:"server_id,omitempty"`
+	DockerSocket   string `yaml:"docker_socket"`
+	CaddyConfigDir string `yaml:"caddy_config_dir"`
+	BackupDest     string `yaml:"backup_dest"`
+	WSReconnectSec int    `yaml:"ws_reconnect_sec"`
+	LogLevel       string `yaml:"log_level"`
 }
 
 func Load(path string) (*Config, error) {
@@ -40,7 +45,7 @@ func Load(path string) (*Config, error) {
 		cfg.ControlPlaneURL = v
 	}
 	if v := os.Getenv("AGENT_TOKEN"); v != "" {
-		cfg.AgentToken = v
+		cfg.RegistrationToken = v
 	}
 	if v := os.Getenv("SERVER_ID"); v != "" {
 		cfg.ServerID = v
@@ -66,13 +71,16 @@ func (c *Config) Validate() error {
 	if c.ControlPlaneURL == "" {
 		return fmt.Errorf("control_plane_url is required")
 	}
-	if c.AgentToken == "" {
-		return fmt.Errorf("agent_token is required")
-	}
-	if c.ServerID == "" {
-		return fmt.Errorf("server_id is required")
+	hasToken := c.RegistrationToken != ""
+	hasCredentials := c.AgentID != "" && c.AgentSecret != ""
+	if !hasToken && !hasCredentials {
+		return fmt.Errorf("either registration_token or agent_id+agent_secret is required")
 	}
 	return nil
+}
+
+func (c *Config) NeedsRegistration() bool {
+	return c.RegistrationToken != "" && c.AgentID == ""
 }
 
 func resolveConfigPath() string {
