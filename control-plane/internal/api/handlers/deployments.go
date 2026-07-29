@@ -2,10 +2,7 @@ package handlers
 
 import (
 	"encoding/json"
-	"log/slog"
 	"net/http"
-
-	"github.com/yourname/yourplatform/control-plane/internal/db"
 )
 
 func DeployApp(w http.ResponseWriter, r *http.Request) {

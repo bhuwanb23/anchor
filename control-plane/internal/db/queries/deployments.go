@@ -3,8 +3,6 @@ package queries
 import (
 	"database/sql"
 	"time"
-
-	"github.com/google/uuid"
 )
 
 func InsertDeployment(db *sql.DB, id, serverID, appName, image string, port int, domain string) error {

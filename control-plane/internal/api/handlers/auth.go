@@ -26,7 +26,7 @@ func Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	hashed, err := auth.HashPassword(req.Password)
+	if err := auth.HashPassword(req.Password); err != nil {
 	if err != nil {
 		slog.Error("hash password", "error", err)
 		http.Error(w, "internal server error", http.StatusInternalServerError)

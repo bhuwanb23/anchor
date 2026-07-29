@@ -4,8 +4,10 @@ import (
 	"database/sql"
 	"fmt"
 	"os"
+	"time"
 
 	_ "modernc.org/sqlite"
+	"github.com/yourname/yourplatform/control-plane/internal/db/queries"
 )
 
 func Open(path string) (*sql.DB, error) {
@@ -53,4 +55,32 @@ func Migrate(database *sql.DB) error {
 	}
 
 	return nil
+}
+
+func InsertUser(db *sql.DB, id, email, passwordHash string) error {
+	return queries.InsertUser(db, id, email, passwordHash)
+}
+
+func GetUserByEmail(db *sql.DB, email string) (id string, passwordHash string, err error) {
+	return queries.GetUserByEmail(db, email)
+}
+
+func InsertServer(db *sql.DB, id, userID, name, token string) error {
+	return queries.InsertServer(db, id, userID, name, token)
+}
+
+func QueryServersByUser(db *sql.DB, userID string) (*sql.Rows, error) {
+	return queries.QueryServersByUser(db, userID)
+}
+
+func GetServerByToken(db *sql.DB, token string) (id, userID, name string, err error) {
+	return queries.GetServerByToken(db, token)
+}
+
+func InsertDeployment(db *sql.DB, id, serverID, appName, image string, port int, domain string) error {
+	return queries.InsertDeployment(db, id, serverID, appName, image, port, domain)
+}
+
+func QueryDeploymentsByServer(db *sql.DB, serverID string) (*sql.Rows, error) {
+	return queries.QueryDeploymentsByServer(db, serverID)
 }
