@@ -14,7 +14,11 @@ type Server struct {
 }
 
 func (s *Server) ListServers(w http.ResponseWriter, r *http.Request) {
-	userID := "placeholder"
+	userID, ok := r.Context().Value("user_id").(string)
+	if !ok || userID == "" {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
 
 	rows, err := s.DB.Query(
 		"SELECT id, name, status, connected_at, last_seen FROM servers WHERE user_id = ?",
@@ -48,7 +52,11 @@ func (s *Server) ListServers(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) CreateServer(w http.ResponseWriter, r *http.Request) {
-	userID := "placeholder"
+	userID, ok := r.Context().Value("user_id").(string)
+	if !ok || userID == "" {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
 
 	var req struct {
 		Name string `json:"name"`
