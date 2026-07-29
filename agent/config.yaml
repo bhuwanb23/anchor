@@ -1,0 +1,8 @@
+control_plane_url: ws://localhost:8080/ws/agent
+agent_token: ""
+server_id: ""
+docker_socket: unix:///var/run/docker.sock
+caddy_config_dir: /etc/caddy
+backup_dest: ""
+ws_reconnect_sec: 5
+log_level: info
