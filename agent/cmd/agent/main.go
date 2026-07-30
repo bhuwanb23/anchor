@@ -120,6 +120,16 @@ func run(configPath string) {
 	// Start background image cleanup (weekly schedule + disk-pressure triggers)
 	go dockerClient.RunScheduledCleanup(ctx, nil, 0)
 
+	// Run orphan network cleanup on startup
+	// Removes any leftover networks from deleted projects
+	go func() {
+		if err := dockerClient.CleanupOrphanedNetworks(ctx); err != nil {
+			slog.Warn("orphan network cleanup failed", "error", err)
+		} else {
+			slog.Info("orphan network cleanup completed")
+		}
+	}()
+
 	go wsClient.Run(ctx)
 
 	connected := false
