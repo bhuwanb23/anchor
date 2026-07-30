@@ -3,6 +3,7 @@ package env
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"testing"
 )
@@ -78,6 +79,10 @@ func TestWriteAndReadEnvFile(t *testing.T) {
 }
 
 func TestWriteEnvFile_Permissions(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Unix file permissions not enforced on Windows")
+	}
+
 	dir := t.TempDir()
 	m := NewManager(dir)
 
