@@ -66,7 +66,7 @@ func (c *Client) EnsureVolume(ctx context.Context, projectName, purpose string) 
 
 	// Create the volume with labels
 	projectSafe := SanitizeProjectName(projectName)
-	resp, err := c.cliUnsafe().VolumeCreate(ctx, volume.CreateOptions{
+	resp, err := c.cliUnsafe().VolumeCreate(ctx, volume.VolumeCreateBody{
 		Driver: "local",
 		Labels: VolumeLabels(projectName, purpose),
 		Name:   volName,
