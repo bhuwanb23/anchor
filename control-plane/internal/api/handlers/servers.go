@@ -104,6 +104,55 @@ func (s *Server) ListServers(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(servers)
 }
 
+func (s *Server) ListEvents(w http.ResponseWriter, r *http.Request) {
+	serverID := chi.URLParam(r, "serverID")
+	if serverID == "" {
+		http.Error(w, "server ID required", http.StatusBadRequest)
+		return
+	}
+
+	rows, err := s.DB.Query(
+		`SELECT id, event_type, check_name, message, details, created_at
+		FROM server_events WHERE server_id = ?
+		ORDER BY created_at DESC LIMIT 50`,
+		serverID,
+	)
+	if err != nil {
+		slog.Error("query server events", "error", err)
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+
+	var events []map[string]interface{}
+	for rows.Next() {
+		var id, eventType, createdAt string
+		var checkName, message, details *string
+		if err := rows.Scan(&id, &eventType, &checkName, &message, &details, &createdAt); err != nil {
+			slog.Error("scan event row", "error", err)
+			continue
+		}
+		event := map[string]interface{}{
+			"id":         id,
+			"event_type": eventType,
+			"created_at": createdAt,
+		}
+		if checkName != nil {
+			event["check_name"] = *checkName
+		}
+		if message != nil {
+			event["message"] = *message
+		}
+		if details != nil {
+			event["details"] = *details
+		}
+		events = append(events, event)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(events)
+}
+
 func (s *Server) CreateServer(w http.ResponseWriter, r *http.Request) {
 	userID, ok := r.Context().Value("user_id").(string)
 	if !ok || userID == "" {
