@@ -333,14 +333,22 @@ func installDockerApt() error {
 		return err
 	}
 	slog.Info("Adding Docker GPG key...")
-	if err := runAndLog("curl", "-fsSL", "https://download.docker.com/linux/"+getOSID()+"/gpg", "-o", "/usr/share/keyrings/docker.asc"); err != nil {
-		// Try alternate GPG approach
-		if err := runAndLog("curl", "-fsSL", "https://download.docker.com/linux/"+getOSID()+"/gpg", "|", "gpg", "--dearmor", "-o", "/usr/share/keyrings/docker.gpg"); err != nil {
+	osID := getOSID()
+	osCodename := getOSVersionCodename()
+	if osCodename == "" {
+		return fmt.Errorf("cannot determine OS version codename for Docker repository")
+	}
+	// Ensure keyrings directory exists
+	_ = runAndLog("sh", "-c", "mkdir -p /usr/share/keyrings")
+	// Download and save GPG key
+	if err := runAndLog("curl", "-fsSL", "https://download.docker.com/linux/"+osID+"/gpg", "-o", "/usr/share/keyrings/docker.asc"); err != nil {
+		// Fallback: pipe through gpg
+		if err := runAndLog("sh", "-c", "curl -fsSL https://download.docker.com/linux/"+osID+"/gpg | gpg --dearmor -o /usr/share/keyrings/docker.gpg"); err != nil {
 			return fmt.Errorf("failed to add Docker GPG key: %w", err)
 		}
 	}
 	slog.Info("Adding Docker repository...")
-	repoLine := "deb [arch=" + archForRepo() + " signed-by=/usr/share/keyrings/docker.asc] https://download.docker.com/linux/" + getOSID() + " " + getOSVersionCodename() + " stable"
+	repoLine := "deb [arch=" + archForRepo() + " signed-by=/usr/share/keyrings/docker.asc] https://download.docker.com/linux/" + osID + " " + osCodename + " stable"
 	if err := runAndLog("sh", "-c", "echo '"+repoLine+"' > /etc/apt/sources.list.d/docker.list"); err != nil {
 		return err
 	}
@@ -351,6 +359,9 @@ func installDockerApt() error {
 	if err := runAndLog("apt-get", "install", "-y", "docker-ce", "docker-ce-cli", "containerd.io"); err != nil {
 		return err
 	}
+	// Start and enable Docker daemon
+	_ = exec.Command("systemctl", "start", "docker").Run()
+	_ = exec.Command("systemctl", "enable", "docker").Run()
 	return nil
 }
 
@@ -367,6 +378,9 @@ func installDockerYum() error {
 	if err := runAndLog("yum", "install", "-y", "docker-ce", "docker-ce-cli", "containerd.io"); err != nil {
 		return err
 	}
+	// Start and enable Docker daemon
+	_ = exec.Command("systemctl", "start", "docker").Run()
+	_ = exec.Command("systemctl", "enable", "docker").Run()
 	return nil
 }
 
@@ -383,6 +397,9 @@ func installDockerDnf() error {
 	if err := runAndLog("dnf", "install", "-y", "docker-ce", "docker-ce-cli", "containerd.io"); err != nil {
 		return err
 	}
+	// Start and enable Docker daemon
+	_ = exec.Command("systemctl", "start", "docker").Run()
+	_ = exec.Command("systemctl", "enable", "docker").Run()
 	return nil
 }
 
@@ -394,6 +411,7 @@ func getOSID() string {
 func getOSVersionCodename() string {
 	_, ver := getOSInfo()
 	// Map versions to codenames for Docker repo
+	// Returns empty string for unknown versions so caller can detect failure
 	switch ver {
 	case "22.04":
 		return "jammy"
@@ -403,12 +421,16 @@ func getOSVersionCodename() string {
 		return "focal"
 	case "18.04":
 		return "bionic"
+	case "16.04":
+		return "xenial"
 	case "11":
 		return "bullseye"
 	case "12":
 		return "bookworm"
+	case "10":
+		return "buster"
 	default:
-		return ver
+		return "" // unknown — caller should check and return error
 	}
 }
 
