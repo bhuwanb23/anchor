@@ -6,9 +6,7 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
-	"github.com/docker/docker/api/types/strslice"
 )
 
 // HealthCheckConfig defines a Docker health check for a container.
