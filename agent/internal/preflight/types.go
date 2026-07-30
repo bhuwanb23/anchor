@@ -38,13 +38,16 @@ type CheckResult struct {
 
 // SystemInfo collects system information gathered during checks.
 type SystemInfo struct {
-	OS            string `json:"os"`
-	OSVersion     string `json:"os_version"`
-	OSPretty      string `json:"os_pretty,omitempty"`
-	Arch          string `json:"arch"`
-	RAMMB         int    `json:"ram_mb"`
-	DiskGB        int    `json:"disk_gb"`
-	DockerVersion string `json:"docker_version,omitempty"`
+	OS              string  `json:"os"`
+	OSVersion       string  `json:"os_version"`
+	OSPretty        string  `json:"os_pretty,omitempty"`
+	Arch            string  `json:"arch"`
+	RAMMB           int     `json:"ram_mb"`
+	RAMAvailableMB  int     `json:"ram_available_mb"`
+	DiskTotalGB     int     `json:"disk_total_gb"`
+	DiskAvailableGB int     `json:"disk_available_gb"`
+	DiskUsedPercent float64 `json:"disk_used_percent"`
+	DockerVersion   string  `json:"docker_version,omitempty"`
 }
 
 // Result is the overall pre-flight check result.
@@ -144,10 +147,18 @@ func (r *Result) Text() string {
 	}
 	b.WriteString(fmt.Sprintf("  Arch:        %s\n", r.SystemInfo.Arch))
 	if r.SystemInfo.RAMMB > 0 {
-		b.WriteString(fmt.Sprintf("  RAM:         %d MB\n", r.SystemInfo.RAMMB))
+		b.WriteString(fmt.Sprintf("  RAM:         %d MB total", r.SystemInfo.RAMMB))
+		if r.SystemInfo.RAMAvailableMB > 0 {
+			b.WriteString(fmt.Sprintf(" (%d MB free)", r.SystemInfo.RAMAvailableMB))
+		}
+		b.WriteString("\n")
 	}
-	if r.SystemInfo.DiskGB > 0 {
-		b.WriteString(fmt.Sprintf("  Disk:        %d GB\n", r.SystemInfo.DiskGB))
+	if r.SystemInfo.DiskTotalGB > 0 {
+		b.WriteString(fmt.Sprintf("  Disk:        %d GB total", r.SystemInfo.DiskTotalGB))
+		if r.SystemInfo.DiskAvailableGB > 0 {
+			b.WriteString(fmt.Sprintf(" (%d GB free)", r.SystemInfo.DiskAvailableGB))
+		}
+		b.WriteString("\n")
 	}
 	if r.SystemInfo.DockerVersion != "" {
 		b.WriteString(fmt.Sprintf("  Docker:      %s\n", r.SystemInfo.DockerVersion))
