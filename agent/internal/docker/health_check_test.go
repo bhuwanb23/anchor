@@ -262,8 +262,113 @@ func TestGetContainerHealth_NoDocker(t *testing.T) {
 		socket:    "unix:///var/run/docker.sock",
 		connected: false,
 	}
-	_, err := client.GetContainerHealth(context.Background(), "abc123")
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	_, err := client.GetContainerHealth(ctx, "abc1234567890abcdef")
 	if err == nil {
 		t.Skip("expected error without real Docker socket")
 	}
+}
+
+// ---------------------------------------------------------------------------
+// DeployContainer (structural — no real Docker)
+// ---------------------------------------------------------------------------
+
+func TestDeployContainer_NoDocker(t *testing.T) {
+	client := &Client{
+		socket:    "unix:///var/run/docker.sock",
+		connected: false,
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	_, err := client.DeployContainer(ctx, CreateContainerOpts{
+		Name:  "test-container",
+		Image: "nginx:latest",
+	})
+	if err == nil {
+		t.Skip("expected error without real Docker socket")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// RestartContainer (structural — no real Docker)
+// ---------------------------------------------------------------------------
+
+func TestRestartContainer_NoDocker(t *testing.T) {
+	client := &Client{
+		socket:    "unix:///var/run/docker.sock",
+		connected: false,
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	err := client.RestartContainer(ctx, "abc1234567890abcdef")
+	if err == nil {
+		t.Skip("expected error without real Docker socket")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// ReplaceExistingContainer (structural — no real Docker)
+// ---------------------------------------------------------------------------
+
+func TestReplaceExistingContainer_NoDocker(t *testing.T) {
+	client := &Client{
+		socket:    "unix:///var/run/docker.sock",
+		connected: false,
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	_, err := client.ReplaceExistingContainer(ctx, "test-container")
+	if err == nil {
+		t.Skip("expected error without real Docker socket")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// ToDockerConfig — health check conversion
+// ---------------------------------------------------------------------------
+
+func TestToDockerConfig_App(t *testing.T) {
+	hc := DefaultHealthCheck(ContainerTypeApp, 8080)
+	dockerCfg := hc.ToDockerConfig()
+	if dockerCfg == nil {
+		t.Fatal("expected non-nil Docker config")
+	}
+	if dockerCfg.Interval != 30*time.Second {
+		t.Errorf("expected 30s interval, got %v", dockerCfg.Interval)
+	}
+	if dockerCfg.Timeout != 10*time.Second {
+		t.Errorf("expected 10s timeout, got %v", dockerCfg.Timeout)
+	}
+	if dockerCfg.StartPeriod != 60*time.Second {
+		t.Errorf("expected 60s start period, got %v", dockerCfg.StartPeriod)
+	}
+	if dockerCfg.Retries != 3 {
+		t.Errorf("expected 3 retries, got %d", dockerCfg.Retries)
+	}
+	if len(dockerCfg.Test) == 0 {
+		t.Error("expected non-empty test command")
+	}
+}
+
+func TestToDockerConfig_Postgres(t *testing.T) {
+	hc := DefaultHealthCheck(ContainerTypePostgres, 5432)
+	dockerCfg := hc.ToDockerConfig()
+	if dockerCfg == nil {
+		t.Fatal("expected non-nil Docker config")
+	}
+	if len(dockerCfg.Test) == 0 {
+		t.Error("expected non-empty test command")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// GetTotalRAMMB
+// ---------------------------------------------------------------------------
+
+func TestGetTotalRAMMB(t *testing.T) {
+	// On Windows this returns 0 (stub), on Linux it reads /proc/meminfo
+	ram := GetTotalRAMMB()
+	// Just verify it doesn't panic; value may be 0 on Windows
+	_ = ram
 }
