@@ -105,6 +105,11 @@ func run(configPath string) {
 	wsURL := cfg.ControlPlaneURL + "/ws/agent"
 	wsClient := ws.NewClient(wsURL, cfg.AgentID, cfg.AgentSecret, cfg.WSReconnectSec)
 
+	// Start background Docker health monitor
+	// This ensures the agent survives Docker daemon restarts
+	// and reconnects automatically when Docker comes back.
+	go monitorDockerHealth(ctx, dockerClient, wsClient)
+
 	go wsClient.Run(ctx)
 
 	connected := false
@@ -224,6 +229,79 @@ func registerAgent(cfg *config.Config, configPath string) error {
 	}
 
 	return nil
+}
+
+// monitorDockerHealth periodically checks Docker connectivity and
+// attempts reconnection with backoff when the daemon is unreachable.
+// This ensures the agent survives Docker daemon restarts without crashing
+// and reports availability changes to the control plane.
+func monitorDockerHealth(ctx context.Context, dockerClient *docker.Client, wsClient *ws.Client) {
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
+
+	wasConnected := dockerClient.IsConnected()
+
+	// If initial connection test failed, attempt reconnect in background
+	if !wasConnected {
+		slog.Warn("docker daemon not connected on startup, will retry in background")
+		reportDockerStatus(ctx, wsClient, "unavailable", "Docker daemon was unreachable on agent startup. Retrying...")
+		go func() {
+			if err := dockerClient.Reconnect(ctx); err != nil {
+				slog.Error("initial docker reconnect failed", "error", err)
+			} else {
+				slog.Info("docker reconnected after initial failure")
+				reportDockerStatus(ctx, wsClient, "connected",
+					fmt.Sprintf("Docker reconnected (version %s)", dockerClient.DockerInfo().Version))
+			}
+		}()
+	}
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			isConnected := dockerClient.IsConnected()
+
+			// State transition: connected -> disconnected
+			if wasConnected && !isConnected {
+				slog.Warn("docker daemon connection lost")
+				reportDockerStatus(ctx, wsClient, "unavailable", "Docker daemon connection lost. Reconnecting...")
+
+				// Attempt reconnect in background
+				go func() {
+					if err := dockerClient.Reconnect(ctx); err != nil {
+						slog.Error("docker reconnect failed", "error", err)
+					} else {
+						slog.Info("docker reconnected")
+						reportDockerStatus(ctx, wsClient, "connected",
+							fmt.Sprintf("Docker reconnected (version %s)", dockerClient.DockerInfo().Version))
+					}
+				}()
+			}
+
+			// State transition: disconnected -> connected
+			if !wasConnected && isConnected {
+				slog.Info("docker daemon connection restored")
+				reportDockerStatus(ctx, wsClient, "connected",
+					fmt.Sprintf("Docker connection restored (version %s)", dockerClient.DockerInfo().Version))
+			}
+
+			wasConnected = isConnected
+		}
+	}
+}
+
+// reportDockerStatus sends a Docker availability event to the control plane.
+func reportDockerStatus(ctx context.Context, wsClient *ws.Client, status, message string) {
+	payload := map[string]interface{}{
+		"type":    "docker_status",
+		"status":  status,
+		"message": message,
+	}
+	if err := wsClient.SendJSON(payload); err != nil {
+		slog.Warn("failed to send docker status", "error", err)
+	}
 }
 
 func detectIP() string {

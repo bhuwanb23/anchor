@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"math/rand"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -490,20 +491,7 @@ func isConnectionError(err error) bool {
 		"is the docker daemon running",
 	}
 	for _, pattern := range connectionPatterns {
-		if contains(errStr, pattern) {
-			return true
-		}
-	}
-	return false
-}
-
-func contains(s, substr string) bool {
-	return len(s) >= len(substr) && searchStr(s, substr)
-}
-
-func searchStr(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
+		if strings.Contains(errStr, pattern) {
 			return true
 		}
 	}
