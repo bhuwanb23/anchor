@@ -50,6 +50,7 @@ func NewRouter(database *sql.DB, cfg *config.Config, hub *ws.Hub) http.Handler {
 			r.Get("/auth/me", authHandler.Me)
 			r.Get("/servers", server.ListServers)
 			r.Post("/servers", server.CreateServer)
+			r.Get("/servers/{serverID}/events", server.ListEvents)
 			r.Post("/servers/registration-token", tokenHandler.CreateRegistrationToken)
 			r.Post("/deploy", handlers.DeployApp)
 			r.Get("/deployments", handlers.GetDeploymentStatus)
