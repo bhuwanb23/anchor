@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/docker/docker/api/types"
-	"github.com/docker/docker/api/types/container"
 )
 
 // ---------------------------------------------------------------------------
@@ -90,7 +89,7 @@ func (c *Client) DeployContainer(ctx context.Context, opts CreateContainerOpts) 
 
 	// Step 2: Set defaults for fields not explicitly configured
 	if opts.RestartPolicy == "" {
-		opts.RestartPolicy = container.RestartPolicyMode("always")
+		opts.RestartPolicy = "always"
 	}
 
 	// Step 3: Create the container
