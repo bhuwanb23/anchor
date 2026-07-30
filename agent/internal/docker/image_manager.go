@@ -138,29 +138,27 @@ type PullProgressFunc func(progress PullProgress) error
 // ImageExistsLocally checks whether an image with the given reference
 // already exists in the local Docker image store. Returns a summary
 // of the local image if found.
+//
+// Uses ImageInspectWithRaw for an efficient O(1) lookup by reference,
+// rather than listing all images and iterating.
 func (c *Client) ImageExistsLocally(ctx context.Context, ref string) (*ImageSummary, bool, error) {
 	if err := c.ensureConnected(ctx); err != nil {
 		return nil, false, fmt.Errorf("docker unavailable: %w", err)
 	}
 
-	parsed := ParseImageRef(ref)
-	normalized := parsed.Normalized()
-
-	images, err := c.cliUnsafe().ImageList(ctx, types.ImageListOptions{})
-	if err != nil {
-		return nil, false, fmt.Errorf("list images: %w", err)
+	// Try direct lookup by reference first (fast path)
+	summary, err := c.InspectImage(ctx, ref)
+	if err == nil {
+		return summary, true, nil
 	}
 
-	for _, img := range images {
-		for _, tag := range img.RepoTags {
-			if tag == normalized || tag == ref {
-				return &ImageSummary{
-					ID:        img.ID,
-					RepoTag:   tag,
-					SizeBytes: img.Size,
-					Created:   time.Unix(img.Created, 0),
-				}, true, nil
-			}
+	// If direct lookup failed, try the normalized form
+	parsed := ParseImageRef(ref)
+	normalized := parsed.Normalized()
+	if normalized != ref {
+		summary, err := c.InspectImage(ctx, normalized)
+		if err == nil {
+			return summary, true, nil
 		}
 	}
 
@@ -217,17 +215,20 @@ var (
 
 // PullError wraps a pull failure with a classified error and a user-facing message.
 type PullError struct {
-	Err     error
+	Err     error  // Classified sentinel error (ErrImageNotFound, etc.)
 	Message string // User-facing description
-	Cause   error  // Original error
+	Cause   error  // Original error from Docker (for debugging)
 }
 
 func (e *PullError) Error() string {
+	if e.Cause != nil {
+		return fmt.Sprintf("%s (underlying: %v)", e.Message, e.Cause)
+	}
 	return e.Message
 }
 
 func (e *PullError) Unwrap() error {
-	return e.Cause
+	return e.Err
 }
 
 // classifyPullError takes a raw Docker pull error and returns a structured PullError

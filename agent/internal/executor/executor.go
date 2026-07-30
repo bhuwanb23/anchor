@@ -143,7 +143,7 @@ func (e *Executor) executeDeploy(ctx context.Context, cmd Command, result *Resul
 		return fmt.Errorf("invalid deploy payload: %w", err)
 	}
 
-	if err := e.docker.PullImage(ctx, p.Image); err != nil {
+	if _, err := e.docker.PullImageIfNeeded(ctx, p.Image, nil); err != nil {
 		return fmt.Errorf("pull image: %w", err)
 	}
 
