@@ -17,6 +17,7 @@ import (
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/network"
+	"github.com/docker/docker/api/types/strslice"
 	"github.com/docker/docker/client"
 	"github.com/docker/docker/pkg/jsonmessage"
 	"github.com/docker/go-connections/nat"
@@ -397,17 +398,30 @@ func (c *Client) CreateContainer(ctx context.Context, opts CreateContainerOpts) 
 		return "", fmt.Errorf("docker unavailable: %w", err)
 	}
 
+	// --- Container config ---
 	config := &container.Config{
 		Image:        opts.Image,
 		ExposedPorts: opts.ExposedPorts,
 		Env:          opts.Env,
+		Labels:       opts.Labels,
 		Tty:          false,
 		OpenStdin:    false,
 	}
 
+	// Apply health check if configured
+	if opts.HealthCheck != nil {
+		config.Healthcheck = opts.HealthCheck.ToDockerConfig()
+	}
+
+	// --- Host config ---
 	hostConfig := &container.HostConfig{
 		PortBindings: opts.PortBindings,
-		AutoRemove:   true,
+		AutoRemove:   false, // We manage container lifecycle explicitly
+	}
+
+	// Apply restart policy
+	hostConfig.RestartPolicy = container.RestartPolicy{
+		Name: opts.RestartPolicy,
 	}
 
 	// Mount persistent volumes (data survives container removal)
@@ -417,6 +431,11 @@ func (c *Client) CreateContainer(ctx context.Context, opts CreateContainerOpts) 
 			mode = "ro"
 		}
 		hostConfig.Binds = append(hostConfig.Binds, fmt.Sprintf("%s:%s:%s", vm.Name, vm.MountPath, mode))
+	}
+
+	// Apply resource limits
+	if opts.ResourceLimits != nil {
+		hostConfig.Resources = opts.ResourceLimits.ToDockerResources()
 	}
 
 	// Attach to project networks at creation time (not as a separate step)
@@ -517,6 +536,15 @@ type NetworkEndpointConfig struct {
 	Aliases     []string // Container aliases on this network (e.g., "db", "cache")
 }
 
+// Label constants for container metadata.
+const (
+	containerLabelOwner     = "yourplatform.owner"
+	containerLabelOwnerVal  = "yourplatform-agent"
+	containerLabelProject   = "yourplatform.project"
+	containerLabelRole      = "yourplatform.role"
+	containerLabelManagedBy = "yourplatform.managed-by"
+)
+
 type CreateContainerOpts struct {
 	Name         string
 	Image        string
@@ -525,6 +553,10 @@ type CreateContainerOpts struct {
 	Env          []string
 	Networks     []NetworkEndpointConfig // Attach to networks at creation time (one step)
 	VolumeMounts []VolumeMount          // Mount persistent volumes into the container
+	Labels       map[string]string       // Container labels (project, role, managed-by, etc.)
+	ResourceLimits *ResourceLimits       // Memory and CPU limits (nil = no limits)
+	HealthCheck    *HealthCheckConfig    // Docker health check (nil = none)
+	RestartPolicy  container.RestartPolicyMode // "always" (default), "unless-stopped", "no"
 }
 
 // ---------------------------------------------------------------------------
