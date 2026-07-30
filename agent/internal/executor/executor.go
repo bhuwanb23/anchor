@@ -268,6 +268,13 @@ func (e *Executor) executeDeploy(ctx context.Context, cmd Command, result *Resul
 		return fmt.Errorf("start container: %w", err)
 	}
 
+	// Wait for health check to pass (up to 2 minutes)
+	if err := e.docker.WaitForHealthy(ctx, id, 2*time.Minute); err != nil {
+		slog.Warn("container did not become healthy after deploy",
+			"app", p.AppName, "container", id[:12], "error", err)
+		// Non-fatal — container may still serve traffic without health check
+	}
+
 	// --- Caddy route ---
 	if p.Domain != "" && p.Port > 0 {
 		if err := e.caddy.SetRoute(p.Domain, p.Port); err != nil {

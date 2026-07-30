@@ -253,6 +253,7 @@ func (c *Client) KillContainer(ctx context.Context, id string) error {
 
 // RestartContainer performs a controlled stop + start (not Docker restart).
 // This gives us better error handling and crash detection.
+// After starting, waits for the health check to pass (or timeout).
 func (c *Client) RestartContainer(ctx context.Context, id string) error {
 	if err := c.StopContainerGraceful(ctx, id); err != nil {
 		// If container was already stopped, that's fine
@@ -263,6 +264,13 @@ func (c *Client) RestartContainer(ctx context.Context, id string) error {
 
 	if err := c.StartContainer(ctx, id); err != nil {
 		return fmt.Errorf("start container after restart: %w", err)
+	}
+
+	// Wait for health check to pass (up to 2 minutes)
+	if err := c.WaitForHealthy(ctx, id, 2*time.Minute); err != nil {
+		slog.Warn("container did not become healthy after restart",
+			"id", id[:12], "error", err)
+		// Non-fatal — container may still work without health check configured
 	}
 
 	return nil

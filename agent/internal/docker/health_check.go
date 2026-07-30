@@ -196,6 +196,53 @@ func (c *Client) GetContainerHealth(ctx context.Context, containerID string) (*C
 	return ch, nil
 }
 
+// WaitForHealthy polls the container's health check until it passes or
+// the timeout is reached. Returns nil when healthy, error on timeout.
+// Uses a 5-second polling interval.
+func (c *Client) WaitForHealthy(ctx context.Context, containerID string, timeout time.Duration) error {
+	if timeout == 0 {
+		timeout = 2 * time.Minute // generous default for apps with 60s start period
+	}
+
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
+
+		health, err := c.GetContainerHealth(ctx, containerID)
+		if err != nil {
+			slog.Debug("health check poll failed, retrying",
+				"container", containerID[:12], "error", err)
+			time.Sleep(5 * time.Second)
+			continue
+		}
+
+		switch health.Status {
+		case HealthHealthy:
+			slog.Info("container health check passed", "container", containerID[:12])
+			return nil
+		case HealthUnhealthy:
+			slog.Warn("container health check failing",
+				"container", containerID[:12],
+				"output", health.Output,
+				"failing_streak", health.FailingStreak,
+			)
+			// Don't return immediately — could be a transient failure
+			// Continue polling until timeout
+		case HealthStarting:
+			slog.Debug("container still starting, waiting for health check",
+				"container", containerID[:12])
+		}
+
+		time.Sleep(5 * time.Second)
+	}
+
+	return fmt.Errorf("container %s did not become healthy within %v", containerID[:12], timeout)
+}
+
 // MonitorHealthCallback is called periodically with health updates.
 // Return true to continue monitoring, false to stop.
 type MonitorHealthCallback func(ctx context.Context, health *ContainerHealth) bool
