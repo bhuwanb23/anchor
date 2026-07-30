@@ -28,13 +28,20 @@ type Result struct {
 	Timestamp time.Time `json:"timestamp"`
 }
 
+// VolumeSpec describes a volume to create and mount into a container.
+type VolumeSpec struct {
+	Purpose   string `json:"purpose"`    // e.g., "uploads", "app-data"
+	MountPath string `json:"mount_path"` // e.g., "/var/www/html/wp-content/uploads"
+}
+
 type DeployPayload struct {
-	AppName     string            `json:"app_name"`
-	Image       string            `json:"image"`
-	Port        int               `json:"port"`
-	Domain      string            `json:"domain"`
-	Name        string            `json:"name"`
-	ContainerType docker.ContainerType `json:"container_type,omitempty"` // "app", "postgres", "mysql", "redis"
+	AppName       string              `json:"app_name"`
+	Image         string              `json:"image"`
+	Port          int                 `json:"port"`
+	Domain        string              `json:"domain"`
+	Name          string              `json:"name"`
+	ContainerType docker.ContainerType `json:"container_type,omitempty"`
+	Volumes       []VolumeSpec        `json:"volumes,omitempty"`
 }
 
 type StopPayload struct {
@@ -157,6 +164,7 @@ func (e *Executor) executeDeploy(ctx context.Context, cmd Command, result *Resul
 		return fmt.Errorf("invalid deploy payload: %w", err)
 	}
 
+	// Pull the image first
 	if _, _, err := e.docker.PullImageIfNeeded(ctx, p.Image, e.imageCache, nil); err != nil {
 		return fmt.Errorf("pull image: %w", err)
 	}
@@ -172,32 +180,52 @@ func (e *Executor) executeDeploy(ctx context.Context, cmd Command, result *Resul
 		ct = docker.ContainerTypeApp
 	}
 
-	// Build network config for attaching to project network at creation time
+	// --- Network setup ---
 	networkName := docker.ProjectNetworkName(p.AppName)
 	networkEndpoint := docker.NetworkEndpointConfig{
 		NetworkName: networkName,
 	}
-
-	// For database containers, add standard DNS aliases
 	if ct != docker.ContainerTypeApp {
 		networkEndpoint.Aliases = docker.DatabaseAliases(ct)
 	}
 
-	// Build port mappings based on container type
+	if _, err := e.docker.EnsureProjectNetwork(ctx, p.AppName); err != nil {
+		slog.Warn("failed to ensure project network", "app", p.AppName, "error", err)
+	}
+
+	// --- Volume setup ---
+	// Database containers always get a persistent data volume
+	var volumeMounts []docker.VolumeMount
+	if ct != docker.ContainerTypeApp {
+		dbMount, err := e.docker.EnsureDBVolume(ctx, p.AppName, ct)
+		if err != nil {
+			slog.Warn("failed to ensure database volume", "app", p.AppName, "error", err)
+		} else {
+			volumeMounts = append(volumeMounts, *dbMount)
+		}
+	}
+
+	// Additional volumes from deploy payload
+	for _, vs := range p.Volumes {
+		vol, err := e.docker.EnsureVolume(ctx, p.AppName, vs.Purpose)
+		if err != nil {
+			slog.Warn("failed to ensure volume", "app", p.AppName, "purpose", vs.Purpose, "error", err)
+			continue
+		}
+		volumeMounts = append(volumeMounts, docker.VolumeMount{
+			Name:      vol.Name,
+			MountPath: vs.MountPath,
+		})
+	}
+
+	// --- Port setup ---
 	portSpec := &docker.AppPortSpec{
 		ContainerPort: p.Port,
-		// HostPort: 0 = random high port
-		BindAddress: "127.0.0.1",
+		BindAddress:   "127.0.0.1",
 	}
 	portMap, exposedPorts := docker.PortMapping(ct, portSpec)
 
-	// Ensure the project network exists before creating the container
-	// (The network must exist for the container to attach at creation time)
-	if _, err := e.docker.EnsureProjectNetwork(ctx, p.AppName); err != nil {
-		slog.Warn("failed to ensure project network exists", "app", p.AppName, "error", err)
-		// Non-fatal — container can still be created without network
-	}
-
+	// --- Create container ---
 	id, err := e.docker.CreateContainer(ctx, docker.CreateContainerOpts{
 		Name:         containerName,
 		Image:        p.Image,
@@ -205,6 +233,7 @@ func (e *Executor) executeDeploy(ctx context.Context, cmd Command, result *Resul
 		PortBindings: portMap,
 		ExposedPorts: exposedPorts,
 		Networks:     []docker.NetworkEndpointConfig{networkEndpoint},
+		VolumeMounts: volumeMounts,
 	})
 	if err != nil {
 		return fmt.Errorf("create container: %w", err)
@@ -214,16 +243,20 @@ func (e *Executor) executeDeploy(ctx context.Context, cmd Command, result *Resul
 		return fmt.Errorf("start container: %w", err)
 	}
 
+	// --- Caddy route ---
 	if p.Domain != "" && p.Port > 0 {
-		// If we assigned a random high port, we need to know it to tell Caddy.
-		// For now, we use the container port directly (Caddy will discover it).
 		if err := e.caddy.SetRoute(p.Domain, p.Port); err != nil {
 			slog.Warn("failed to set caddy route", "error", err)
 		}
 	}
 
+	volInfo := ""
+	if len(volumeMounts) > 0 {
+		volInfo = fmt.Sprintf(", %d volume(s) mounted", len(volumeMounts))
+	}
+
 	result.Status = "success"
-	result.Output = fmt.Sprintf("deployed %s (container %s)", p.AppName, id[:12])
+	result.Output = fmt.Sprintf("deployed %s (container %s%s)", p.AppName, id[:12], volInfo)
 	return nil
 }
 
@@ -242,7 +275,6 @@ func (e *Executor) executeRollback(ctx context.Context, cmd Command, result *Res
 	}
 
 	if p.PreviousImage != "" {
-		// Ensure project network exists for rollback
 		if p.AppName != "" {
 			if _, err := e.docker.EnsureProjectNetwork(ctx, p.AppName); err != nil {
 				slog.Warn("ensure network for rollback", "app", p.AppName, "error", err)
@@ -257,9 +289,9 @@ func (e *Executor) executeRollback(ctx context.Context, cmd Command, result *Res
 		}
 
 		id, err := e.docker.CreateContainer(ctx, docker.CreateContainerOpts{
-			Name:      "rollback-" + p.ContainerID[:8],
-			Image:     p.PreviousImage,
-			Networks:  networks,
+			Name:     "rollback-" + p.ContainerID[:8],
+			Image:    p.PreviousImage,
+			Networks: networks,
 		})
 		if err != nil {
 			return fmt.Errorf("create rollback container: %w", err)

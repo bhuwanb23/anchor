@@ -220,31 +220,22 @@ func (c *Client) RemoveProject(ctx context.Context, projectName string, removeVo
 	}
 
 	// Step 1: Stop and remove all containers on this network
-	for _, containerRef := range network.Containers {
-		containerID := containerRef.Name
-		if containerID == "" {
-			// Docker returns the long ID for unnamed containers
-			containerID = "" // we'll try to extract from the key
+	// network.Containers is map[string]types.EndpointResource where key = container ID
+	for cid := range network.Containers {
+		slog.Info("stopping and removing container in project",
+			"project", projectSafe,
+			"container", cid[:12],
+		)
+
+		if err := c.StopContainer(ctx, cid); err != nil {
+			slog.Warn("failed to stop container, force removing",
+				"container", cid[:12], "error", err)
 		}
 
-		// The container key in the map is the container ID
-		for cid := range network.Containers {
-			slog.Info("stopping and removing container in project",
-				"project", projectSafe,
-				"container", cid[:12],
-			)
-
-			if err := c.StopContainer(ctx, cid); err != nil {
-				slog.Warn("failed to stop container, force removing",
-					"container", cid[:12], "error", err)
-			}
-
-			if err := c.RemoveContainer(ctx, cid); err != nil {
-				slog.Warn("failed to remove container",
-					"container", cid[:12], "error", err)
-			}
+		if err := c.RemoveContainer(ctx, cid); err != nil {
+			slog.Warn("failed to remove container",
+				"container", cid[:12], "error", err)
 		}
-		break // only iterate the inner loop once (we already iterated all keys)
 	}
 
 	// Step 2: Remove the project network
@@ -283,9 +274,7 @@ func (c *Client) removeProjectVolumes(ctx context.Context, projectSafe string) {
 
 // filterProjectVolumes builds filter args for volumes with a specific project label.
 func filterProjectVolumes(projectSafe string) filters.Args {
-	return filters.NewArgs(
-		filters.Arg("label", fmt.Sprintf("yourplatform.project=%s", projectSafe)),
-	)
+	return labelFilter("yourplatform.project", projectSafe)
 }
 
 // ---------------------------------------------------------------------------
