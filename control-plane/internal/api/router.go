@@ -3,6 +3,7 @@ package api
 import (
 	"database/sql"
 	"net/http"
+	"path/filepath"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -10,9 +11,10 @@ import (
 	appmiddleware "github.com/yourname/yourplatform/control-plane/internal/api/middleware"
 	"github.com/yourname/yourplatform/control-plane/internal/auth"
 	"github.com/yourname/yourplatform/control-plane/internal/config"
+	"github.com/yourname/yourplatform/control-plane/internal/ws"
 )
 
-func NewRouter(database *sql.DB, cfg *config.Config) http.Handler {
+func NewRouter(database *sql.DB, cfg *config.Config, hub *ws.Hub) http.Handler {
 	r := chi.NewRouter()
 
 	r.Use(middleware.RequestID)
@@ -25,6 +27,11 @@ func NewRouter(database *sql.DB, cfg *config.Config) http.Handler {
 	r.Get("/install.sh", func(w http.ResponseWriter, r *http.Request) {
 		http.ServeFile(w, r, "./scripts/install.sh")
 	})
+
+	r.Get("/ws/agent", ws.HandleAgentWS(hub, database))
+
+	releaseDir := filepath.Join(".", "release")
+	r.Handle("/releases/*", http.StripPrefix("/releases/", http.FileServer(http.Dir(releaseDir))))
 
 	authHandler := &handlers.Auth{DB: database, Cfg: cfg}
 	server := &handlers.Server{DB: database}
