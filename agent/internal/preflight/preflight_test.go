@@ -458,6 +458,22 @@ func TestJSONFieldNames(t *testing.T) {
 		}
 	}
 
+	checks := raw["checks"].([]interface{})[0].(map[string]interface{})
+	expectedCheckFields := []string{"name", "display_name", "status", "severity", "message", "fix_instruction", "auto_fixed"}
+	for _, f := range expectedCheckFields {
+		if _, ok := checks[f]; !ok {
+			t.Errorf("expected field '%s' in check JSON", f)
+		}
+	}
+
+	sysInfo := raw["system_info"].(map[string]interface{})
+	expectedSysFields := []string{"os", "os_version", "os_pretty", "arch", "ram_mb", "ram_available_mb", "disk_total_gb", "disk_available_gb", "disk_used_percent"}
+	for _, f := range expectedSysFields {
+		if _, ok := sysInfo[f]; !ok {
+			t.Errorf("expected field '%s' in system_info JSON", f)
+		}
+	}
+
 	// Verify auto_fixed is an array of objects with check/action/timestamp
 	autoFixedItems := raw["auto_fixed"].([]interface{})
 	if len(autoFixedItems) > 0 {
