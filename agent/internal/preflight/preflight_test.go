@@ -362,6 +362,130 @@ func TestDurationSet(t *testing.T) {
 	}
 }
 
+func TestCheckNames(t *testing.T) {
+	// Verify all checks have consistent fields set
+	checks := []CheckResult{
+		checkInternet(), // will fail without network, but struct should be valid
+		checkDNS(),      // same
+		checkPort(80, "HTTP"), // same
+		checkPort(443, "HTTPS"), // same
+		checkControlPlaneConnect(), // same
+	}
+
+	for _, c := range checks {
+		if c.Name == "" {
+			t.Error("check has empty Name")
+		}
+		if c.DisplayName == "" {
+			t.Errorf("check %s has empty DisplayName", c.Name)
+		}
+		if c.Severity == "" {
+			t.Errorf("check %s has empty Severity", c.Name)
+		}
+		if c.Message == "" {
+			t.Errorf("check %s has empty Message", c.Name)
+		}
+		if c.Status != StatusPass && c.Status != StatusFail {
+			t.Errorf("check %s has unexpected status: %s", c.Name, c.Status)
+		}
+	}
+}
+
+func TestCheckInternetStructure(t *testing.T) {
+	c := checkInternet()
+	if c.Name != "internet" {
+		t.Errorf("expected name 'internet', got '%s'", c.Name)
+	}
+	if c.Severity != SeverityBlocking {
+		t.Errorf("expected blocking severity, got %s", c.Severity)
+	}
+	// Status depends on network, just validate it's one of the expected values
+	if c.Status != StatusPass && c.Status != StatusFail {
+		t.Errorf("unexpected status: %s", c.Status)
+	}
+}
+
+func TestCheckDNSStructure(t *testing.T) {
+	c := checkDNS()
+	if c.Name != "dns" {
+		t.Errorf("expected name 'dns', got '%s'", c.Name)
+	}
+	if c.Severity != SeverityBlocking {
+		t.Errorf("expected blocking severity, got %s", c.Severity)
+	}
+}
+
+func TestCheckControlPlaneConnectStructure(t *testing.T) {
+	c := checkControlPlaneConnect()
+	if c.Name != "control_plane_connect" {
+		t.Errorf("expected name 'control_plane_connect', got '%s'", c.Name)
+	}
+	if c.Severity != SeverityBlocking {
+		t.Errorf("expected blocking severity, got %s", c.Severity)
+	}
+}
+
+func TestCheckPortStructure(t *testing.T) {
+	t.Run("port 80", func(t *testing.T) {
+		c := checkPort(80, "HTTP")
+		if c.Name != "port_80" {
+			t.Errorf("expected name 'port_80', got '%s'", c.Name)
+		}
+		if c.Severity != SeverityBlocking {
+			t.Errorf("expected blocking severity, got %s", c.Severity)
+		}
+	})
+
+	t.Run("port 443", func(t *testing.T) {
+		c := checkPort(443, "HTTPS")
+		if c.Name != "port_443" {
+			t.Errorf("expected name 'port_443', got '%s'", c.Name)
+		}
+		if c.Severity != SeverityBlocking {
+			t.Errorf("expected blocking severity, got %s", c.Severity)
+		}
+	})
+}
+
+func TestReadProcessName(t *testing.T) {
+	// Test with current process (should always work)
+	name := readProcessName(os.Getpid())
+	if name == "" || name == "unknown" {
+		t.Logf("current process name: %s (may be empty in test runner)", name)
+	}
+}
+
+func TestFindProcessOnPort(t *testing.T) {
+	// Start a listener on a random port
+	ln, err := net.Listen("tcp", ":0")
+	if err != nil {
+		t.Skipf("cannot start listener: %v", err)
+	}
+	defer ln.Close()
+
+	port := ln.Addr().(*net.TCPAddr).Port
+
+	// findProcessOnPort reads /proc/net/tcp which may not show the process
+	// if it's owned by a different PID namespace. This is best-effort.
+	pid, name := findProcessOnPort(port)
+	t.Logf("port %d: pid=%d name=%s", port, pid, name)
+	// Don't assert — may return 0 in some environments
+}
+
+func TestHasActiveSites(t *testing.T) {
+	// These checks may not find the directories, should return false gracefully
+	if hasActiveSites("apache2") {
+		t.Log("apache2 has active sites (or directory not found)")
+	}
+	if hasActiveSites("nginx") {
+		t.Log("nginx has active sites (or directory not found)")
+	}
+	// Unknown service should return false
+	if hasActiveSites("caddy") {
+		t.Error("expected false for unknown service")
+	}
+}
+
 func TestJSONFieldNames(t *testing.T) {
 	// Verify the JSON field names match what consumers expect
 	r := NewResult()
