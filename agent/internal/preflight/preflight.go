@@ -11,6 +11,7 @@ import (
 
 	"github.com/shirou/gopsutil/v3/disk"
 	"github.com/shirou/gopsutil/v3/mem"
+	"golang.org/x/sys/unix"
 )
 
 // RunAll runs all pre-flight checks and returns the overall result.
@@ -22,6 +23,7 @@ func RunAll() *Result {
 	result.AddCheck(checkArch())
 	result.AddCheck(checkDisk())
 	result.AddCheck(checkRAM())
+	result.AddCheck(checkClock())
 
 	// Group B — These are stubs for now (will be implemented in a later step)
 	result.AddCheck(checkPorts())
@@ -62,14 +64,17 @@ func collectSystemInfo() SystemInfo {
 		info.Arch = strings.TrimSpace(string(out))
 	}
 
-	// Read total RAM
+	// Read RAM info
 	if v, err := mem.VirtualMemory(); err == nil {
 		info.RAMMB = int(v.Total / 1024 / 1024)
+		info.RAMAvailableMB = int(v.Available / 1024 / 1024)
 	}
 
-	// Read total disk
+	// Read disk info
 	if usage, err := disk.Usage("/"); err == nil {
-		info.DiskGB = int(usage.Total / 1024 / 1024 / 1024)
+		info.DiskTotalGB = int(usage.Total / 1024 / 1024 / 1024)
+		info.DiskAvailableGB = int(usage.Free / 1024 / 1024 / 1024)
+		info.DiskUsedPercent = usage.UsedPercent
 	}
 
 	return info
@@ -315,7 +320,16 @@ func checkPorts() CheckResult {
 }
 
 func checkDisk() CheckResult {
-	usage, err := disk.Usage("/")
+	getAvailableGB := func(path string) (int, error) {
+		var stat unix.Statfs_t
+		if err := unix.Statfs(path, &stat); err != nil {
+			return 0, err
+		}
+		available := int(stat.Bavail * uint64(stat.Bsize) / (1024 * 1024 * 1024))
+		return available, nil
+	}
+
+	freeGB, err := getAvailableGB("/")
 	if err != nil {
 		return CheckResult{
 			Name:           "disk_space",
@@ -327,28 +341,49 @@ func checkDisk() CheckResult {
 		}
 	}
 
-	totalGB := int(usage.Total / 1024 / 1024 / 1024)
-	percentUsed := float64(usage.Used) / float64(usage.Total) * 100
+	// Also check /var if it's a separate mount point
+	var varFreeGB int
+	if varFree, err := getAvailableGB("/var"); err == nil {
+		varFreeGB = varFree
+		if varFree < freeGB {
+			freeGB = varFree
+		}
+	}
 
-	if totalGB < 5 {
+	// Also check /var/lib/docker if it exists
+	if dockerFree, err := getAvailableGB("/var/lib/docker"); err == nil {
+		if dockerFree < freeGB {
+			freeGB = dockerFree
+		}
+	}
+
+	if freeGB < 2 {
+		msg := fmt.Sprintf("Your server only has %d GB of free disk space.", freeGB)
+		if varFreeGB > 0 && varFreeGB < freeGB {
+			msg = fmt.Sprintf("Your /var partition only has %d GB of free disk space.", freeGB)
+		}
 		return CheckResult{
 			Name:           "disk_space",
 			DisplayName:    "Disk Space",
 			Status:         StatusFail,
 			Severity:       SeverityBlocking,
-			Message:        fmt.Sprintf("only %d GB total disk space (minimum 5 GB required)", totalGB),
-			FixInstruction: "Free up disk space or attach a larger volume.",
+			Message:        msg + " YourPlatform needs at least 2 GB free to pull Docker images and store app data.",
+			FixInstruction: "To free up space: remove unused Docker images (docker image prune -a), check usage (du -sh /* 2>/dev/null | sort -rh | head -20), or expand your server's disk.",
 		}
 	}
 
-	if percentUsed > 90 {
+	if freeGB < 5 {
+		msg := fmt.Sprintf("Your server has %d GB of free disk space.", freeGB)
+		if varFreeGB > 0 && varFreeGB < freeGB {
+			msg = fmt.Sprintf("Your /var partition has %d GB of free disk space.", freeGB)
+		}
 		return CheckResult{
 			Name:           "disk_space",
 			DisplayName:    "Disk Space",
 			Status:         StatusWarn,
 			Severity:       SeverityWarning,
-			Message:        fmt.Sprintf("disk is %.1f%% full (%d GB total)", percentUsed, totalGB),
-			FixInstruction: "Free up disk space to avoid running out.",
+			Message:        msg + " This is enough to get started, but apps and their data will fill this quickly. Consider expanding your disk soon.",
+			FixInstruction: "Free up disk space or expand your disk to avoid running out.",
 		}
 	}
 
@@ -357,7 +392,7 @@ func checkDisk() CheckResult {
 		DisplayName: "Disk Space",
 		Status:      StatusPass,
 		Severity:    SeverityBlocking,
-		Message:     fmt.Sprintf("%.1f%% used (%d GB total)", percentUsed, totalGB),
+		Message:     fmt.Sprintf("%d GB free disk space", freeGB),
 	}
 }
 
@@ -375,7 +410,7 @@ func checkRAM() CheckResult {
 	}
 
 	totalMB := int(v.Total / 1024 / 1024)
-	percentUsed := v.UsedPercent
+	availableMB := int(v.Available / 1024 / 1024)
 
 	if totalMB < 512 {
 		return CheckResult{
@@ -383,19 +418,19 @@ func checkRAM() CheckResult {
 			DisplayName:    "Memory",
 			Status:         StatusFail,
 			Severity:       SeverityBlocking,
-			Message:        fmt.Sprintf("only %d MB RAM (minimum 512 MB required)", totalMB),
-			FixInstruction: "Add more RAM to this server or use a larger instance type.",
+			Message:        fmt.Sprintf("Your server has %d MB of RAM, which is below the 512 MB minimum. Running Docker and your apps requires at least 512 MB.", totalMB),
+			FixInstruction: "Upgrade to a larger server plan (usually $2-5/month more). Your current hosting provider likely offers a RAM upgrade.",
 		}
 	}
 
-	if percentUsed > 90 {
+	if totalMB < 1024 {
 		return CheckResult{
 			Name:           "memory",
 			DisplayName:    "Memory",
 			Status:         StatusWarn,
 			Severity:       SeverityWarning,
-			Message:        fmt.Sprintf("memory is %.1f%% used (%d MB total)", percentUsed, totalMB),
-			FixInstruction: "Close unused applications or add more RAM.",
+			Message:        fmt.Sprintf("Your server has %d MB of RAM (%d MB available). This is enough to run but may be tight for multiple apps.", totalMB, availableMB),
+			FixInstruction: "Consider upgrading to at least 1 GB RAM for running multiple apps comfortably.",
 		}
 	}
 
@@ -404,7 +439,109 @@ func checkRAM() CheckResult {
 		DisplayName: "Memory",
 		Status:      StatusPass,
 		Severity:    SeverityBlocking,
-		Message:     fmt.Sprintf("%.1f%% used (%d MB total)", percentUsed, totalMB),
+		Message:     fmt.Sprintf("%d MB RAM (%d MB available)", totalMB, availableMB),
+	}
+}
+
+func checkClock() CheckResult {
+	// Check if systemd-timesyncd is active
+	out, err := exec.Command("timedatectl", "show", "--property=NTPSynchronized", "--value").Output()
+	if err == nil && strings.TrimSpace(string(out)) == "yes" {
+		return CheckResult{
+			Name:        "system_clock",
+			DisplayName: "System Clock",
+			Status:      StatusPass,
+			Severity:    SeverityBlocking,
+			Message:     "system clock is synchronized via NTP",
+		}
+	}
+
+	// Check if systemd-timesyncd service exists and try to start it
+	if err := exec.Command("systemctl", "cat", "systemd-timesyncd").Run(); err == nil {
+		_ = exec.Command("systemctl", "start", "systemd-timesyncd").Run()
+		_ = exec.Command("systemctl", "enable", "systemd-timesyncd").Run()
+
+		// Re-check after auto-fix
+		out, err := exec.Command("timedatectl", "show", "--property=NTPSynchronized", "--value").Output()
+		if err == nil && strings.TrimSpace(string(out)) == "yes" {
+			return CheckResult{
+				Name:        "system_clock",
+				DisplayName: "System Clock",
+				Status:      StatusFixed,
+				Severity:    SeverityBlocking,
+				Message:     "systemd-timesyncd was not running — agent started it successfully",
+				AutoFixed:   true,
+			}
+		}
+
+		// Check if timedatectl shows NTP service is active but not yet synchronized
+		out, err = exec.Command("timedatectl", "show", "--property=NTP", "--value").Output()
+		if err == nil && strings.TrimSpace(string(out)) == "yes" {
+			return CheckResult{
+				Name:        "system_clock",
+				DisplayName: "System Clock",
+				Status:      StatusWarn,
+				Severity:    SeverityWarning,
+				Message:     "NTP is enabled but clock may not yet be synchronized — this should resolve within a few minutes",
+			}
+		}
+
+		return CheckResult{
+			Name:           "system_clock",
+			DisplayName:    "System Clock",
+			Status:         StatusFail,
+			Severity:       SeverityBlocking,
+			Message:        "systemd-timesyncd is installed but could not be started",
+			FixInstruction: "Run: sudo timedatectl set-ntp true && sudo systemctl start systemd-timesyncd",
+		}
+	}
+
+	// Check for ntpd as fallback
+	if err := exec.Command("systemctl", "is-active", "ntpd").Run(); err == nil {
+		return CheckResult{
+			Name:        "system_clock",
+			DisplayName: "System Clock",
+			Status:      StatusPass,
+			Severity:    SeverityBlocking,
+			Message:     "system clock is synchronized via ntpd",
+		}
+	}
+
+	// Check for chronyd as another fallback
+	if err := exec.Command("systemctl", "is-active", "chronyd").Run(); err == nil {
+		return CheckResult{
+			Name:        "system_clock",
+			DisplayName: "System Clock",
+			Status:      StatusPass,
+			Severity:    SeverityBlocking,
+			Message:     "system clock is synchronized via chronyd",
+		}
+	}
+
+	// Check if chrony is available but not running
+	if err := exec.Command("systemctl", "cat", "chronyd").Run(); err == nil {
+		_ = exec.Command("systemctl", "start", "chronyd").Run()
+		_ = exec.Command("systemctl", "enable", "chronyd").Run()
+
+		if err := exec.Command("systemctl", "is-active", "chronyd").Run(); err == nil {
+			return CheckResult{
+				Name:        "system_clock",
+				DisplayName: "System Clock",
+				Status:      StatusFixed,
+				Severity:    SeverityBlocking,
+				Message:     "chronyd was not running — agent started it successfully",
+				AutoFixed:   true,
+			}
+		}
+	}
+
+	return CheckResult{
+		Name:           "system_clock",
+		DisplayName:    "System Clock",
+		Status:         StatusFail,
+		Severity:       SeverityBlocking,
+		Message:        "no time synchronization service is running",
+		FixInstruction: "Enable NTP: sudo timedatectl set-ntp true (requires systemd) or install ntp/chrony for your distribution.",
 	}
 }
 
