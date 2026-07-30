@@ -20,10 +20,14 @@ func (s *Server) ListServers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	rows, err := s.DB.Query(
-		"SELECT id, name, status, connected_at, last_seen FROM servers WHERE user_id = ?",
-		userID,
-	)
+	rows, err := s.DB.Query(`
+		SELECT id, name, status, connected_at, last_seen,
+			os_info, os_version, os_pretty, arch,
+			ram_mb, ram_available_mb,
+			disk_gb, disk_total_gb, disk_available_gb, disk_used_percent,
+			docker_version, ip_address
+		FROM servers WHERE user_id = ?
+	`, userID)
 	if err != nil {
 		slog.Error("query servers", "error", err)
 		http.Error(w, "internal server error", http.StatusInternalServerError)
@@ -34,17 +38,66 @@ func (s *Server) ListServers(w http.ResponseWriter, r *http.Request) {
 	var servers []map[string]interface{}
 	for rows.Next() {
 		var id, name, status, connectedAt, lastSeen string
-		if err := rows.Scan(&id, &name, &status, &connectedAt, &lastSeen); err != nil {
+		var osInfo, osVersion, osPretty, arch, dockerVersion, ipAddress *string
+		var ramMB, ramAvailableMB, diskGB, diskTotalGB, diskAvailableGB *int
+		var diskUsedPercent *float64
+
+		if err := rows.Scan(
+			&id, &name, &status, &connectedAt, &lastSeen,
+			&osInfo, &osVersion, &osPretty, &arch,
+			&ramMB, &ramAvailableMB,
+			&diskGB, &diskTotalGB, &diskAvailableGB, &diskUsedPercent,
+			&dockerVersion, &ipAddress,
+		); err != nil {
 			slog.Error("scan server row", "error", err)
 			continue
 		}
-		servers = append(servers, map[string]interface{}{
+
+		server := map[string]interface{}{
 			"id":           id,
 			"name":         name,
 			"status":       status,
 			"connected_at": connectedAt,
 			"last_seen":    lastSeen,
-		})
+		}
+		if osInfo != nil {
+			server["os_info"] = *osInfo
+		}
+		if osVersion != nil {
+			server["os_version"] = *osVersion
+		}
+		if osPretty != nil {
+			server["os_pretty"] = *osPretty
+		}
+		if arch != nil {
+			server["arch"] = *arch
+		}
+		if ramMB != nil {
+			server["ram_mb"] = *ramMB
+		}
+		if ramAvailableMB != nil {
+			server["ram_available_mb"] = *ramAvailableMB
+		}
+		if diskGB != nil {
+			server["disk_gb"] = *diskGB
+		}
+		if diskTotalGB != nil {
+			server["disk_total_gb"] = *diskTotalGB
+		}
+		if diskAvailableGB != nil {
+			server["disk_available_gb"] = *diskAvailableGB
+		}
+		if diskUsedPercent != nil {
+			server["disk_used_percent"] = *diskUsedPercent
+		}
+		if dockerVersion != nil {
+			server["docker_version"] = *dockerVersion
+		}
+		if ipAddress != nil {
+			server["ip_address"] = *ipAddress
+		}
+
+		servers = append(servers, server)
 	}
 
 	w.Header().Set("Content-Type", "application/json")
