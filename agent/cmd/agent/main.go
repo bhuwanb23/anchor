@@ -117,6 +117,9 @@ func run(configPath string) {
 	// and reconnects automatically when Docker comes back.
 	go monitorDockerHealth(ctx, dockerClient, wsClient)
 
+	// Start background image cleanup (weekly schedule + disk-pressure triggers)
+	go dockerClient.RunScheduledCleanup(ctx, nil, 0)
+
 	go wsClient.Run(ctx)
 
 	connected := false
