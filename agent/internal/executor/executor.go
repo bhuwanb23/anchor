@@ -246,7 +246,13 @@ func (e *Executor) executeDeploy(ctx context.Context, cmd Command, result *Resul
 	if p.MemoryLimitMB > 0 {
 		rlimits.MemoryHard = p.MemoryLimitMB * 1024 * 1024
 	}
-	// No validation against total RAM here (agent may not know it)
+
+	// Validate limits against available server RAM
+	if totalRAM := docker.GetTotalRAMMB(); totalRAM > 0 {
+		if err := docker.ValidateResourceLimits(rlimits, totalRAM); err != nil {
+			return fmt.Errorf("resource limits invalid: %w", err)
+		}
+	}
 
 	// --- Health check ---
 	healthCheck := docker.DefaultHealthCheck(ct, p.Port)
@@ -255,6 +261,12 @@ func (e *Executor) executeDeploy(ctx context.Context, cmd Command, result *Resul
 	labels := docker.ContainerLabels(p.AppName, ct)
 
 	// --- Deploy (create + start with crash detection) ---
+
+	// Replace existing container with same name (enables re-deploy)
+	if _, err := e.docker.ReplaceExistingContainer(ctx, containerName); err != nil {
+		slog.Warn("failed to replace existing container", "name", containerName, "error", err)
+	}
+
 	id, err := e.docker.CreateContainer(ctx, docker.CreateContainerOpts{
 		Name:           containerName,
 		Image:          p.Image,
@@ -279,7 +291,17 @@ func (e *Executor) executeDeploy(ctx context.Context, cmd Command, result *Resul
 			_ = e.docker.RemoveContainerSafe(ctx, id)
 			result.Status = "error"
 			result.Output = ""
-			result.Error = crashErr.Error()
+
+			// OOM-specific messaging
+			if docker.IsOOMKill(crashErr.ExitCode) {
+				limitMB := rlimits.MemoryHard / (1024 * 1024)
+				result.Error = fmt.Sprintf(
+					"Your app ran out of memory and was restarted (exit code 137). "+
+						"Current memory limit: %dMB. Consider increasing the memory limit "+
+						"or investigating memory usage in your app.", limitMB)
+			} else {
+				result.Error = crashErr.Error()
+			}
 			return nil
 		}
 		// Some other error starting
@@ -293,6 +315,16 @@ func (e *Executor) executeDeploy(ctx context.Context, cmd Command, result *Resul
 			"app", p.AppName, "container", id[:12], "error", err)
 		// Non-fatal — container may still serve traffic without health check
 	}
+
+	// Start background health monitoring (runs until context is cancelled)
+	e.docker.RunHealthMonitor(ctx, id, 30*time.Second, func(_ context.Context, health *docker.ContainerHealth) bool {
+		if health.Status == docker.HealthUnhealthy {
+			slog.Warn("container unhealthy",
+				"app", p.AppName, "container", id[:12],
+				"failing_streak", health.FailingStreak, "output", health.Output)
+		}
+		return true // continue monitoring
+	})
 
 	// --- Caddy route ---
 	if p.Domain != "" && p.Port > 0 {
