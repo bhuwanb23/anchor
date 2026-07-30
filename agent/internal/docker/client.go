@@ -20,6 +20,7 @@ import (
 	"github.com/docker/docker/client"
 	"github.com/docker/docker/pkg/jsonmessage"
 	"github.com/docker/go-connections/nat"
+	"golang.org/x/sync/singleflight"
 )
 
 // DockerInfo holds cached information from the Docker engine info API.
@@ -40,6 +41,7 @@ type Client struct {
 	info      *DockerInfo
 	connected bool
 	mu        sync.RWMutex
+	pullGroup singleflight.Group
 }
 
 // NewClient creates a new Docker client, checks the socket, and
@@ -324,6 +326,15 @@ func (c *Client) cliUnsafe() *client.Client {
 func (c *Client) PullImage(ctx context.Context, ref string, progressFn PullProgressFunc) (*ImageSummary, error) {
 	if err := c.ensureConnected(ctx); err != nil {
 		return nil, fmt.Errorf("docker unavailable: %w", err)
+	}
+
+	// Pre-pull disk check: abort early if disk is critically full
+	if pressure, msg := c.DiskPressureLevel(ctx); pressure >= 2 {
+		return nil, &PullError{
+			Err:     ErrDiskFull,
+			Message: fmt.Sprintf("Not enough disk space to pull '%s'. %s", ref, msg),
+			Cause:   nil,
+		}
 	}
 
 	slog.Info("pulling image", "image", ref)
