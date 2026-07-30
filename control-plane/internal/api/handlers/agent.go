@@ -22,14 +22,22 @@ type Agent struct {
 
 func (a *Agent) Register(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Token      string `json:"token"`
-		ServerInfo struct {
-			OS        string `json:"os"`
-			Arch      string `json:"arch"`
-			RAMMB     int    `json:"ram_mb"`
-			DiskGB    int    `json:"disk_gb"`
-			IPAddress string `json:"ip_address"`
-		} `json:"server_info"`
+		Token     string `json:"token"`
+		SystemInfo struct {
+			OS              string  `json:"os"`
+			OSVersion       string  `json:"os_version"`
+			OSPretty        string  `json:"os_pretty,omitempty"`
+			Arch            string  `json:"arch"`
+			RAMMB           int     `json:"ram_mb"`
+			RAMAvailableMB  int     `json:"ram_available_mb"`
+			DiskTotalGB     int     `json:"disk_total_gb"`
+			DiskAvailableGB int     `json:"disk_available_gb"`
+			DiskUsedPercent float64 `json:"disk_used_percent"`
+			DockerVersion   string  `json:"docker_version,omitempty"`
+		} `json:"system_info"`
+		IPAddress string          `json:"ip_address"`
+		Warnings  json.RawMessage `json:"warnings,omitempty"`
+		AutoFixed json.RawMessage `json:"auto_fixed,omitempty"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -90,14 +98,26 @@ func (a *Agent) Register(w http.ResponseWriter, r *http.Request) {
 
 	err = queries.InsertServerWithAgent(
 		a.DB, serverID, userID, name, agentID, agentSecretHash,
-		req.ServerInfo.OS, req.ServerInfo.Arch,
-		req.ServerInfo.RAMMB, req.ServerInfo.DiskGB,
-		req.ServerInfo.IPAddress,
+		req.SystemInfo.OS, req.SystemInfo.Arch,
+		req.SystemInfo.RAMMB, req.SystemInfo.DiskTotalGB,
+		req.IPAddress,
 	)
 	if err != nil {
 		slog.Error("insert server", "error", err)
 		http.Error(w, "internal server error", http.StatusInternalServerError)
 		return
+	}
+
+	// Update richer system info
+	_ = queries.UpdateServerSystemInfo(a.DB, serverID,
+		req.SystemInfo.OSVersion, req.SystemInfo.OSPretty, req.SystemInfo.DockerVersion,
+		req.SystemInfo.RAMAvailableMB, req.SystemInfo.DiskTotalGB, req.SystemInfo.DiskAvailableGB,
+		req.SystemInfo.DiskUsedPercent,
+	)
+
+	// Record auto-fix events
+	for _, fix := range req.AutoFixed {
+		_ = queries.InsertServerEvent(a.DB, uuid.New().String(), serverID, "auto_fixed", fix.Check, fix.Action, "")
 	}
 
 	ip := r.Header.Get("X-Real-IP")
