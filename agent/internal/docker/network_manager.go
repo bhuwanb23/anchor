@@ -134,6 +134,160 @@ func (c *Client) RemoveProjectNetwork(ctx context.Context, projectName string) e
 	return nil
 }
 
+// ConnectContainerWithAliases connects a container to a project network
+// with DNS aliases. This is used for database containers so that
+// other containers on the same network can reach them by alias.
+//
+// Standard aliases:
+//   postgres → "postgres", "db"
+//   mysql    → "mysql", "db"
+//   redis    → "redis", "cache"
+func (c *Client) ConnectContainerWithAliases(ctx context.Context, containerID, projectName string, aliases []string) error {
+	if err := c.ensureConnected(ctx); err != nil {
+		return fmt.Errorf("docker unavailable: %w", err)
+	}
+
+	networkID, err := c.EnsureProjectNetwork(ctx, projectName)
+	if err != nil {
+		return err
+	}
+
+	if err := c.cliUnsafe().NetworkConnect(ctx, networkID, containerID, &network.EndpointSettings{
+		Aliases: aliases,
+	}); err != nil {
+		return fmt.Errorf("connect container %s to network %s with aliases: %w",
+			containerID[:12], networkID[:12], err)
+	}
+
+	slog.Debug("connected container to project network with aliases",
+		"container", containerID[:12],
+		"project", SanitizeProjectName(projectName),
+		"aliases", aliases,
+	)
+
+	return nil
+}
+
+// ContainerType identifies what kind of container we're creating.
+type ContainerType string
+
+const (
+	ContainerTypeApp      ContainerType = "app"
+	ContainerTypePostgres ContainerType = "postgres"
+	ContainerTypeMySQL    ContainerType = "mysql"
+	ContainerTypeRedis    ContainerType = "redis"
+)
+
+// DatabaseAliases returns the standard DNS aliases for a database container type.
+func DatabaseAliases(dbType ContainerType) []string {
+	switch dbType {
+	case ContainerTypePostgres:
+		return []string{"postgres", "db"}
+	case ContainerTypeMySQL:
+		return []string{"mysql", "db"}
+	case ContainerTypeRedis:
+		return []string{"redis", "cache"}
+	default:
+		return nil
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Project lifecycle
+// ---------------------------------------------------------------------------
+
+// RemoveProject stops all containers in the project, removes the network,
+// and optionally removes associated volumes. This is the complete teardown
+// for when a project is deleted from the dashboard.
+//
+// Order matters:
+//   1. List all containers on the project network
+//   2. Stop and remove each container
+//   3. Remove the project network
+//   4. Optionally remove volumes
+func (c *Client) RemoveProject(ctx context.Context, projectName string, removeVolumes bool) error {
+	projectSafe := SanitizeProjectName(projectName)
+
+	// Find the project network
+	networkName := ProjectNetworkName(projectName)
+	network, err := c.findNetworkByName(ctx, networkName)
+	if err != nil {
+		return fmt.Errorf("find network for project %s: %w", projectSafe, err)
+	}
+	if network == nil {
+		slog.Info("no project network found, nothing to remove", "project", projectSafe)
+		return nil
+	}
+
+	// Step 1: Stop and remove all containers on this network
+	for _, containerRef := range network.Containers {
+		containerID := containerRef.Name
+		if containerID == "" {
+			// Docker returns the long ID for unnamed containers
+			containerID = "" // we'll try to extract from the key
+		}
+
+		// The container key in the map is the container ID
+		for cid := range network.Containers {
+			slog.Info("stopping and removing container in project",
+				"project", projectSafe,
+				"container", cid[:12],
+			)
+
+			if err := c.StopContainer(ctx, cid); err != nil {
+				slog.Warn("failed to stop container, force removing",
+					"container", cid[:12], "error", err)
+			}
+
+			if err := c.RemoveContainer(ctx, cid); err != nil {
+				slog.Warn("failed to remove container",
+					"container", cid[:12], "error", err)
+			}
+		}
+		break // only iterate the inner loop once (we already iterated all keys)
+	}
+
+	// Step 2: Remove the project network
+	if err := c.cliUnsafe().NetworkRemove(ctx, network.ID); err != nil {
+		return fmt.Errorf("remove network %s: %w", networkName, err)
+	}
+
+	slog.Info("removed network for project",
+		"project", projectSafe,
+		"network", networkName,
+	)
+
+	// Step 3: Optionally remove volumes
+	if removeVolumes {
+		c.removeProjectVolumes(ctx, projectSafe)
+	}
+
+	return nil
+}
+
+// removeProjectVolumes removes all Docker volumes associated with a project.
+func (c *Client) removeProjectVolumes(ctx context.Context, projectSafe string) {
+	volumes, err := c.cliUnsafe().VolumeList(ctx, filterProjectVolumes(projectSafe))
+	if err != nil {
+		slog.Warn("failed to list project volumes", "project", projectSafe, "error", err)
+		return
+	}
+
+	for _, v := range volumes.Volumes {
+		slog.Info("removing project volume", "project", projectSafe, "volume", v.Name)
+		if err := c.cliUnsafe().VolumeRemove(ctx, v.Name, true); err != nil {
+			slog.Warn("failed to remove volume", "volume", v.Name, "error", err)
+		}
+	}
+}
+
+// filterProjectVolumes builds filter args for volumes with a specific project label.
+func filterProjectVolumes(projectSafe string) filters.Args {
+	return filters.NewArgs(
+		filters.Arg("label", fmt.Sprintf("yourplatform.project=%s", projectSafe)),
+	)
+}
+
 // ---------------------------------------------------------------------------
 // Container network connection
 // ---------------------------------------------------------------------------

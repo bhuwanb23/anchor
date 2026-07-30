@@ -16,6 +16,7 @@ import (
 
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
+	"github.com/docker/docker/api/types/network"
 	"github.com/docker/docker/client"
 	"github.com/docker/docker/pkg/jsonmessage"
 	"github.com/docker/go-connections/nat"
@@ -409,7 +410,21 @@ func (c *Client) CreateContainer(ctx context.Context, opts CreateContainerOpts) 
 		AutoRemove:   true,
 	}
 
-	resp, err := c.cliUnsafe().ContainerCreate(ctx, config, hostConfig, nil, nil, opts.Name)
+	// Attach to project networks at creation time (not as a separate step)
+	var networkingConfig *network.NetworkingConfig
+	if len(opts.Networks) > 0 {
+		endpoints := make(map[string]*network.EndpointSettings)
+		for _, nw := range opts.Networks {
+			endpoints[nw.NetworkName] = &network.EndpointSettings{
+				Aliases: nw.Aliases,
+			}
+		}
+		networkingConfig = &network.NetworkingConfig{
+			EndpointsConfig: endpoints,
+		}
+	}
+
+	resp, err := c.cliUnsafe().ContainerCreate(ctx, config, hostConfig, networkingConfig, nil, opts.Name)
 	if err != nil {
 		return "", err
 	}
@@ -432,7 +447,7 @@ func (c *Client) StopContainer(ctx context.Context, id string) error {
 	}
 
 	slog.Info("stopping container", "id", id)
-	timeout := 10 * time.Second
+	timeout := 30 * time.Second // longer timeout for graceful shutdown
 	return c.cliUnsafe().ContainerStop(ctx, id, &timeout)
 }
 
@@ -487,12 +502,19 @@ func (c *Client) InspectContainer(ctx context.Context, id string) (types.Contain
 // Options
 // ---------------------------------------------------------------------------
 
+// NetworkEndpointConfig specifies a network to attach the container to at creation time.
+type NetworkEndpointConfig struct {
+	NetworkName string   // Docker network name
+	Aliases     []string // Container aliases on this network (e.g., "db", "cache")
+}
+
 type CreateContainerOpts struct {
 	Name         string
 	Image        string
 	PortBindings nat.PortMap
 	ExposedPorts nat.PortSet
 	Env          []string
+	Networks     []NetworkEndpointConfig // Attach to networks at creation time (one step)
 }
 
 // ---------------------------------------------------------------------------
