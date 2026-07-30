@@ -3,6 +3,7 @@ package docker
 import (
 	"context"
 	"testing"
+	"time"
 )
 
 // ---------------------------------------------------------------------------
@@ -137,7 +138,9 @@ func TestEnsureVolume_NoDocker(t *testing.T) {
 		socket:    "unix:///var/run/docker.sock",
 		connected: false,
 	}
-	_, err := client.EnsureVolume(context.Background(), "test-project", "data")
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	_, err := client.EnsureVolume(ctx, "test-project", "data")
 	if err == nil {
 		t.Skip("expected error without real Docker socket")
 	}
@@ -148,7 +151,9 @@ func TestEnsureDBVolume_NoDocker(t *testing.T) {
 		socket:    "unix:///var/run/docker.sock",
 		connected: false,
 	}
-	_, err := client.EnsureDBVolume(context.Background(), "test-project", ContainerTypePostgres)
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	_, err := client.EnsureDBVolume(ctx, "test-project", ContainerTypePostgres)
 	if err == nil {
 		t.Skip("expected error without real Docker socket")
 	}
@@ -159,7 +164,9 @@ func TestListUnmountedVolumes_NoDocker(t *testing.T) {
 		socket:    "unix:///var/run/docker.sock",
 		connected: false,
 	}
-	_, err := client.ListUnmountedVolumes(context.Background())
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	_, err := client.ListUnmountedVolumes(ctx)
 	if err == nil {
 		t.Skip("expected error without real Docker socket")
 	}
@@ -170,7 +177,9 @@ func TestRemoveVolume_NoDocker(t *testing.T) {
 		socket:    "unix:///var/run/docker.sock",
 		connected: false,
 	}
-	err := client.RemoveVolume(context.Background(), "test-volume")
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	err := client.RemoveVolume(ctx, "test-volume")
 	if err == nil {
 		t.Skip("expected error without real Docker socket")
 	}
@@ -181,7 +190,9 @@ func TestPrepareVolumeForBackup_NoDocker(t *testing.T) {
 		socket:    "unix:///var/run/docker.sock",
 		connected: false,
 	}
-	err := client.PrepareVolumeForBackup(context.Background(), BackupInfo{
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	err := client.PrepareVolumeForBackup(ctx, BackupInfo{
 		VolumeName: "test-vol",
 		Project:    "test",
 		DBType:     ContainerTypePostgres,
@@ -223,31 +234,87 @@ func TestPrepareVolumeForBackup_AppTypeNoOp(t *testing.T) {
 		socket:    "unix:///var/run/docker.sock",
 		connected: false,
 	}
-	err := client.PrepareVolumeForBackup(context.Background(), BackupInfo{
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	err := client.PrepareVolumeForBackup(ctx, BackupInfo{
 		VolumeName: "test-vol",
 		MountPath:  "/data",
 		Project:    "test",
 		DBType:     ContainerTypeApp,
 	})
-	if err == nil {
-		t.Skip("no Docker socket, but app type should not require prep")
+	if err != nil {
+		t.Errorf("app type should not error, got: %v", err)
 	}
 }
 
 // ---------------------------------------------------------------------------
-// FindVolumeByName — helper unit tests (no real Docker)
+// FinishVolumeBackup (structural — no real Docker)
 // ---------------------------------------------------------------------------
 
-func TestFindVolumeByName_NoDocker(t *testing.T) {
+func TestFinishVolumeBackup_NoDocker(t *testing.T) {
 	client := &Client{
 		socket:    "unix:///var/run/docker.sock",
 		connected: false,
 	}
-	vol, err := client.findVolumeByName(context.Background(), "test-volume")
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	err := client.FinishVolumeBackup(ctx, BackupInfo{
+		VolumeName: "test-vol",
+		Project:    "test",
+		DBType:     ContainerTypeMySQL,
+	})
 	if err == nil {
-		t.Error("expected error without real Docker socket")
+		t.Skip("expected error without real Docker socket")
 	}
-	if vol != nil {
-		t.Error("expected nil volume on error")
+}
+
+func TestFinishVolumeBackup_AppTypeNoOp(t *testing.T) {
+	client := &Client{
+		socket:    "unix:///var/run/docker.sock",
+		connected: false,
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	err := client.FinishVolumeBackup(ctx, BackupInfo{
+		VolumeName: "test-vol",
+		Project:    "test",
+		DBType:     ContainerTypeApp,
+	})
+	if err != nil {
+		t.Errorf("app type should not error, got: %v", err)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// CleanupOrphanedVolumes (structural — no real Docker)
+// ---------------------------------------------------------------------------
+
+func TestCleanupOrphanedVolumes_NoDocker(t *testing.T) {
+	client := &Client{
+		socket:    "unix:///var/run/docker.sock",
+		connected: false,
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	_, err := client.CleanupOrphanedVolumes(ctx)
+	if err == nil {
+		t.Skip("expected error without real Docker socket")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// ListProjectVolumes (structural — no real Docker)
+// ---------------------------------------------------------------------------
+
+func TestListProjectVolumes_NoDocker(t *testing.T) {
+	client := &Client{
+		socket:    "unix:///var/run/docker.sock",
+		connected: false,
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	_, err := client.ListProjectVolumes(ctx, "test-project")
+	if err == nil {
+		t.Skip("expected error without real Docker socket")
 	}
 }
