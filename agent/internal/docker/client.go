@@ -88,6 +88,16 @@ func NewClient(socket string) (*Client, error) {
 	return c, nil
 }
 
+// Close releases resources held by the Docker client.
+func (c *Client) Close() error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.cli != nil {
+		return c.cli.Close()
+	}
+	return nil
+}
+
 // ---------------------------------------------------------------------------
 // Socket checks
 // ---------------------------------------------------------------------------
@@ -120,6 +130,9 @@ func checkSocket(socket string) error {
 	// Check readability
 	f, err := os.Open(path)
 	if err != nil {
+		if os.IsPermission(err) {
+			return fmt.Errorf("docker socket at %s requires elevated permissions: %w\nTry: sudo usermod -aG docker $USER && newgrp docker", path, err)
+		}
 		return fmt.Errorf("docker socket at %s is not readable: %w\nTry: sudo chmod 660 %s", path, err, path)
 	}
 	f.Close()
@@ -210,48 +223,45 @@ func (c *Client) Reconnect(ctx context.Context) error {
 		}
 
 		slog.Info("attempting to reconnect to docker daemon")
+
 		if err := c.CheckSocket(); err != nil {
 			slog.Warn("docker socket not available during reconnect", "error", err)
-			goto wait
-		}
-
-		// Recreate the SDK client (handles daemon restarts that change
-		// the in-memory connection state)
-		cli, err := client.NewClientWithOpts(
-			client.FromEnv,
-			client.WithHost(c.socket),
-			client.WithAPIVersionNegotiation(),
-		)
-		if err != nil {
-			slog.Warn("failed to recreate docker client", "error", err)
-			goto wait
-		}
-
-		c.mu.Lock()
-		c.cli = cli
-		c.mu.Unlock()
-
-		// Test the new connection
-		checkCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-		info, err := c.fetchInfo(checkCtx)
-		cancel()
-
-		if err == nil {
-			c.mu.Lock()
-			c.info = info
-			c.connected = true
-			c.mu.Unlock()
-
-			slog.Info("reconnected to docker daemon",
-				"version", info.Version,
-				"api_version", info.APIVersion,
+		} else {
+			// Recreate the SDK client (handles daemon restarts that change
+			// the in-memory connection state)
+			cli, err := client.NewClientWithOpts(
+				client.FromEnv,
+				client.WithHost(c.socket),
+				client.WithAPIVersionNegotiation(),
 			)
-			return nil
+			if err != nil {
+				slog.Warn("failed to recreate docker client", "error", err)
+			} else {
+				c.mu.Lock()
+				c.cli = cli
+				c.mu.Unlock()
+
+				// Test the new connection
+				checkCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+				info, fetchErr := c.fetchInfo(checkCtx)
+				cancel()
+
+				if fetchErr == nil {
+					c.mu.Lock()
+					c.info = info
+					c.connected = true
+					c.mu.Unlock()
+
+					slog.Info("reconnected to docker daemon",
+						"version", info.Version,
+						"api_version", info.APIVersion,
+					)
+					return nil
+				}
+
+				slog.Warn("docker reconnect test failed", "error", fetchErr)
+			}
 		}
-
-		slog.Warn("docker reconnect test failed", "error", err)
-
-	wait:
 		c.mu.Lock()
 		c.connected = false
 		c.mu.Unlock()
@@ -555,7 +565,7 @@ type CreateContainerOpts struct {
 	Labels       map[string]string       // Container labels (project, role, managed-by, etc.)
 	ResourceLimits *ResourceLimits       // Memory and CPU limits (nil = no limits)
 	HealthCheck    *HealthCheckConfig    // Docker health check (nil = none)
-	RestartPolicy  container.RestartPolicyMode // "always" (default), "unless-stopped", "no"
+	RestartPolicy  string // "always" (default), "unless-stopped", "no"
 }
 
 // ---------------------------------------------------------------------------
