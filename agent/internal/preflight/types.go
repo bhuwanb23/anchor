@@ -223,7 +223,7 @@ func (r *Result) Text() string {
 	if len(r.AutoFixed) > 0 {
 		b.WriteString("Auto-fixed:\n")
 		for _, fix := range r.AutoFixed {
-			b.WriteString(fmt.Sprintf("  • %s\n", fix))
+			b.WriteString(fmt.Sprintf("  • %s — %s\n", fix.Check, fix.Action))
 		}
 		b.WriteString("\n")
 	}
