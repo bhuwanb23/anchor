@@ -28,6 +28,8 @@ const Version = "0.1.0-dev"
 
 const connectedFile = "/var/lib/yourplatform/agent.connected"
 
+var agentVersion = Version // overridden at runtime
+
 func main() {
 	args := os.Args[1:]
 	configPath := ""
@@ -160,11 +162,17 @@ func run(configPath string) {
 }
 
 func registerAgent(cfg *config.Config, configPath string) error {
-	info := collectServerInfo()
+	// Run pre-flight checks and include results in registration
+	preflightResult := preflight.RunAll()
+
+	ip := detectIP()
 
 	body := map[string]interface{}{
-		"token": cfg.RegistrationToken,
-		"server_info": info,
+		"token":        cfg.RegistrationToken,
+		"system_info":  preflightResult.SystemInfo,
+		"ip_address":   ip,
+		"warnings":     preflightResult.Warnings(),
+		"auto_fixed":   preflightResult.AutoFixed,
 	}
 
 	bodyBytes, err := json.Marshal(body)
