@@ -12,6 +12,8 @@ import (
 	"sync"
 	"time"
 
+	"errors"
+
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/client"
@@ -308,53 +310,81 @@ func (c *Client) cliUnsafe() *client.Client {
 // Image management
 // ---------------------------------------------------------------------------
 
-func (c *Client) PullImage(ctx context.Context, ref string) error {
+func (c *Client) PullImage(ctx context.Context, ref string, progressFn PullProgressFunc) (*ImageSummary, error) {
 	if err := c.ensureConnected(ctx); err != nil {
-		return fmt.Errorf("docker unavailable: %w", err)
+		return nil, fmt.Errorf("docker unavailable: %w", err)
 	}
 
 	slog.Info("pulling image", "image", ref)
 
 	reader, err := c.cliUnsafe().ImagePull(ctx, ref, types.ImagePullOptions{})
 	if err != nil {
-		return err
+		return nil, classifyPullError(ref, err)
 	}
 	defer reader.Close()
 
-	var progress jsonmessage.JSONMessage
+	var msg jsonmessage.JSONMessage
 	decoder := json.NewDecoder(reader)
 	for decoder.More() {
-		if err := decoder.Decode(&progress); err != nil {
+		if err := decoder.Decode(&msg); err != nil {
 			slog.Warn("image pull progress decode error", "error", err)
 			continue
 		}
-		if progress.Status != "" {
-			slog.Info("pull progress", "image", ref, "status", progress.Status)
+
+		if progressFn != nil {
+			pp := PullProgress{
+				ID:     msg.ID,
+				Status: msg.Status,
+				Stream: msg.Stream,
+			}
+			if msg.Progress != nil {
+				pp.Current = msg.Progress.Current
+				pp.Total = msg.Progress.Total
+			}
+			if err := progressFn(pp); err != nil {
+				return nil, fmt.Errorf("pull aborted by caller: %w", err)
+			}
+		}
+
+		if msg.Status != "" {
+			slog.Debug("pull progress", "image", ref, "id", msg.ID, "status", msg.Status)
 		}
 	}
 
-	return nil
+	// Verify the image was pulled successfully
+	summary, err := c.VerifyImage(ctx, ref)
+	if err != nil {
+		return nil, fmt.Errorf("image pulled but verification failed: %w", err)
+	}
+
+	slog.Info("image pulled successfully",
+		"image", ref,
+		"size", summary.HumanSize(),
+	)
+
+	return summary, nil
 }
 
 // PullImageWithRetry pulls an image, retrying with backoff on
 // connection errors.
-func (c *Client) PullImageWithRetry(ctx context.Context, ref string, maxRetries int) error {
+func (c *Client) PullImageWithRetry(ctx context.Context, ref string, maxRetries int, progressFn PullProgressFunc) (*ImageSummary, error) {
 	var lastErr error
 	for i := 0; i < maxRetries; i++ {
-		if err := c.PullImage(ctx, ref); err != nil {
+		if summary, err := c.PullImage(ctx, ref, progressFn); err != nil {
 			lastErr = err
-			if isConnectionError(err) {
+			if isConnectionError(err) || errors.Is(err, ErrNetwork) {
 				slog.Warn("pull image connection error, reconnecting...", "attempt", i+1, "max", maxRetries)
 				if reconnectErr := c.Reconnect(ctx); reconnectErr != nil {
-					return fmt.Errorf("pull image failed and reconnect failed: %v (original: %w)", reconnectErr, err)
+					return nil, fmt.Errorf("pull image failed and reconnect failed: %v (original: %w)", reconnectErr, err)
 				}
 				continue
 			}
-			return err
+			return nil, err
+		} else {
+			return summary, nil
 		}
-		return nil
 	}
-	return fmt.Errorf("pull image failed after %d retries: %w", maxRetries, lastErr)
+	return nil, fmt.Errorf("pull image failed after %d retries: %w", maxRetries, lastErr)
 }
 
 // ---------------------------------------------------------------------------
