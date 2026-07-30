@@ -1,13 +1,19 @@
 package preflight
 
 import (
+	"context"
 	"fmt"
+	"io"
 	"log/slog"
+	"net"
+	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/shirou/gopsutil/v3/disk"
 	"github.com/shirou/gopsutil/v3/mem"
@@ -25,11 +31,23 @@ func RunAll() *Result {
 	result.AddCheck(checkRAM())
 	result.AddCheck(checkClock())
 
-	// Group B — These are stubs for now (will be implemented in a later step)
-	result.AddCheck(checkPorts())
+	// Group B — Network checks
+	result.AddCheck(checkInternet())
+	result.AddCheck(checkDNS())
+	result.AddCheck(checkPort(80, "HTTP"))
+	result.AddCheck(checkPort(443, "HTTPS"))
+	result.AddCheck(checkControlPlaneConnect())
 
-	// Group C — Docker
-	result.AddCheck(checkDocker())
+	// Group C — Docker checks
+	c1 := checkDockerInstalled()
+	result.AddCheck(c1)
+	// Only run C2-C5 if Docker is installed (or was installed by auto-fix)
+	if c1.Status == StatusPass || c1.Status == StatusFixed {
+		result.AddCheck(checkDockerDaemon())
+		result.AddCheck(checkDockerVersion())
+		result.AddCheck(checkDockerSocket())
+		result.AddCheck(checkDockerPull())
+	}
 
 	// Collect system info directly
 	result.SystemInfo = collectSystemInfo()
@@ -274,48 +292,728 @@ func checkArch() CheckResult {
 	}
 }
 
-func checkDocker() CheckResult {
-	_, err := exec.LookPath("docker")
+// ─────────────────────────────────────────────
+// Docker Auto-Install Helpers
+// ─────────────────────────────────────────────
+
+// getOSInfo reads /etc/os-release and returns the OS ID and version.
+func getOSInfo() (id, version string) {
+	data, err := os.ReadFile("/etc/os-release")
 	if err != nil {
+		return "", ""
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		if strings.HasPrefix(line, "ID=") && !strings.HasPrefix(line, "ID_LIKE=") {
+			id = strings.Trim(strings.TrimPrefix(line, "ID="), "\"")
+		}
+		if strings.HasPrefix(line, "VERSION_ID=") {
+			version = strings.Trim(strings.TrimPrefix(line, "VERSION_ID="), "\"")
+		}
+	}
+	return
+}
+
+func runAndLog(name string, args ...string) error {
+	slog.Info("docker-install", "step", name)
+	cmd := exec.Command(name, args...)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		slog.Error("docker-install", "step", name, "error", string(output))
+		return fmt.Errorf("%s failed: %s", name, strings.TrimSpace(string(output)))
+	}
+	return nil
+}
+
+func installDockerApt() error {
+	slog.Info("Docker is not installed. Installing Docker automatically...")
+	if err := runAndLog("apt-get", "update"); err != nil {
+		return err
+	}
+	if err := runAndLog("apt-get", "install", "-y", "apt-transport-https", "ca-certificates", "curl", "gnupg"); err != nil {
+		return err
+	}
+	slog.Info("Adding Docker GPG key...")
+	if err := runAndLog("curl", "-fsSL", "https://download.docker.com/linux/"+getOSID()+"/gpg", "-o", "/usr/share/keyrings/docker.asc"); err != nil {
+		// Try alternate GPG approach
+		if err := runAndLog("curl", "-fsSL", "https://download.docker.com/linux/"+getOSID()+"/gpg", "|", "gpg", "--dearmor", "-o", "/usr/share/keyrings/docker.gpg"); err != nil {
+			return fmt.Errorf("failed to add Docker GPG key: %w", err)
+		}
+	}
+	slog.Info("Adding Docker repository...")
+	repoLine := "deb [arch=" + archForRepo() + " signed-by=/usr/share/keyrings/docker.asc] https://download.docker.com/linux/" + getOSID() + " " + getOSVersionCodename() + " stable"
+	if err := runAndLog("sh", "-c", "echo '"+repoLine+"' > /etc/apt/sources.list.d/docker.list"); err != nil {
+		return err
+	}
+	if err := runAndLog("apt-get", "update"); err != nil {
+		return err
+	}
+	slog.Info("Installing Docker packages (this may take a minute)...")
+	if err := runAndLog("apt-get", "install", "-y", "docker-ce", "docker-ce-cli", "containerd.io"); err != nil {
+		return err
+	}
+	return nil
+}
+
+func installDockerYum() error {
+	slog.Info("Docker is not installed. Installing Docker automatically...")
+	if err := runAndLog("yum", "install", "-y", "yum-utils"); err != nil {
+		return err
+	}
+	slog.Info("Adding Docker repository...")
+	if err := runAndLog("yum-config-manager", "--add-repo", "https://download.docker.com/linux/"+getOSID()+"/docker-ce.repo"); err != nil {
+		return err
+	}
+	slog.Info("Installing Docker packages (this may take a minute)...")
+	if err := runAndLog("yum", "install", "-y", "docker-ce", "docker-ce-cli", "containerd.io"); err != nil {
+		return err
+	}
+	return nil
+}
+
+func installDockerDnf() error {
+	slog.Info("Docker is not installed. Installing Docker automatically...")
+	if err := runAndLog("dnf", "install", "-y", "dnf-plugins-core"); err != nil {
+		return err
+	}
+	slog.Info("Adding Docker repository...")
+	if err := runAndLog("dnf", "config-manager", "--add-repo", "https://download.docker.com/linux/"+getOSID()+"/docker-ce.repo"); err != nil {
+		return err
+	}
+	slog.Info("Installing Docker packages (this may take a minute)...")
+	if err := runAndLog("dnf", "install", "-y", "docker-ce", "docker-ce-cli", "containerd.io"); err != nil {
+		return err
+	}
+	return nil
+}
+
+func getOSID() string {
+	id, _ := getOSInfo()
+	return id
+}
+
+func getOSVersionCodename() string {
+	_, ver := getOSInfo()
+	// Map versions to codenames for Docker repo
+	switch ver {
+	case "22.04":
+		return "jammy"
+	case "24.04":
+		return "noble"
+	case "20.04":
+		return "focal"
+	case "18.04":
+		return "bionic"
+	case "11":
+		return "bullseye"
+	case "12":
+		return "bookworm"
+	default:
+		return ver
+	}
+}
+
+func archForRepo() string {
+	out, err := exec.Command("uname", "-m").Output()
+	if err != nil {
+		return "amd64"
+	}
+	switch strings.TrimSpace(string(out)) {
+	case "aarch64":
+		return "arm64"
+	case "x86_64":
+		return "amd64"
+	default:
+		return "amd64"
+	}
+}
+
+// ─────────────────────────────────────────────
+// C1 — Docker Installed
+// ─────────────────────────────────────────────
+
+func checkDockerInstalled() CheckResult {
+	_, err := exec.LookPath("docker")
+	if err == nil {
+		return CheckResult{
+			Name:        "docker_installed",
+			DisplayName: "Docker Installation",
+			Status:      StatusPass,
+			Severity:    SeverityBlocking,
+			Message:     "Docker is installed",
+		}
+	}
+
+	slog.Info("Docker is not installed. Attempting automatic installation...")
+
+	osID, _ := getOSInfo()
+	var installErr error
+
+	switch osID {
+	case "ubuntu", "debian":
+		installErr = installDockerApt()
+	case "centos", "rhel", "rocky", "almalinux":
+		installErr = installDockerYum()
+	case "fedora":
+		installErr = installDockerDnf()
+	default:
 		return CheckResult{
 			Name:           "docker_installed",
 			DisplayName:    "Docker Installation",
 			Status:         StatusFail,
 			Severity:       SeverityBlocking,
-			Message:        "Docker is not installed or not in PATH",
-			FixInstruction: "Install Docker: curl -fsSL https://get.docker.com | sh",
+			Message:        "Docker is not installed and automatic installation is not supported for this OS.",
+			FixInstruction: "Install Docker manually: curl -fsSL https://get.docker.com | sh",
 		}
 	}
 
-	out, err := exec.Command("docker", "version", "--format", "{{.Server.Version}}").Output()
-	if err != nil {
+	if installErr != nil {
 		return CheckResult{
-			Name:           "docker_running",
-			DisplayName:    "Docker Daemon",
+			Name:           "docker_installed",
+			DisplayName:    "Docker Installation",
 			Status:         StatusFail,
 			Severity:       SeverityBlocking,
-			Message:        "Docker daemon is not running",
-			FixInstruction: "Start Docker: systemctl start docker && systemctl enable docker",
+			Message:        fmt.Sprintf("Docker is not installed and automatic installation failed. Error: %v", installErr),
+			FixInstruction: "Install Docker manually: curl -fsSL https://get.docker.com | sh",
 		}
 	}
 
-	version := string(out)
+	// Verify installation succeeded
+	if _, err := exec.LookPath("docker"); err != nil {
+		return CheckResult{
+			Name:           "docker_installed",
+			DisplayName:    "Docker Installation",
+			Status:         StatusFail,
+			Severity:       SeverityBlocking,
+			Message:        "Docker was installed but docker binary is not in PATH after installation.",
+			FixInstruction: "Try: sudo apt-get install -y docker-ce (or sudo yum install -y docker-ce).",
+		}
+	}
+
+	// Get the installed version
+	versionOut, _ := exec.Command("docker", "version", "--format", "{{.Server.Version}}").Output()
+	versionMsg := "Docker installed successfully"
+	if len(versionOut) > 0 {
+		versionMsg = fmt.Sprintf("Docker installed successfully (version %s)", strings.TrimSpace(string(versionOut)))
+	}
+
 	return CheckResult{
-		Name:           "docker_version",
-		DisplayName:    "Docker Version",
-		Status:         StatusPass,
-		Severity:       SeverityBlocking,
-		Message:        version,
+		Name:      "docker_installed",
+		DisplayName: "Docker Installation",
+		Status:    StatusFixed,
+		Severity:  SeverityBlocking,
+		Message:   versionMsg,
+		AutoFixed: true,
 	}
 }
 
-func checkPorts() CheckResult {
+// ─────────────────────────────────────────────
+// C2 — Docker Daemon Running
+// ─────────────────────────────────────────────
+
+func checkDockerDaemon() CheckResult {
+	// Check if daemon is running
+	out, err := exec.Command("docker", "version", "--format", "{{.Server.Version}}").Output()
+	if err == nil {
+		return CheckResult{
+			Name:        "docker_daemon",
+			DisplayName: "Docker Daemon",
+			Status:      StatusPass,
+			Severity:    SeverityBlocking,
+			Message:     fmt.Sprintf("Docker daemon is running (version %s)", strings.TrimSpace(string(out))),
+		}
+	}
+
+	slog.Info("Docker daemon is not running. Attempting to start it...")
+	_ = exec.Command("systemctl", "start", "docker").Run()
+	_ = exec.Command("systemctl", "enable", "docker").Run()
+
+	// Wait up to 10 seconds for Docker to start
+	for i := 0; i < 10; i++ {
+		time.Sleep(1 * time.Second)
+		out, err := exec.Command("docker", "version", "--format", "{{.Server.Version}}").Output()
+		if err == nil {
+			return CheckResult{
+				Name:      "docker_daemon",
+				DisplayName: "Docker Daemon",
+				Status:    StatusFixed,
+				Severity:  SeverityBlocking,
+				Message:   fmt.Sprintf("Docker daemon was not running — agent started it successfully (version %s)", strings.TrimSpace(string(out))),
+				AutoFixed: true,
+			}
+		}
+	}
+
+	// Read Docker daemon logs for diagnostics
+	journalOut, _ := exec.Command("journalctl", "-u", "docker", "-n", "10", "--no-pager").Output()
+	dockerLogs := ""
+	if len(journalOut) > 0 {
+		dockerLogs = "\n\nDocker daemon logs:\n" + string(journalOut)
+	}
+
 	return CheckResult{
-		Name:        "port_availability",
-		DisplayName: "Port Availability",
+		Name:           "docker_daemon",
+		DisplayName:    "Docker Daemon",
+		Status:         StatusFail,
+		Severity:       SeverityBlocking,
+		Message:        "Docker is installed but the Docker daemon is not running and could not be started." + dockerLogs,
+		FixInstruction: "Try manually: sudo systemctl start docker. Check: sudo journalctl -u docker -n 50. Common causes: kernel too old, missing overlay module, or conflicting container runtime.",
+	}
+}
+
+// ─────────────────────────────────────────────
+// C3 — Docker Version Acceptable
+// ─────────────────────────────────────────────
+
+func checkDockerVersion() CheckResult {
+	out, err := exec.Command("docker", "version", "--format", "{{.Server.Version}}").Output()
+	if err != nil {
+		return CheckResult{
+			Name:           "docker_version",
+			DisplayName:    "Docker Version",
+			Status:         StatusFail,
+			Severity:       SeverityWarning,
+			Message:        "Could not determine Docker version",
+			FixInstruction: "Run: docker version",
+		}
+	}
+
+	version := strings.TrimSpace(string(out))
+
+	// Minimum: 20.10.0 (Docker 20.10+)
+	if !versionAtLeast(version, "20.10") {
+		return CheckResult{
+			Name:           "docker_version",
+			DisplayName:    "Docker Version",
+			Status:         StatusFail,
+			Severity:       SeverityBlocking,
+			Message:        fmt.Sprintf("Docker version %s is too old. Version 20.10 or newer is required.", version),
+			FixInstruction: "Upgrade Docker: follow the upgrade instructions for your OS at https://docs.docker.com/engine/install/",
+		}
+	}
+
+	// Warning if < 24.x (missing security patches)
+	if !versionAtLeast(version, "24") {
+		return CheckResult{
+			Name:        "docker_version",
+			DisplayName: "Docker Version",
+			Status:      StatusWarn,
+			Severity:    SeverityWarning,
+			Message:     fmt.Sprintf("Docker version %s is installed. Version 24+ is recommended for latest security patches.", version),
+			FixInstruction: "To upgrade: follow the upgrade instructions at https://docs.docker.com/engine/install/",
+		}
+	}
+
+	return CheckResult{
+		Name:        "docker_version",
+		DisplayName: "Docker Version",
 		Status:      StatusPass,
-		Severity:    SeverityWarning,
-		Message:     "ports 80 and 443 are available",
+		Severity:    SeverityBlocking,
+		Message:     fmt.Sprintf("Docker version %s", version),
+	}
+}
+
+// ─────────────────────────────────────────────
+// C4 — Docker Socket Access
+// ─────────────────────────────────────────────
+
+func checkDockerSocket() CheckResult {
+	socketPath := "/var/run/docker.sock"
+
+	// Check if socket exists
+	info, err := os.Stat(socketPath)
+	if err != nil {
+		// Try rootless socket
+		altPaths := []string{
+			"/run/user/1000/docker.sock",
+			"$HOME/.docker/run/docker.sock",
+		}
+		for _, p := range altPaths {
+			p = os.ExpandEnv(p)
+			if info, err = os.Stat(p); err == nil {
+				socketPath = p
+				break
+			}
+		}
+		if err != nil {
+			return CheckResult{
+				Name:           "docker_socket",
+				DisplayName:    "Docker Socket",
+				Status:         StatusFail,
+				Severity:       SeverityBlocking,
+				Message:        "Docker socket not found at /var/run/docker.sock. Docker may be in rootless mode.",
+				FixInstruction: "If running Docker rootless, set DOCKER_HOST=unix:///run/user/1000/docker.sock. Otherwise: sudo systemctl start docker",
+			}
+		}
+	}
+
+	// Try to make a real Docker API call via the socket
+	dockerClient := &http.Client{
+		Transport: &http.Transport{
+			DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+				return net.Dial("unix", socketPath)
+			},
+		},
+		Timeout: 5 * time.Second,
+	}
+
+	resp, err := dockerClient.Get("http://localhost/info")
+	if err != nil {
+		mode := info.Mode()
+		return CheckResult{
+			Name:           "docker_socket",
+			DisplayName:    "Docker Socket",
+			Status:         StatusFail,
+			Severity:       SeverityBlocking,
+			Message:        fmt.Sprintf("The agent cannot communicate with Docker via the socket. Socket: %s, Permissions: %#o", socketPath, mode.Perm()),
+			FixInstruction: "Fix socket permissions: sudo chmod 660 " + socketPath + ". If running Docker rootless, see: https://docs.yourplatform.com/docker-rootless",
+		}
+	}
+	defer resp.Body.Close()
+
+	return CheckResult{
+		Name:        "docker_socket",
+		DisplayName: "Docker Socket",
+		Status:      StatusPass,
+		Severity:    SeverityBlocking,
+		Message:     "agent can communicate with Docker via the socket",
+	}
+}
+
+// ─────────────────────────────────────────────
+// C5 — Docker Can Pull from Internet
+// ─────────────────────────────────────────────
+
+func checkDockerPull() CheckResult {
+	slog.Info("Verifying Docker can pull images (this may take a moment)...")
+
+	out, err := exec.Command("docker", "pull", "hello-world").CombinedOutput()
+	if err != nil {
+		return CheckResult{
+			Name:           "docker_pull",
+			DisplayName:    "Docker Pull",
+			Status:         StatusFail,
+			Severity:       SeverityBlocking,
+			Message:        fmt.Sprintf("Docker is running but cannot pull images from Docker Hub. Error: %s", strings.TrimSpace(string(out))),
+			FixInstruction: "Test manually: sudo docker pull hello-world. Common causes: firewall blocking registry-1.docker.io, Docker Hub rate limit, or incorrect proxy settings.",
+		}
+	}
+
+	// Delete the pulled image immediately
+	_ = exec.Command("docker", "rmi", "hello-world").Run()
+
+	return CheckResult{
+		Name:        "docker_pull",
+		DisplayName: "Docker Pull",
+		Status:      StatusPass,
+		Severity:    SeverityBlocking,
+		Message:     "Docker can pull images from Docker Hub",
+	}
+}
+
+func checkInternet() CheckResult {
+	client := &http.Client{
+		Timeout: 10 * time.Second,
+	}
+
+	resp, err := client.Get("https://1.1.1.1")
+	if err != nil {
+		return CheckResult{
+			Name:           "internet",
+			DisplayName:    "Internet Connectivity",
+			Status:         StatusFail,
+			Severity:       SeverityBlocking,
+			Message:        "Your server cannot reach the internet. This is required to pull app images and connect to the YourPlatform control plane.",
+			FixInstruction: "Check your hosting provider's firewall settings and ensure outbound traffic is allowed. Try: curl -I https://1.1.1.1",
+		}
+	}
+	defer resp.Body.Close()
+	// Consume body to reuse connection
+	io.Copy(io.Discard, resp.Body)
+
+	return CheckResult{
+		Name:        "internet",
+		DisplayName: "Internet Connectivity",
+		Status:      StatusPass,
+		Severity:    SeverityBlocking,
+		Message:     "server can reach the internet",
+	}
+}
+
+func checkDNS() CheckResult {
+	// Test public DNS first
+	_, err := net.LookupHost("google.com")
+	if err != nil {
+		return CheckResult{
+			Name:           "dns",
+			DisplayName:    "DNS Resolution",
+			Status:         StatusFail,
+			Severity:       SeverityBlocking,
+			Message:        "Your server cannot resolve domain names.",
+			FixInstruction: "Check /etc/resolv.conf and ensure a nameserver is configured. Try: cat /etc/resolv.conf",
+		}
+	}
+
+	// Test control plane DNS specifically
+	_, err = net.LookupHost("api.yourplatform.com")
+	if err != nil {
+		return CheckResult{
+			Name:           "dns",
+			DisplayName:    "DNS Resolution",
+			Status:         StatusFail,
+			Severity:       SeverityBlocking,
+			Message:        "Your server can reach the internet but cannot resolve api.yourplatform.com.",
+			FixInstruction: "This may be a temporary DNS issue. Wait 60 seconds and try again. If this persists, contact your hosting provider about DNS filtering.",
+		}
+	}
+
+	return CheckResult{
+		Name:        "dns",
+		DisplayName: "DNS Resolution",
+		Status:      StatusPass,
+		Severity:    SeverityBlocking,
+		Message:     "DNS is working correctly",
+	}
+}
+
+// searchProcNetTCP reads /proc/net/tcp or /proc/net/tcp6 to find socket inode for the given port.
+func searchProcNetTCP(path string, portHex string) string {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 10 {
+			continue
+		}
+		addrParts := strings.Split(fields[1], ":")
+		if len(addrParts) == 2 && addrParts[1] == portHex {
+			if len(fields[3]) >= 2 && fields[3] == "0A" {
+				return fields[9]
+			}
+		}
+	}
+	return ""
+}
+
+// findProcessOnPort reads /proc/net/tcp and /proc/net/tcp6 to find which process
+// is listening on the given port. Handles both IPv4 and IPv6.
+func findProcessOnPort(port int) (int, string) {
+	portHex := fmt.Sprintf("%04X", port)
+
+	targetInode := searchProcNetTCP("/proc/net/tcp", portHex)
+	if targetInode == "" {
+		targetInode = searchProcNetTCP("/proc/net/tcp6", portHex)
+	}
+	if targetInode == "" {
+		return 0, ""
+	}
+
+	// Search /proc/*/fd for sockets with matching inode
+	procEntries, _ := filepath.Glob("/proc/[0-9]*/fd/*")
+	for _, fdPath := range procEntries {
+		link, err := os.Readlink(fdPath)
+		if err != nil {
+			continue
+		}
+		// Socket links look like: socket:[12345]
+		if strings.HasPrefix(link, "socket:[") && strings.TrimSuffix(strings.TrimPrefix(link, "socket:["), "]") == targetInode {
+			parts := strings.Split(fdPath, "/")
+			if len(parts) >= 3 {
+				pid, _ := strconv.Atoi(parts[2])
+				name := readProcessName(pid)
+				return pid, name
+			}
+		}
+	}
+
+	return 0, ""
+}
+
+func readProcessName(pid int) string {
+	data, err := os.ReadFile(fmt.Sprintf("/proc/%d/cmdline", pid))
+	if err != nil {
+		return "unknown"
+	}
+	// cmdline uses null bytes as separators, take first part
+	parts := strings.SplitN(string(data), "\x00", 2)
+	if len(parts) > 0 && parts[0] != "" {
+		return filepath.Base(parts[0])
+	}
+	return "unknown"
+}
+
+// hasActiveSites checks if apache2 or nginx has active sites configured.
+func hasActiveSites(name string) bool {
+	switch name {
+	case "apache2":
+		// Debian/Ubuntu: /etc/apache2/sites-enabled
+		dir := "/etc/apache2/sites-enabled"
+		entries, err := filepath.Glob(filepath.Join(dir, "*"))
+		if err != nil || len(entries) == 0 {
+			return false
+		}
+		for _, e := range entries {
+			base := filepath.Base(e)
+			if !strings.HasPrefix(base, "000-") && !strings.HasPrefix(base, "default") {
+				return true
+			}
+		}
+		return false
+	case "httpd":
+		// RHEL/CentOS/Fedora: /etc/httpd/conf.d/*.conf
+		dir := "/etc/httpd/conf.d"
+		entries, err := filepath.Glob(filepath.Join(dir, "*.conf"))
+		if err != nil || len(entries) == 0 {
+			return false
+		}
+		for _, e := range entries {
+			base := filepath.Base(e)
+			// welcome.conf and ssl.conf are defaults, not real sites
+			if base != "welcome.conf" && !strings.Contains(base, "ssl") && !strings.HasPrefix(base, "README") {
+				return true
+			}
+		}
+		return false
+	case "nginx":
+		dir := "/etc/nginx/sites-enabled"
+		entries, err := filepath.Glob(filepath.Join(dir, "*"))
+		if err != nil || len(entries) == 0 {
+			return false
+		}
+		for _, e := range entries {
+			base := filepath.Base(e)
+			if !strings.HasPrefix(base, "default") {
+				return true
+			}
+		}
+		return false
+	}
+	return false
+}
+
+func checkPort(portNum int, label string) CheckResult {
+	name := fmt.Sprintf("port_%d", portNum)
+	displayName := fmt.Sprintf("Port %d (%s)", portNum, label)
+
+	// Try to listen on the port
+	ln, err := net.Listen("tcp", fmt.Sprintf(":%d", portNum))
+	if err == nil {
+		ln.Close()
+		return CheckResult{
+			Name:        name,
+			DisplayName: displayName,
+			Status:      StatusPass,
+			Severity:    SeverityBlocking,
+			Message:     fmt.Sprintf("port %d is available", portNum),
+		}
+	}
+
+	// Find the occupying process
+	pid, procName := findProcessOnPort(portNum)
+	if pid == 0 {
+		return CheckResult{
+			Name:           name,
+			DisplayName:    displayName,
+			Status:         StatusFail,
+			Severity:       SeverityBlocking,
+			Message:        fmt.Sprintf("Port %d is in use by an unknown process.", portNum),
+			FixInstruction: fmt.Sprintf("Identify the process: sudo ss -tlnp | grep :%d", portNum),
+		}
+	}
+
+	msg := fmt.Sprintf("Port %d is in use by %s (PID %d).", portNum, procName, pid)
+
+	// Auto-fix logic: stop apache2/nginx if no active sites
+	switch procName {
+	case "apache2", "httpd":
+		if !hasActiveSites(procName) {
+			_ = exec.Command("systemctl", "stop", "apache2").Run()
+			_ = exec.Command("systemctl", "disable", "apache2").Run()
+			// Re-check
+			ln, err := net.Listen("tcp", fmt.Sprintf(":%d", portNum))
+			if err == nil {
+				ln.Close()
+				return CheckResult{
+					Name:        name,
+					DisplayName: displayName,
+					Status:      StatusFixed,
+					Severity:    SeverityBlocking,
+					Message:     fmt.Sprintf("Apache was using port %d but had no active sites — agent stopped it", portNum),
+					AutoFixed:   true,
+				}
+			}
+			ln.Close()
+		}
+		return CheckResult{
+			Name:           name,
+			DisplayName:    displayName,
+			Status:         StatusFail,
+			Severity:       SeverityBlocking,
+			Message:        msg + " Apache appears to serve active sites, so the agent cannot stop it automatically.",
+			FixInstruction: fmt.Sprintf("Either move those sites to YourPlatform first, or configure Apache to proxy to YourPlatform. See docs for details."),
+		}
+	case "nginx":
+		if !hasActiveSites(procName) {
+			_ = exec.Command("systemctl", "stop", "nginx").Run()
+			_ = exec.Command("systemctl", "disable", "nginx").Run()
+			ln, err := net.Listen("tcp", fmt.Sprintf(":%d", portNum))
+			if err == nil {
+				ln.Close()
+				return CheckResult{
+					Name:        name,
+					DisplayName: displayName,
+					Status:      StatusFixed,
+					Severity:    SeverityBlocking,
+					Message:     fmt.Sprintf("Nginx was using port %d but had no active sites — agent stopped it", portNum),
+					AutoFixed:   true,
+				}
+			}
+			ln.Close()
+		}
+		return CheckResult{
+			Name:           name,
+			DisplayName:    displayName,
+			Status:         StatusFail,
+			Severity:       SeverityBlocking,
+			Message:        msg + " Nginx appears to serve active sites, so the agent cannot stop it automatically.",
+			FixInstruction: "Either move those sites to YourPlatform first, or configure Nginx to proxy to YourPlatform.",
+		}
+	default:
+		return CheckResult{
+			Name:           name,
+			DisplayName:    displayName,
+			Status:         StatusFail,
+			Severity:       SeverityBlocking,
+			Message:        msg,
+			FixInstruction: fmt.Sprintf("Stop the process: sudo systemctl stop %s (or kill -9 %d). Then run the installer again.", procName, pid),
+		}
+	}
+}
+
+func checkControlPlaneConnect() CheckResult {
+	dialer := &net.Dialer{
+		Timeout: 10 * time.Second,
+	}
+	conn, err := dialer.Dial("tcp", "api.yourplatform.com:443")
+	if err != nil {
+		return CheckResult{
+			Name:           "control_plane_connect",
+			DisplayName:    "Control Plane Connectivity",
+			Status:         StatusFail,
+			Severity:       SeverityBlocking,
+			Message:        "Your server cannot reach api.yourplatform.com on port 443. The agent needs this connection to receive deployment commands.",
+			FixInstruction: "Check your hosting provider's firewall settings and ensure outbound TCP port 443 is allowed to all destinations. Common providers: AWS EC2 (Security Group outbound rules), Google Cloud (VPC firewall), Hetzner Cloud (Firewall rules).",
+		}
+	}
+	conn.Close()
+
+	return CheckResult{
+		Name:        "control_plane_connect",
+		DisplayName: "Control Plane Connectivity",
+		Status:      StatusPass,
+		Severity:    SeverityBlocking,
+		Message:     "server can reach the control plane on port 443",
 	}
 }
 
