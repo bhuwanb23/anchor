@@ -21,6 +21,52 @@ type Message struct {
 	Payload json.RawMessage `json:"payload"`
 }
 
+func handlePreflightResult(db *sql.DB, serverID string, payload json.RawMessage) {
+	var result struct {
+		SystemInfo struct {
+			OS              string  `json:"os"`
+			OSVersion       string  `json:"os_version"`
+			OSPretty        string  `json:"os_pretty,omitempty"`
+			Arch            string  `json:"arch"`
+			RAMMB           int     `json:"ram_mb"`
+			RAMAvailableMB  int     `json:"ram_available_mb"`
+			DiskTotalGB     int     `json:"disk_total_gb"`
+			DiskAvailableGB int     `json:"disk_available_gb"`
+			DiskUsedPercent float64 `json:"disk_used_percent"`
+			DockerVersion   string  `json:"docker_version,omitempty"`
+		} `json:"system_info"`
+		Passed    bool              `json:"passed"`
+		Warnings  []json.RawMessage `json:"warnings"`
+		AutoFixed []struct {
+			Check     string `json:"check"`
+			Action    string `json:"action"`
+			Timestamp string `json:"timestamp"`
+		} `json:"auto_fixed"`
+	}
+
+	if err := json.Unmarshal(payload, &result); err != nil {
+		slog.Warn("failed to parse preflight_result", "server_id", serverID, "error", err)
+		return
+	}
+
+	si := result.SystemInfo
+	_ = queries.UpdateServerSystemInfo(db, serverID,
+		si.OSVersion, si.OSPretty, si.DockerVersion,
+		si.RAMAvailableMB, si.DiskTotalGB, si.DiskAvailableGB,
+		si.DiskUsedPercent,
+	)
+
+	for _, fix := range result.AutoFixed {
+		_ = queries.InsertServerEvent(db, uuid.New().String(), serverID, "auto_fixed", fix.Check, fix.Action, fix.Timestamp)
+	}
+
+	for _, warn := range result.Warnings {
+		_ = queries.InsertServerEvent(db, uuid.New().String(), serverID, "warning", "", string(warn), "")
+	}
+
+	slog.Info("preflight result processed", "server_id", serverID, "passed", result.Passed, "warnings", len(result.Warnings))
+}
+
 func HandleAgentWS(hub *Hub, db *sql.DB) http.HandlerFunc {
 	upgrader := websocket.Upgrader{
 		ReadBufferSize:  1024,
@@ -108,11 +154,12 @@ func HandleAgentWS(hub *Hub, db *sql.DB) http.HandlerFunc {
 					continue
 				}
 
-				switch msg.Type {			case "result":
+				switch msg.Type {
+				case "result":
 					slog.Info("command result", "server_id", serverID, "payload", string(msg.Payload))
-			case "preflight_result":
+				case "preflight_result":
 					handlePreflightResult(db, serverID, msg.Payload)
-			default:
+				default:
 					slog.Debug("agent message", "type", msg.Type, "server_id", serverID)
 				}
 			}
