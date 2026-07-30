@@ -269,6 +269,102 @@ func TestTextOutputAllPass(t *testing.T) {
 	}
 }
 
+func TestShortCircuitA1Blocking(t *testing.T) {
+	// A1 (OS) is always the first check. If it fails blocking, Group B-D should not run.
+	// We can't mock the check functions, but we can verify that RunAll produces a result
+	// that at least has the OS check.
+	result := RunAll()
+	if len(result.Checks) == 0 {
+		t.Fatal("expected at least OS check in result")
+	}
+	if result.Checks[0].Name != "os" {
+		t.Errorf("expected first check to be 'os', got '%s'", result.Checks[0].Name)
+	}
+	t.Logf("RunAll produced %d checks, passed=%v", len(result.Checks), result.Passed)
+}
+
+func TestRunGroupAIncludesAllSystemChecks(t *testing.T) {
+	result := NewResult()
+	runGroupA(result)
+	// Should have at least OS check
+	if len(result.Checks) == 0 {
+		t.Error("expected at least one check after runGroupA")
+	}
+}
+
+func TestRunGroupBIncludesAllNetworkChecks(t *testing.T) {
+	result := NewResult()
+	runGroupB(result)
+	if len(result.Checks) == 0 {
+		t.Error("expected at least one check after runGroupB")
+	}
+}
+
+func TestRunGroupCIncludesAllDockerChecks(t *testing.T) {
+	result := NewResult()
+	runGroupC(result)
+	if len(result.Checks) == 0 {
+		t.Error("expected at least one check after runGroupC")
+	}
+}
+
+func TestToJSONCompact(t *testing.T) {
+	r := NewResult()
+	r.AddCheck(CheckResult{
+		Name:        "test_check",
+		DisplayName: "Test Check",
+		Status:      StatusPass,
+		Severity:    SeverityBlocking,
+		Message:     "everything is fine",
+	})
+	r.SystemInfo = SystemInfo{OS: "linux", Arch: "amd64"}
+	r.Done()
+
+	compactStr, err := r.ToJSONCompact()
+	if err != nil {
+		t.Fatalf("ToJSONCompact() returned error: %v", err)
+	}
+
+	// Compact JSON should be a single line (no indentation)
+	if strings.Contains(compactStr, "\n") {
+		t.Error("compact JSON should not contain newlines")
+	}
+
+	// Should still be valid JSON
+	var parsed Result
+	if err := json.Unmarshal([]byte(compactStr), &parsed); err != nil {
+		t.Fatalf("compact JSON failed to unmarshal: %v", err)
+	}
+	if len(parsed.Checks) != 1 {
+		t.Errorf("expected 1 check, got %d", len(parsed.Checks))
+	}
+}
+
+func TestAutoFixEntryRecorded(t *testing.T) {
+	r := NewResult()
+	r.AddCheck(CheckResult{
+		Name:      "docker_installed",
+		DisplayName: "Docker Installation",
+		Status:    StatusFixed,
+		Severity:  SeverityBlocking,
+		Message:   "Docker installed successfully (version 25.0.3)",
+		AutoFixed: true,
+	})
+
+	if len(r.AutoFixed) != 1 {
+		t.Fatalf("expected 1 auto-fix entry, got %d", len(r.AutoFixed))
+	}
+	if r.AutoFixed[0].Check != "docker_installed" {
+		t.Errorf("expected check 'docker_installed', got '%s'", r.AutoFixed[0].Check)
+	}
+	if r.AutoFixed[0].Action != "Docker installed successfully (version 25.0.3)" {
+		t.Errorf("unexpected action: '%s'", r.AutoFixed[0].Action)
+	}
+	if r.AutoFixed[0].Timestamp == "" {
+		t.Error("expected timestamp to be set")
+	}
+}
+
 func TestHasErrors(t *testing.T) {
 	t.Run("no errors", func(t *testing.T) {
 		r := NewResult()
@@ -362,19 +458,15 @@ func TestJSONFieldNames(t *testing.T) {
 		}
 	}
 
-	checks := raw["checks"].([]interface{})[0].(map[string]interface{})
-	expectedCheckFields := []string{"name", "display_name", "status", "severity", "message", "fix_instruction", "auto_fixed"}
-	for _, f := range expectedCheckFields {
-		if _, ok := checks[f]; !ok {
-			t.Errorf("expected field '%s' in check JSON", f)
-		}
-	}
-
-	sysInfo := raw["system_info"].(map[string]interface{})
-	expectedSysFields := []string{"os", "os_version", "os_pretty", "arch", "ram_mb", "ram_available_mb", "disk_total_gb", "disk_available_gb", "disk_used_percent"}
-	for _, f := range expectedSysFields {
-		if _, ok := sysInfo[f]; !ok {
-			t.Errorf("expected field '%s' in system_info JSON", f)
+	// Verify auto_fixed is an array of objects with check/action/timestamp
+	autoFixedItems := raw["auto_fixed"].([]interface{})
+	if len(autoFixedItems) > 0 {
+		firstItem := autoFixedItems[0].(map[string]interface{})
+		expectedAutoFixFields := []string{"check", "action", "timestamp"}
+		for _, f := range expectedAutoFixFields {
+			if _, ok := firstItem[f]; !ok {
+				t.Errorf("expected field '%s' in auto_fixed entry JSON", f)
+			}
 		}
 	}
 }

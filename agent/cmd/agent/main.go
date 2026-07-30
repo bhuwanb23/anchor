@@ -287,14 +287,15 @@ func runPreflight(useJSON bool) {
 	result := preflight.RunAll()
 
 	if useJSON {
-		jsonStr, err := result.ToJSON()
+		// Compact JSON for machine parsing by install.sh
+		jsonStr, err := result.ToJSONCompact()
 		if err != nil {
 			slog.Error("failed to serialize preflight result", "error", err)
 			os.Exit(1)
 		}
-		fmt.Println(jsonStr)
+		fmt.Print(jsonStr)
 	} else {
-		// Human-readable text output (used by install.sh and debugging)
+		// Human-readable text output
 		fmt.Print(result.Text())
 	}
 
