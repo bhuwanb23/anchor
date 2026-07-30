@@ -16,7 +16,7 @@ export class WSClient {
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(
-    url: string = process.env.NEXT_PUBLIC_WS_URL || "ws://localhost:8080",
+    url: string = process.env.NEXT_PUBLIC_WS_URL || "ws://localhost:8080/ws/agent",
     reconnectSec: number = 5
   ) {
     this.url = url;
