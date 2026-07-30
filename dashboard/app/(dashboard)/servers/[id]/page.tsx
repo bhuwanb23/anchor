@@ -5,7 +5,7 @@ import { useServer } from "@/hooks/use-server";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { StatusBadge } from "@/components/ui/badge";
 import { LogViewer } from "@/components/dashboard/log-viewer";
-import { ArrowLeft, Server } from "lucide-react";
+import { ArrowLeft, Server, HardDrive, Cpu, Wifi, Activity } from "lucide-react";
 import Link from "next/link";
 
 export default function ServerDetailPage({
