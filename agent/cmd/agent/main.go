@@ -149,6 +149,23 @@ func run(configPath string) {
 						slog.Info("wrote agent.connected file")
 					}
 					connected = true
+
+					// Run pre-flight on startup and send results to control plane
+					go func() {
+						preflightResult := preflight.RunAll()
+						if err := wsClient.SendJSON(map[string]interface{}{
+							"type":          "preflight_result",
+							"system_info":   preflightResult.SystemInfo,
+							"passed":        preflightResult.Passed,
+							"warnings":      preflightResult.Warnings(),
+							"auto_fixed":    preflightResult.AutoFixed,
+							"checks":        preflightResult.Checks,
+						}); err != nil {
+							slog.Warn("failed to send preflight result", "error", err)
+						} else {
+							slog.Info("sent preflight results to control plane")
+						}
+					}()
 				}
 
 			case "heartbeat":
@@ -209,74 +226,6 @@ func registerAgent(cfg *config.Config, configPath string) error {
 	}
 
 	return nil
-}
-
-type serverInfo struct {
-	OS        string `json:"os"`
-	Arch      string `json:"arch"`
-	RAMMB     int    `json:"ram_mb"`
-	DiskGB    int    `json:"disk_gb"`
-	IPAddress string `json:"ip_address"`
-}
-
-func collectServerInfo() serverInfo {
-	info := serverInfo{
-		OS:   detectOS(),
-		Arch: runtime.GOARCH,
-	}
-
-	info.RAMMB = detectRAM()
-	info.DiskGB = detectDisk()
-	info.IPAddress = detectIP()
-
-	return info
-}
-
-func detectOS() string {
-	data, err := os.ReadFile("/etc/os-release")
-	if err != nil {
-		return runtime.GOOS
-	}
-	for _, line := range strings.Split(string(data), "\n") {
-		if strings.HasPrefix(line, "ID=") {
-			return strings.Trim(strings.TrimPrefix(line, "ID="), "\"")
-		}
-	}
-	return runtime.GOOS
-}
-
-func detectRAM() int {
-	data, err := os.ReadFile("/proc/meminfo")
-	if err != nil {
-		return 0
-	}
-	for _, line := range strings.Split(string(data), "\n") {
-		if strings.HasPrefix(line, "MemTotal:") {
-			fields := strings.Fields(line)
-			if len(fields) >= 2 {
-				kb, _ := strconv.Atoi(fields[1])
-				return kb / 1024
-			}
-		}
-	}
-	return 0
-}
-
-func detectDisk() int {
-	out, err := exec.Command("df", "-BG", "/").Output()
-	if err != nil {
-		return 0
-	}
-	lines := strings.Split(string(out), "\n")
-	if len(lines) < 2 {
-		return 0
-	}
-	fields := strings.Fields(lines[1])
-	if len(fields) >= 2 {
-		gb, _ := strconv.Atoi(strings.TrimSuffix(fields[1], "G"))
-		return gb
-	}
-	return 0
 }
 
 func detectIP() string {
