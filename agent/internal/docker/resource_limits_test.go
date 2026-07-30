@@ -151,3 +151,68 @@ func TestToDockerResources(t *testing.T) {
 		t.Errorf("expected CPUShares=512, got %d", res.CPUShares)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// DefaultResourceLimits — unknown type fallback
+// ---------------------------------------------------------------------------
+
+func TestDefaultResourceLimits_Unknown(t *testing.T) {
+	rl := DefaultResourceLimits("unknown-type")
+	app := DefaultResourceLimits(ContainerTypeApp)
+	if rl.MemoryHard != app.MemoryHard {
+		t.Errorf("unknown type should fall back to app limits, got MemoryHard=%d", rl.MemoryHard)
+	}
+	if rl.MemorySoft != app.MemorySoft {
+		t.Errorf("unknown type should fall back to app soft limit, got MemorySoft=%d", rl.MemorySoft)
+	}
+	if rl.CPUShares != app.CPUShares {
+		t.Errorf("unknown type should fall back to app CPU shares, got CPUShares=%d", rl.CPUShares)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// ValidateResourceLimits — negative memory
+// ---------------------------------------------------------------------------
+
+func TestValidateResourceLimits_NegativeMemory(t *testing.T) {
+	rl := &ResourceLimits{
+		MemorySoft: -100,
+		MemoryHard: -200,
+		MemorySwap: 0,
+		CPUShares:  512,
+	}
+	// Negative hard limit is less than totalRAM - 512MB, so it passes the first check
+	// But soft > hard, so it should fail
+	err := ValidateResourceLimits(rl, 2048)
+	if err == nil {
+		t.Error("expected error for negative memory with soft > hard")
+	}
+}
+
+func TestValidateResourceLimits_ExactBoundary(t *testing.T) {
+	// MemoryHard exactly at totalRAM - 512MB should pass
+	rl := &ResourceLimits{
+		MemorySoft: 1024 * mb,
+		MemoryHard: 1536 * mb, // 2048MB - 512MB = 1536MB
+		MemorySwap: 0,
+		CPUShares:  512,
+	}
+	err := ValidateResourceLimits(rl, 2048)
+	if err != nil {
+		t.Errorf("boundary case should pass, got: %v", err)
+	}
+}
+
+func TestValidateResourceLimits_OneOverBoundary(t *testing.T) {
+	// MemoryHard one MB over totalRAM - 512MB should fail
+	rl := &ResourceLimits{
+		MemorySoft: 1536 * mb,
+		MemoryHard: 1537 * mb, // 2048MB - 512MB + 1MB
+		MemorySwap: 0,
+		CPUShares:  512,
+	}
+	err := ValidateResourceLimits(rl, 2048)
+	if err == nil {
+		t.Error("expected error for one MB over boundary")
+	}
+}
