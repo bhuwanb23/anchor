@@ -12,9 +12,9 @@ import (
 )
 
 const (
-	networkPrefix  = "yourplatform_"
-	labelOwner     = "yourplatform.owner"
-	labelProject   = "yourplatform.project"
+	networkPrefix   = "yourplatform_"
+	labelOwner      = "yourplatform.owner"
+	labelProject    = "yourplatform.project"
 	labelOwnerValue = "yourplatform-agent"
 )
 
@@ -74,16 +74,23 @@ func (c *Client) EnsureProjectNetwork(ctx context.Context, projectName string) (
 	}
 
 	// Create the network
+	projectSafe := SanitizeProjectName(projectName)
 	resp, err := c.cliUnsafe().NetworkCreate(ctx, networkName, types.NetworkCreate{
 		Driver:     "bridge",
 		Internal:   false, // containers can reach internet for npm install etc.
 		Attachable: true,
 		Labels: map[string]string{
 			labelOwner:   labelOwnerValue,
-			labelProject: SanitizeProjectName(projectName),
+			labelProject: projectSafe,
 		},
 	})
 	if err != nil {
+		// If network was just created by a concurrent caller, look it up
+		if existing, lookupErr := c.findNetworkByName(ctx, networkName); lookupErr == nil && existing != nil {
+			slog.Debug("network was already created by concurrent operation",
+				"network", networkName, "id", existing.ID[:12])
+			return existing.ID, nil
+		}
 		return "", fmt.Errorf("create network %s: %w", networkName, err)
 	}
 
