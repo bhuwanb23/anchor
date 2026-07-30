@@ -410,6 +410,15 @@ func (c *Client) CreateContainer(ctx context.Context, opts CreateContainerOpts) 
 		AutoRemove:   true,
 	}
 
+	// Mount persistent volumes (data survives container removal)
+	for _, vm := range opts.VolumeMounts {
+		mode := "rw"
+		if vm.ReadOnly {
+			mode = "ro"
+		}
+		hostConfig.Binds = append(hostConfig.Binds, fmt.Sprintf("%s:%s:%s", vm.Name, vm.MountPath, mode))
+	}
+
 	// Attach to project networks at creation time (not as a separate step)
 	var networkingConfig *network.NetworkingConfig
 	if len(opts.Networks) > 0 {
@@ -515,6 +524,7 @@ type CreateContainerOpts struct {
 	ExposedPorts nat.PortSet
 	Env          []string
 	Networks     []NetworkEndpointConfig // Attach to networks at creation time (one step)
+	VolumeMounts []VolumeMount          // Mount persistent volumes into the container
 }
 
 // ---------------------------------------------------------------------------
