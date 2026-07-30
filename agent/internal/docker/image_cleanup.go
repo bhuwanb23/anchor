@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/docker/docker/api/types"
+	"golang.org/x/sys/unix"
 )
 
 // ---------------------------------------------------------------------------
@@ -24,14 +25,24 @@ type CleanupPolicy struct {
 
 	// PinnedImages is a set of image refs that must never be removed.
 	PinnedImages map[string]bool
+
+	// PreviousVersions is a set of image refs that are the previous version
+	// of each deployed app. These are kept for one-click rollback and must
+	// not be removed by cleanup.
+	PreviousVersions map[string]bool
+
+	// ImageCache is an optional cache that tracks LastUsedAt timestamps.
+	// When set, staleness is determined by LastUsedAt instead of Created time.
+	ImageCache *ImageCache
 }
 
 // DefaultCleanupPolicy returns a sensible default policy.
 func DefaultCleanupPolicy() *CleanupPolicy {
 	return &CleanupPolicy{
-		StaleAge:     30 * 24 * time.Hour, // 30 days
-		DryRun:       false,
-		PinnedImages: make(map[string]bool),
+		StaleAge:         30 * 24 * time.Hour, // 30 days
+		DryRun:           false,
+		PinnedImages:     make(map[string]bool),
+		PreviousVersions: make(map[string]bool),
 	}
 }
 
@@ -52,11 +63,12 @@ type CleanupReport struct {
 // Running container image detection
 // ---------------------------------------------------------------------------
 
-// runningImageRefs returns a set of image IDs currently in use by running
-// (or paused) containers. These images must never be removed.
+// runningImageRefs returns a set of image IDs currently depended on by
+// any container (running, paused, or stopped). Every app's current version
+// image is protected so cleanup never breaks rollback or restarts.
 func (c *Client) runningImageRefs(ctx context.Context) (map[string]bool, error) {
 	containers, err := c.cliUnsafe().ContainerList(ctx, types.ContainerListOptions{
-		All: false, // only running containers
+		All: true, // every container — running, stopped, paused
 	})
 	if err != nil {
 		return nil, fmt.Errorf("list containers: %w", err)
@@ -73,25 +85,6 @@ func (c *Client) runningImageRefs(ctx context.Context) (map[string]bool, error) 
 		}
 	}
 
-	// Also include paused containers (they still depend on the image)
-	var allContainers []types.Container
-	allContainers, err = c.cliUnsafe().ContainerList(ctx, types.ContainerListOptions{
-		All:  true,
-		Size: false,
-	})
-	if err == nil {
-		for _, ct := range allContainers {
-			if ct.State == "paused" {
-				if ct.ImageID != "" {
-					refs[ct.ImageID] = true
-				}
-				if ct.Image != "" {
-					refs[ct.Image] = true
-				}
-			}
-		}
-	}
-
 	return refs, nil
 }
 
@@ -99,50 +92,58 @@ func (c *Client) runningImageRefs(ctx context.Context) (map[string]bool, error) 
 // Disk pressure check
 // ---------------------------------------------------------------------------
 
-// DiskPressureLevel returns how urgently cleanup is needed based on disk usage.
+// DiskPressureLevel checks disk usage on Docker's data directory and returns
+// a pressure level:
 //   - 0: normal (below 70%)
 //   - 1: elevated (70%–85%) — run standard cleanup
 //   - 2: critical (85%+) — run aggressive cleanup
 func (c *Client) DiskPressureLevel(ctx context.Context) (int, error) {
 	info, err := c.cliUnsafe().Info(ctx)
 	if err != nil {
-		return 0, fmt.Errorf("docker info: %w", err)
+		slog.Warn("failed to get docker info for disk pressure check", "error", err)
+		return 0, nil // assume normal if we can't check
 	}
 
-	// Docker DaemonLabels might have disk info; fall back to Docker data root
-	// Use the DockerRootDir to check disk usage of the Docker data directory.
-	// If we can't determine disk usage, assume normal.
-	if info.DockerRootDir == "" {
-		return 0, nil
+	dir := info.DockerRootDir
+	if dir == "" {
+		dir = "/var/lib/docker"
 	}
 
-	// We read disk usage from the Docker info's configured data directory.
-	// For a more accurate check, we'd use the OS disk API, but this gives
-	// us a good heuristic based on what Docker knows.
-	//
-	// Actually, Docker info doesn't give us disk-used-percent directly.
-	// We use the docker system df command as a reliable source.
-	//
-	// For now, we use a simple heuristic: if Docker images are consuming
-	// significant space relative to the Docker root partition.
-
-	// Simplest approach: use the Docker Root Dir to estimate.
-	// Docker doesn't expose disk usage percentage in Info response.
-	// We'll use a simpler check — look at whether Docker can write.
-	_ = info.DockerRootDir
-
-	return 0, nil
+	return checkDiskPressure(dir)
 }
 
-// checkDiskPressure performs a simple disk usage check on Docker's data directory.
-// Returns: pressure level (0 normal, 1 elevated, 2 critical) and human message.
-func checkDiskPressure(dockerRootDir string) (int, string) {
-	// Use gopsutil or unix.Statfs to check disk usage.
-	// Since we're in the docker package and don't import gopsutil,
-	// we use a direct statfs call via the unix package or os.Stat.
+// checkDiskPressure performs a real disk usage check on the given directory
+// using unix.Statfs. Returns pressure level (0, 1, or 2) and a human message.
+func checkDiskPressure(dir string) (int, string) {
+	var stat unix.Statfs_t
+	if err := unix.Statfs(dir, &stat); err != nil {
+		slog.Warn("failed to statfs for disk pressure check", "dir", dir, "error", err)
+		return 0, ""
+	}
 
-	// Fallback: if we can't check disk, don't trigger cleanup.
-	// In practice, the system-level pre-flight (Layer 2) tracks this.
+	total := stat.Blocks * uint64(stat.Bsize)
+	free := stat.Bavail * uint64(stat.Bsize)
+
+	if total == 0 {
+		return 0, ""
+	}
+
+	usedPercent := 100.0 - (float64(free)/float64(total))*100.0
+
+	slog.Debug("disk pressure check",
+		"dir", dir,
+		"total_gb", total/(1024*1024*1024),
+		"free_gb", free/(1024*1024*1024),
+		"used_percent", fmt.Sprintf("%.1f%%", usedPercent),
+	)
+
+	if usedPercent >= 85.0 {
+		return 2, fmt.Sprintf("Disk is %.0f%% full on %s — critical", usedPercent, dir)
+	}
+	if usedPercent >= 70.0 {
+		return 1, fmt.Sprintf("Disk is %.0f%% full on %s — elevated", usedPercent, dir)
+	}
+
 	return 0, ""
 }
 
@@ -151,16 +152,20 @@ func checkDiskPressure(dockerRootDir string) (int, string) {
 // ---------------------------------------------------------------------------
 
 // planCleanup determines which images should be removed based on the policy.
-// It never includes images referenced by running containers or pinned images.
+// It never removes:
+//   - Images referenced by any container (running, stopped, or paused)
+//   - Images marked as pinned
+//   - Previous versions of deployed apps (for rollback)
+//   - Images that have been used recently (normal mode only)
 func (c *Client) planCleanup(ctx context.Context, policy *CleanupPolicy, aggressive bool) (*CleanupReport, error) {
 	report := &CleanupReport{
 		ImagesProtected: make([]string, 0),
 	}
 
-	// 1. Get images in use by running containers
-	runningRefs, err := c.runningImageRefs(ctx)
+	// 1. Get images depended on by ALL containers (running, stopped, paused)
+	containerRefs, err := c.runningImageRefs(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("detect running containers: %w", err)
+		return nil, fmt.Errorf("detect container images: %w", err)
 	}
 
 	// 2. List all local images
@@ -178,11 +183,11 @@ func (c *Client) planCleanup(ctx context.Context, policy *CleanupPolicy, aggress
 			continue
 		}
 
-		// Never remove images used by running containers
-		if runningRefs[img.ID] || runningRefs[ref] {
+		// Never remove images used by any container
+		if containerRefs[img.ID] || containerRefs[ref] {
 			report.ImagesSkipped++
 			report.ImagesProtected = append(report.ImagesProtected,
-				fmt.Sprintf("%s (in use by running container)", ref))
+				fmt.Sprintf("%s (in use by container)", ref))
 			continue
 		}
 
@@ -194,12 +199,17 @@ func (c *Client) planCleanup(ctx context.Context, policy *CleanupPolicy, aggress
 			continue
 		}
 
-		// Check last-used timestamp via cache
-		// Age check: in normal mode, only remove stale images.
-		// In aggressive mode, remove everything not protected.
+		// Never remove previous versions (needed for one-click rollback)
+		if policy.PreviousVersions[ref] {
+			report.ImagesSkipped++
+			report.ImagesProtected = append(report.ImagesProtected,
+				fmt.Sprintf("%s (previous version — kept for rollback)", ref))
+			continue
+		}
+
+		// Age check using cache's LastUsedAt if available, else Created time
 		if !aggressive {
-			age := time.Since(img.Created)
-			if age < policy.StaleAge {
+			if !c.isImageStaleEnough(policy, ref, img.Created) {
 				report.ImagesSkipped++
 				continue
 			}
@@ -226,6 +236,20 @@ func (c *Client) planCleanup(ctx context.Context, policy *CleanupPolicy, aggress
 	}
 
 	return report, nil
+}
+
+// isImageStaleEnough checks whether an image is old enough to be removed.
+// Uses ImageCache.LastUsedAt when available (more accurate), falls back
+// to the image's Created timestamp.
+func (c *Client) isImageStaleEnough(policy *CleanupPolicy, ref string, created time.Time) bool {
+	// Check cache for LastUsedAt
+	if policy.ImageCache != nil {
+		if entry := policy.ImageCache.Get(ref); entry != nil && !entry.LastUsedAt.IsZero() {
+			return time.Since(entry.LastUsedAt) > policy.StaleAge
+		}
+	}
+	// Fall back to image Created time
+	return time.Since(created) > policy.StaleAge
 }
 
 // ---------------------------------------------------------------------------

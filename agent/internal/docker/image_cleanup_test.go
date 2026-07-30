@@ -17,6 +17,9 @@ func TestDefaultCleanupPolicy(t *testing.T) {
 	if p.PinnedImages == nil {
 		t.Error("expected non-nil PinnedImages map")
 	}
+	if p.PreviousVersions == nil {
+		t.Error("expected non-nil PreviousVersions map")
+	}
 }
 
 func TestCleanupPolicy_PinnedImages(t *testing.T) {
@@ -25,6 +28,15 @@ func TestCleanupPolicy_PinnedImages(t *testing.T) {
 
 	if !p.PinnedImages["nginx:latest"] {
 		t.Error("expected nginx:latest to be pinned")
+	}
+}
+
+func TestCleanupPolicy_PreviousVersions(t *testing.T) {
+	p := DefaultCleanupPolicy()
+	p.PreviousVersions["myapp:v1"] = true
+
+	if !p.PreviousVersions["myapp:v1"] {
+		t.Error("expected myapp:v1 to be a previous version")
 	}
 }
 
@@ -224,6 +236,39 @@ func TestRunScheduledCleanup_NilPolicy(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// Staleness check
+// ---------------------------------------------------------------------------
+
+func TestIsImageStaleEnough_NoCache(t *testing.T) {
+	client := &Client{}
+	policy := DefaultCleanupPolicy()
+
+	// Image created 1 hour ago — not stale (default 30 day threshold)
+	if client.isImageStaleEnough(policy, "nginx:latest", time.Now().Add(-1*time.Hour)) {
+		t.Error("expected false for 1-hour-old image with 30-day stale age")
+	}
+
+	// Image created 60 days ago — stale
+	if !client.isImageStaleEnough(policy, "nginx:latest", time.Now().Add(-60*24*time.Hour)) {
+		t.Error("expected true for 60-day-old image with 30-day stale age")
+	}
+}
+
+func TestIsImageStaleEnough_WithCache(t *testing.T) {
+	dir := t.TempDir()
+	cache, _ := NewImageCache(dir + "/cache.json")
+
+	client := &Client{}
+	policy := DefaultCleanupPolicy()
+	policy.ImageCache = cache
+
+	// No cache entry — should fall back to Created time
+	if client.isImageStaleEnough(policy, "unknown:latest", time.Now().Add(-60*24*time.Hour)) {
+		t.Error("expected stale without cache entry when Created is old")
+	}
+}
+
+// ---------------------------------------------------------------------------
 // Pin protection
 // ---------------------------------------------------------------------------
 
@@ -240,4 +285,19 @@ func TestPlanCleanup_SkipsPinnedImages(t *testing.T) {
 		t.Skip("expected error without real Docker socket")
 	}
 	// Structural check: the function doesn't panic when checking PinnedImages
+}
+
+func TestPlanCleanup_SkipsPreviousVersions(t *testing.T) {
+	client := &Client{
+		socket:    "unix:///var/run/docker.sock",
+		connected: false,
+	}
+	policy := DefaultCleanupPolicy()
+	policy.PreviousVersions["myapp:v1"] = true
+
+	_, err := client.planCleanup(context.Background(), policy, false)
+	if err == nil {
+		t.Skip("expected error without real Docker socket")
+	}
+	// Structural check: the function doesn't panic when checking PreviousVersions
 }
