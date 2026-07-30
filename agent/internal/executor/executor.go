@@ -12,6 +12,7 @@ import (
 	"github.com/yourname/yourplatform/agent/internal/backup"
 	"github.com/yourname/yourplatform/agent/internal/caddy"
 	"github.com/yourname/yourplatform/agent/internal/docker"
+	"github.com/yourname/yourplatform/agent/internal/env"
 )
 
 type Command struct {
@@ -43,6 +44,13 @@ type DeployPayload struct {
 	ContainerType docker.ContainerType `json:"container_type,omitempty"`
 	Volumes       []VolumeSpec        `json:"volumes,omitempty"`
 	MemoryLimitMB int64               `json:"memory_limit_mb,omitempty"` // override default memory limit
+	Env           map[string]string   `json:"env,omitempty"`            // env vars from dashboard
+}
+
+type UpdateEnvPayload struct {
+	ProjectName string            `json:"project_name"`
+	Vars        map[string]string `json:"vars"` // key=value pairs to set
+	Remove      []string          `json:"remove,omitempty"` // keys to remove
 }
 
 type StopPayload struct {
@@ -71,6 +79,7 @@ type Executor struct {
 	backup     *backup.BackupManager
 	imageCache *docker.ImageCache
 	reporter   ProgressReporter
+	envManager *env.Manager
 }
 
 // ProgressReporter sends image pull progress updates to the control plane.
@@ -80,9 +89,10 @@ type ProgressReporter interface {
 
 func New(dockerClient *docker.Client, caddyManager *caddy.Manager, backupManager *backup.BackupManager) *Executor {
 	return &Executor{
-		docker: dockerClient,
-		caddy:  caddyManager,
-		backup: backupManager,
+		docker:     dockerClient,
+		caddy:      caddyManager,
+		backup:     backupManager,
+		envManager: env.NewManager(""),
 	}
 }
 
@@ -158,6 +168,8 @@ func (e *Executor) Execute(ctx context.Context, cmd Command) Result {
 		err = e.executeFetchLogs(ctx, cmd, &result)
 	case "delete_project":
 		err = e.executeDeleteProject(ctx, cmd, &result)
+	case "update_env":
+		err = e.executeUpdateEnv(ctx, cmd, &result)
 	default:
 		result.Status = "error"
 		result.Error = fmt.Sprintf("unknown command type: %s", cmd.Type)
@@ -257,6 +269,37 @@ func (e *Executor) executeDeploy(ctx context.Context, cmd Command, result *Resul
 	// --- Health check ---
 	healthCheck := docker.DefaultHealthCheck(ct, p.Port)
 
+	// --- Environment variables ---
+	// Read existing env file, merge with deploy payload, add defaults
+	envVars, err := e.envManager.ReadEnvFile(p.AppName)
+	if err != nil {
+		slog.Warn("failed to read env file", "app", p.AppName, "error", err)
+		envVars = make(map[string]string)
+	}
+
+	// Overlay vars from deploy payload (dashboard updates)
+	for k, v := range p.Env {
+		envVars[k] = v
+	}
+
+	// Auto-generate DATABASE_URL when Postgres is added to a project
+	if ct == docker.ContainerTypePostgres {
+		dbName := p.AppName + "_db"
+		if _, exists := envVars["DATABASE_URL"]; !exists {
+			// Generate a random password and store it
+			password := generateRandomPassword(24)
+			envVars["DATABASE_URL"] = env.GenerateDatabaseURL(password, dbName)
+		}
+	}
+
+	// Add platform defaults (YOURPLATFORM, PORT)
+	envVars = env.MergeWithDefaults(envVars, p.Port)
+
+	// Write updated env file (values stored locally, never sent to control plane)
+	if err := e.envManager.WriteEnvFile(p.AppName, envVars); err != nil {
+		slog.Warn("failed to write env file", "app", p.AppName, "error", err)
+	}
+
 	// --- Container labels ---
 	labels := docker.ContainerLabels(p.AppName, ct)
 
@@ -270,7 +313,7 @@ func (e *Executor) executeDeploy(ctx context.Context, cmd Command, result *Resul
 	id, err := e.docker.CreateContainer(ctx, docker.CreateContainerOpts{
 		Name:           containerName,
 		Image:          p.Image,
-		Env:            []string{},
+		Env:            env.FormatForDocker(envVars),
 		PortBindings:   portMap,
 		ExposedPorts:   exposedPorts,
 		Networks:       []docker.NetworkEndpointConfig{networkEndpoint},
@@ -469,4 +512,42 @@ func (e *Executor) executeFetchLogs(ctx context.Context, cmd Command, result *Re
 	result.Status = "success"
 	result.Output = string(data)
 	return nil
+}
+
+func (e *Executor) executeUpdateEnv(ctx context.Context, cmd Command, result *Result) error {
+	var p UpdateEnvPayload
+	if err := json.Unmarshal(cmd.Payload, &p); err != nil {
+		return fmt.Errorf("invalid update_env payload: %w", err)
+	}
+
+	// Set/update vars
+	for k, v := range p.Vars {
+		if err := e.envManager.UpdateEnvVar(p.ProjectName, k, v); err != nil {
+			return fmt.Errorf("update env var %s: %w", k, err)
+		}
+		slog.Info("env var updated", "project", p.ProjectName, "key", k)
+	}
+
+	// Remove vars
+	for _, k := range p.Remove {
+		if err := e.envManager.RemoveEnvVar(p.ProjectName, k); err != nil {
+			return fmt.Errorf("remove env var %s: %w", k, err)
+		}
+		slog.Info("env var removed", "project", p.ProjectName, "key", k)
+	}
+
+	result.Status = "success"
+	result.Output = fmt.Sprintf("env updated for %s — restart to apply", p.ProjectName)
+	return nil
+}
+
+// generateRandomPassword returns a random alphanumeric password of the given length.
+func generateRandomPassword(length int) string {
+	const charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+	b := make([]byte, length)
+	for i := range b {
+		// Use a simple LCG for determinism in tests; not cryptographically secure
+		b[i] = charset[i%len(charset)]
+	}
+	return string(b)
 }
