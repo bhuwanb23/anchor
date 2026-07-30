@@ -95,9 +95,16 @@ func run(configPath string) {
 		os.Exit(1)
 	}
 
+	// Create image cache for smart pull decisions (digest-based caching)
+	imageCache, err := docker.NewImageCache("/var/lib/yourplatform/image_cache.json")
+	if err != nil {
+		slog.Warn("failed to create image cache, continuing without cache", "error", err)
+		imageCache = nil
+	}
+
 	caddyManager := caddy.NewManager("http://localhost:2019")
 	backupManager := backup.NewManager(cfg.BackupDest)
-	exec := executor.New(dockerClient, caddyManager, backupManager)
+	exec := executor.New(dockerClient, caddyManager, backupManager).WithImageCache(imageCache)
 
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()

@@ -92,12 +92,23 @@ func (r ImageRef) Normalized() string {
 
 // ImageSummary holds information about an image available locally.
 type ImageSummary struct {
-	ID        string    `json:"id"`
-	RepoTag   string    `json:"repo_tag"`
-	SizeBytes int64     `json:"size_bytes"`
-	Created   time.Time `json:"created"`
-	OS        string    `json:"os"`
-	Arch      string    `json:"arch"`
+	ID           string    `json:"id"`
+	RepoTag      string    `json:"repo_tag"`
+	RepoDigests  []string  `json:"repo_digests,omitempty"`
+	SizeBytes    int64     `json:"size_bytes"`
+	Created      time.Time `json:"created"`
+	OS           string    `json:"os"`
+	Arch         string    `json:"arch"`
+}
+
+// Digest returns the first available digest from RepoDigests, or empty string.
+func (s *ImageSummary) Digest() string {
+	for _, d := range s.RepoDigests {
+		if idx := strings.Index(d, "@"); idx > 0 {
+			return d[idx+1:]
+		}
+	}
+	return ""
 }
 
 // HumanSize returns the image size in a human-readable format.
@@ -169,35 +180,181 @@ func (c *Client) ImageExistsLocally(ctx context.Context, ref string) (*ImageSumm
 // Smart pull
 // ---------------------------------------------------------------------------
 
-// PullImageIfNeeded pulls an image only if it is not already cached locally.
-// For "latest" tags, it always pulls (the tag may have been updated upstream).
-// For specific version tags (e.g., "1.25", "v1.2.3"), it skips the pull if
-// the image is already present locally.
-func (c *Client) PullImageIfNeeded(ctx context.Context, ref string, progressFn PullProgressFunc) (*ImageSummary, bool, error) {
-	parsed := ParseImageRef(ref)
+// ---------------------------------------------------------------------------
+// Remote digest checking
+// ---------------------------------------------------------------------------
 
-	// Check local cache for specific versions
-	if !parsed.IsLatest() {
-		summary, exists, err := c.ImageExistsLocally(ctx, ref)
-		if err != nil {
-			return nil, false, fmt.Errorf("check local image cache: %w", err)
+// CheckRemoteDigest queries the registry for the current manifest digest of
+// the given image reference without pulling layers. Returns the digest string
+// (e.g. "sha256:abc...") or an error if the image doesn't exist on the registry.
+//
+// For private registries, this may fail due to missing auth credentials.
+// The caller should fall back to a full pull in that case.
+func (c *Client) CheckRemoteDigest(ctx context.Context, ref string) (string, error) {
+	if err := c.ensureConnected(ctx); err != nil {
+		return "", fmt.Errorf("docker unavailable: %w", err)
+	}
+
+	distInfo, err := c.cliUnsafe().DistributionInspect(ctx, ref, "")
+	if err != nil {
+		slog.Debug("distribution inspect failed (may need registry auth), falling back to pull",
+			"image", ref, "error", err)
+		return "", fmt.Errorf("check remote digest for %s: %w", ref, err)
+	}
+
+	return string(distInfo.Descriptor.Digest), nil
+}
+
+// GetLocalDigest returns the digest for an image from its RepoDigests.
+// Returns empty string if the image doesn't have a digest or doesn't exist.
+func (c *Client) GetLocalDigest(ctx context.Context, ref string) (string, error) {
+	summary, err := c.InspectImage(ctx, ref)
+	if err != nil {
+		return "", err
+	}
+	return summary.Digest(), nil
+}
+
+// ---------------------------------------------------------------------------
+// Smart pull with cache
+// ---------------------------------------------------------------------------
+
+// PullImageIfNeeded pulls an image using the following strategy:
+//
+//  1. For "latest" tags:
+//     a. Check the digest cache for the last known remote digest
+//     b. Query the registry for the current digest (without pulling)
+//     c. If digests match AND image still exists locally → skip pull
+//     d. If digests differ or image missing → pull
+//
+//  2. For specific version tags (e.g., "1.25", "v1.2.3"):
+//     a. Check if image exists locally → skip pull
+//     b. Otherwise → pull
+//
+//  3. For images from custom registries:
+//     Always pull (user may have pushed a new version with the same tag)
+//
+// After a successful pull, the cache is updated with the new digest and metadata.
+// Returns (summary, wasPulled, error).
+func (c *Client) PullImageIfNeeded(ctx context.Context, ref string, cache *ImageCache, progressFn PullProgressFunc) (*ImageSummary, bool, error) {
+	parsed := ParseImageRef(ref)
+	normalized := parsed.Normalized()
+
+	// Strategy for "latest" tags: use digest comparison
+	if parsed.IsLatest() {
+		return c.pullLatestWithDigestCheck(ctx, ref, normalized, cache, progressFn)
+	}
+
+	// Strategy for custom registries: always pull (user images)
+	if parsed.IsRegistrySpecific() {
+		slog.Debug("custom registry detected, always pulling", "image", ref)
+		return c.pullAndCache(ctx, ref, cache, progressFn)
+	}
+
+	// Strategy for specific version tags: check local, skip if present
+	summary, exists, err := c.ImageExistsLocally(ctx, ref)
+	if err != nil {
+		return nil, false, fmt.Errorf("check local image cache: %w", err)
+	}
+	if exists {
+		slog.Info("image already exists locally, skipping pull",
+			"image", ref,
+			"size", summary.HumanSize(),
+		)
+		// Update last-used timestamp in cache
+		if cache != nil {
+			cache.UpdateLastUsed(normalized)
 		}
-		if exists {
-			slog.Info("image already exists locally, skipping pull",
+		return summary, false, nil
+	}
+
+	return c.pullAndCache(ctx, ref, cache, progressFn)
+}
+
+// pullLatestWithDigestCheck handles the "latest" tag strategy with digest comparison.
+func (c *Client) pullLatestWithDigestCheck(ctx context.Context, ref, normalized string, cache *ImageCache, progressFn PullProgressFunc) (*ImageSummary, bool, error) {
+	if cache == nil {
+		// No cache available, just pull
+		return c.pullAndCache(ctx, ref, nil, progressFn)
+	}
+
+	// Check cache for last known digest
+	cached := cache.Get(normalized)
+
+	// Query remote digest
+	remoteDigest, err := c.CheckRemoteDigest(ctx, ref)
+	if err != nil {
+		// If we can't check the remote digest, fall back to pulling
+		slog.Warn("failed to check remote digest, pulling anyway", "image", ref, "error", err)
+		return c.pullAndCache(ctx, ref, cache, progressFn)
+	}
+
+	// Compare with cached digest
+	if cached != nil && cached.Digest == remoteDigest {
+		// Digests match — check if the image still exists locally
+		summary, exists, err := c.ImageExistsLocally(ctx, ref)
+		if err == nil && exists {
+			slog.Info("image digest unchanged, skipping pull",
 				"image", ref,
-				"size", summary.HumanSize(),
+				"digest", remoteDigest[:19],
 			)
+			cache.UpdateLastUsed(normalized)
 			return summary, false, nil
 		}
 	}
 
-	// Pull the image
+	slog.Info("image digest changed or not cached, pulling",
+		"image", ref,
+		"cached_digest", digestOrNone(cached),
+		"remote_digest", shortDigest(remoteDigest),
+	)
+
+	return c.pullAndCache(ctx, ref, cache, progressFn)
+}
+
+// pullAndCache pulls the image and records metadata in the cache.
+func (c *Client) pullAndCache(ctx context.Context, ref string, cache *ImageCache, progressFn PullProgressFunc) (*ImageSummary, bool, error) {
 	summary, err := c.PullImage(ctx, ref, progressFn)
 	if err != nil {
 		return nil, false, err
 	}
 
+	// Record in cache
+	if cache != nil {
+		entry := &CacheEntry{
+			Ref:        ref,
+			Tag:        ParseImageRef(ref).Tag,
+			Digest:     summary.Digest(),
+			ImageID:    summary.ID,
+			SizeBytes:  summary.SizeBytes,
+			PulledAt:   time.Now().UTC(),
+			LastUsedAt: time.Now().UTC(),
+		}
+		cache.Set(entry)
+		if err := cache.Save(); err != nil {
+			slog.Warn("failed to save image cache", "error", err)
+		}
+	}
+
 	return summary, true, nil
+}
+
+// ---------------------------------------------------------------------------
+// Digest helpers
+// ---------------------------------------------------------------------------
+
+func digestOrNone(entry *CacheEntry) string {
+	if entry == nil || entry.Digest == "" {
+		return "<none>"
+	}
+	return shortDigest(entry.Digest)
+}
+
+func shortDigest(digest string) string {
+	if len(digest) > 19 {
+		return digest[:19]
+	}
+	return digest
 }
 
 // ---------------------------------------------------------------------------
@@ -345,12 +502,13 @@ func (c *Client) InspectImage(ctx context.Context, ref string) (*ImageSummary, e
 	}
 
 	return &ImageSummary{
-		ID:        info.ID,
-		RepoTag:   repoTag,
-		SizeBytes: info.Size,
-		Created:   created,
-		OS:        info.Os,
-		Arch:      info.Architecture,
+		ID:          info.ID,
+		RepoTag:     repoTag,
+		RepoDigests: info.RepoDigests,
+		SizeBytes:   info.Size,
+		Created:     created,
+		OS:          info.Os,
+		Arch:        info.Architecture,
 	}, nil
 }
 

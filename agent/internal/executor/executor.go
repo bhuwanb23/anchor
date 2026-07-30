@@ -53,9 +53,10 @@ type FetchLogsPayload struct {
 }
 
 type Executor struct {
-	docker  *docker.Client
-	caddy   *caddy.Manager
-	backup  *backup.BackupManager
+	docker      *docker.Client
+	caddy       *caddy.Manager
+	backup      *backup.BackupManager
+	imageCache  *docker.ImageCache
 }
 
 func New(dockerClient *docker.Client, caddyManager *caddy.Manager, backupManager *backup.BackupManager) *Executor {
@@ -64,6 +65,12 @@ func New(dockerClient *docker.Client, caddyManager *caddy.Manager, backupManager
 		caddy:  caddyManager,
 		backup: backupManager,
 	}
+}
+
+// WithImageCache attaches an image cache to the executor for smart pull decisions.
+func (e *Executor) WithImageCache(cache *docker.ImageCache) *Executor {
+	e.imageCache = cache
+	return e
 }
 
 type CommandQueue struct {
@@ -143,7 +150,7 @@ func (e *Executor) executeDeploy(ctx context.Context, cmd Command, result *Resul
 		return fmt.Errorf("invalid deploy payload: %w", err)
 	}
 
-	if _, err := e.docker.PullImageIfNeeded(ctx, p.Image, nil); err != nil {
+	if _, _, err := e.docker.PullImageIfNeeded(ctx, p.Image, e.imageCache, nil); err != nil {
 		return fmt.Errorf("pull image: %w", err)
 	}
 
