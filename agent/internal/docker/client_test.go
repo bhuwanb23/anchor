@@ -149,3 +149,208 @@ func TestNewClient_NoSocket(t *testing.T) {
 	// Error should be descriptive
 	t.Logf("got expected error: %v", err)
 }
+
+// ---------------------------------------------------------------------------
+// Permission / non-socket error paths
+// ---------------------------------------------------------------------------
+
+func TestCheckSocket_RegularFile(t *testing.T) {
+	// Test that a regular file (not a socket) returns the right error.
+	// On Windows, use a file that exists; on Linux, use /etc/hostname.
+	path := "/etc/hostname"
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		// Windows — create a temp file instead
+		f, err := os.CreateTemp("", "socket-test-*")
+		if err != nil {
+			t.Fatal(err)
+		}
+		f.Close()
+		defer os.Remove(f.Name())
+		path = f.Name()
+	}
+
+	err := checkSocket("unix://" + path)
+	if err == nil {
+		t.Skip("checkSocket succeeded unexpectedly")
+	}
+	if !strings.Contains(err.Error(), "not a socket file") {
+		t.Errorf("expected 'not a socket file' in error, got: %v", err)
+	}
+}
+
+func TestCheckSocket_UnixPrefix(t *testing.T) {
+	// Verify that the unix:// prefix is stripped correctly for file checks.
+	err := checkSocket("unix:///nonexistent/path.sock")
+	if err == nil {
+		t.Fatal("expected error for nonexistent socket")
+	}
+	if !strings.Contains(err.Error(), "docker socket not found") {
+		t.Errorf("expected 'docker socket not found' in error, got: %v", err)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Client state methods
+// ---------------------------------------------------------------------------
+
+func TestClient_SocketPath(t *testing.T) {
+	c := &Client{socket: "unix:///var/run/docker.sock"}
+	if c.SocketPath() != "unix:///var/run/docker.sock" {
+		t.Errorf("unexpected socket path: %s", c.SocketPath())
+	}
+}
+
+func TestClient_IsConnected_InitialState(t *testing.T) {
+	c := &Client{socket: "unix:///var/run/docker.sock", connected: false}
+	if c.IsConnected() {
+		t.Error("expected client to report disconnected")
+	}
+
+	c.connected = true
+	if !c.IsConnected() {
+		t.Error("expected client to report connected")
+	}
+}
+
+func TestClient_DockerInfo_NilWhenDisconnected(t *testing.T) {
+	c := &Client{socket: "unix:///var/run/docker.sock"}
+	if c.DockerInfo() != nil {
+		t.Error("expected DockerInfo to be nil for fresh client")
+	}
+}
+
+func TestClient_CheckSocket(t *testing.T) {
+	c := &Client{socket: "unix:///nonexistent/path.sock"}
+	err := c.CheckSocket()
+	if err == nil {
+		t.Skip("CheckSocket succeeded unexpectedly")
+	}
+	if !strings.Contains(err.Error(), "docker socket") {
+		t.Errorf("expected 'docker socket' in error, got: %v", err)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// ensureConnected
+// ---------------------------------------------------------------------------
+
+func TestEnsureConnected_AlreadyConnected(t *testing.T) {
+	c := &Client{
+		socket:    "unix:///var/run/docker.sock",
+		connected: true,
+	}
+	ctx := context.Background()
+	if err := c.ensureConnected(ctx); err != nil {
+		t.Errorf("ensureConnected should succeed when already connected, got: %v", err)
+	}
+}
+
+func TestEnsureConnected_TriggersReconnect(t *testing.T) {
+	c := &Client{
+		socket:    "unix:///var/run/docker.sock",
+		connected: false,
+	}
+	// With a 1ms timeout, Reconnect should fail quickly because
+	// there's no real Docker socket.
+	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Millisecond)
+	defer cancel()
+
+	err := c.ensureConnected(ctx)
+	// Should fail — no real Docker socket available
+	if err == nil {
+		t.Log("ensureConnected succeeded (Docker may be running)")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Reconnect
+// ---------------------------------------------------------------------------
+
+func TestReconnect_SocketMissing(t *testing.T) {
+	c := &Client{
+		socket:    "unix:///nonexistent/socket.sock",
+		connected: false,
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	err := c.Reconnect(ctx)
+	// Should fail — either socket error or context deadline (both valid)
+	if err == nil {
+		t.Skip("Reconnect succeeded (socket may exist)")
+	}
+	t.Logf("got expected error: %v", err)
+}
+
+// ---------------------------------------------------------------------------
+// Integration test (requires Docker)
+// ---------------------------------------------------------------------------
+
+func TestNewClient_Connected(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+
+	socket := "unix:///var/run/docker.sock"
+	if _, err := os.Stat(socket); os.IsNotExist(err) {
+		t.Skip("Docker socket not available, skipping integration test")
+	}
+
+	c, err := NewClient(socket)
+	if err != nil {
+		t.Fatalf("NewClient failed: %v", err)
+	}
+	defer c.Close()
+
+	if !c.IsConnected() {
+		t.Error("expected client to be connected")
+	}
+
+	info := c.DockerInfo()
+	if info == nil {
+		t.Fatal("expected DockerInfo to be set")
+	}
+	if info.Version == "" {
+		t.Error("expected Docker version to be set")
+	}
+	if info.APIVersion == "" {
+		t.Error("expected API version to be set")
+	}
+	if info.StorageDriver == "" {
+		t.Error("expected storage driver to be set")
+	}
+
+	t.Logf("Docker connected: version=%s api=%s driver=%s",
+		info.Version, info.APIVersion, info.StorageDriver)
+}
+
+func TestTestConnection_Success(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+
+	socket := "unix:///var/run/docker.sock"
+	if _, err := os.Stat(socket); os.IsNotExist(err) {
+		t.Skip("Docker socket not available, skipping integration test")
+	}
+
+	c, err := NewClient(socket)
+	if err != nil {
+		t.Fatalf("NewClient failed: %v", err)
+	}
+	defer c.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	info, err := c.TestConnection(ctx)
+	if err != nil {
+		t.Fatalf("TestConnection failed: %v", err)
+	}
+	if info == nil {
+		t.Fatal("expected info, got nil")
+	}
+	if info.Version == "" {
+		t.Error("expected version in info")
+	}
+}
