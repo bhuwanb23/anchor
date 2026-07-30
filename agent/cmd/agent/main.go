@@ -34,9 +34,14 @@ func main() {
 
 	for i := 0; i < len(args); i++ {
 		switch {
-		case args[i] == "preflight":
-			runPreflight()
-			return
+	case args[i] == "preflight":
+		useJSON := false
+		if i+1 < len(args) && args[i+1] == "--json" {
+			useJSON = true
+			i++
+		}
+		runPreflight(useJSON)
+		return
 		case args[i] == "--version" || args[i] == "-v":
 			fmt.Printf("yourplatform-agent %s\n", Version)
 			return
@@ -278,10 +283,22 @@ func detectIP() string {
 	return ""
 }
 
-func runPreflight() {
-	results := preflight.RunAll()
-	preflight.PreflightLog(results)
-	if preflight.HasErrors(results) {
+func runPreflight(useJSON bool) {
+	result := preflight.RunAll()
+
+	if useJSON {
+		jsonStr, err := result.ToJSON()
+		if err != nil {
+			slog.Error("failed to serialize preflight result", "error", err)
+			os.Exit(1)
+		}
+		fmt.Println(jsonStr)
+	} else {
+		// Human-readable text output (used by install.sh and debugging)
+		fmt.Print(result.Text())
+	}
+
+	if result.HasBlockingFailures() {
 		os.Exit(1)
 	}
 }
