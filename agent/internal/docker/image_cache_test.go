@@ -301,3 +301,144 @@ func TestDigestOrNone(t *testing.T) {
 		t.Errorf("expected short digest, got %q", s)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Corrupted cache recovery
+// ---------------------------------------------------------------------------
+
+func TestImageCache_CorruptedFile(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "cache.json")
+
+	// Write garbage to the cache file
+	if err := os.WriteFile(path, []byte("{invalid json garbage"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// NewImageCache should recover by renaming the corrupted file
+	cache, err := NewImageCache(path)
+	if err != nil {
+		t.Fatalf("NewImageCache should recover from corruption, got: %v", err)
+	}
+
+	if cache.Len() != 0 {
+		t.Errorf("expected empty cache after corruption recovery, got %d entries", cache.Len())
+	}
+
+	// Verify the corrupted file was renamed to .bak
+	if _, err := os.Stat(path + ".bak"); os.IsNotExist(err) {
+		t.Error("expected corrupted file to be renamed to .bak")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// ClearStale (structural test — no Docker)
+// ---------------------------------------------------------------------------
+
+func TestImageCache_ClearStale(t *testing.T) {
+	dir := t.TempDir()
+	cache, _ := NewImageCache(filepath.Join(dir, "cache.json"))
+
+	// Add an entry with old LastUsedAt
+	oldEntry := &CacheEntry{
+		Ref:        "nginx:1.20",
+		Tag:        "1.20",
+		LastUsedAt: time.Now().Add(-60 * 24 * time.Hour), // 60 days ago
+	}
+	cache.Set(oldEntry)
+
+	// Add a recent entry
+	recentEntry := &CacheEntry{
+		Ref:        "nginx:latest",
+		Tag:        "latest",
+		LastUsedAt: time.Now().Add(-1 * time.Hour), // 1 hour ago
+	}
+	cache.Set(recentEntry)
+
+	// Verify both entries exist
+	if cache.Len() != 2 {
+		t.Fatalf("expected 2 entries, got %d", cache.Len())
+	}
+
+	// StaleEntries should find only the old one
+	stale := cache.StaleEntries(30 * 24 * time.Hour)
+	if len(stale) != 1 {
+		t.Fatalf("expected 1 stale entry, got %d", len(stale))
+	}
+	if stale[0].Ref != "nginx:1.20" {
+		t.Errorf("expected stale entry nginx:1.20, got %s", stale[0].Ref)
+	}
+
+	// ClearStale without Docker client should still remove from cache
+	// (RemoveImage will fail but the cache entry should still be removed)
+	// We can't test ClearStale fully without Docker, but we can verify
+	// that StaleEntries works correctly for cleanup planning.
+}
+
+// ---------------------------------------------------------------------------
+// Thread safety (concurrent access)
+// ---------------------------------------------------------------------------
+
+func TestImageCache_ConcurrentAccess(t *testing.T) {
+	dir := t.TempDir()
+	cache, _ := NewImageCache(filepath.Join(dir, "cache.json"))
+
+	done := make(chan struct{})
+	// Concurrent writers
+	for i := 0; i < 10; i++ {
+		go func(n int) {
+			for j := 0; j < 100; j++ {
+				entry := &CacheEntry{
+					Ref:        "nginx:" + string(rune('a'+j%26)),
+					Tag:        "latest",
+					LastUsedAt: time.Now(),
+				}
+				cache.Set(entry)
+			}
+			done <- struct{}{}
+		}(i)
+	}
+
+	// Concurrent readers
+	for i := 0; i < 5; i++ {
+		go func() {
+			for j := 0; j < 100; j++ {
+				_ = cache.Get("nginx:latest")
+				_ = cache.Len()
+				_ = cache.Entries()
+			}
+			done <- struct{}{}
+		}()
+	}
+
+	// Wait for all goroutines (with timeout)
+	timeout := time.After(5 * time.Second)
+	for i := 0; i < 15; i++ {
+		select {
+		case <-done:
+		case <-timeout:
+			t.Fatal("timeout waiting for concurrent access test")
+		}
+	}
+
+	// Cache should be in a consistent state (no panic or data race)
+	t.Logf("cache has %d entries after concurrent access", cache.Len())
+}
+
+// ---------------------------------------------------------------------------
+// Cache key normalization edge cases
+// ---------------------------------------------------------------------------
+
+func TestNormalizeCacheKey_WithTag(t *testing.T) {
+	got := normalizeCacheKey("postgres:16")
+	if got != "postgres:16" {
+		t.Errorf("expected 'postgres:16', got %q", got)
+	}
+}
+
+func TestNormalizeCacheKey_Registry(t *testing.T) {
+	got := normalizeCacheKey("ghcr.io/owner/app:v1")
+	if got != "ghcr.io/owner/app:v1" {
+		t.Errorf("expected 'ghcr.io/owner/app:v1', got %q", got)
+	}
+}
