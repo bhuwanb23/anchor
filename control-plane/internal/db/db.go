@@ -41,6 +41,7 @@ func Migrate(database *sql.DB) error {
 		"003_deployments.sql",
 		"004_tokens.sql",
 		"005_servers_agent.sql",
+		"006_server_health.sql",
 	}
 
 	for _, migration := range migrations {
