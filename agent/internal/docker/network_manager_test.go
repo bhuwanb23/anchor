@@ -171,8 +171,8 @@ func TestCleanupOrphanedNetworks_NoDocker(t *testing.T) {
 
 func TestLabelFilter(t *testing.T) {
 	f := labelFilter("yourplatform.owner", "yourplatform-agent")
-	if f == nil {
-		t.Fatal("expected non-nil filter")
+	if f.Len() == 0 {
+		t.Fatal("expected non-empty filter")
 	}
 	// The filter should contain the label key=value
 	// We can't easily inspect it, but we can verify it doesn't panic
