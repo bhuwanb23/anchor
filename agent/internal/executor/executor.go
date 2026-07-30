@@ -70,6 +70,12 @@ type Executor struct {
 	caddy      *caddy.Manager
 	backup     *backup.BackupManager
 	imageCache *docker.ImageCache
+	reporter   ProgressReporter
+}
+
+// ProgressReporter sends image pull progress updates to the control plane.
+type ProgressReporter interface {
+	ReportProgress(progress docker.PullProgress)
 }
 
 func New(dockerClient *docker.Client, caddyManager *caddy.Manager, backupManager *backup.BackupManager) *Executor {
@@ -83,6 +89,12 @@ func New(dockerClient *docker.Client, caddyManager *caddy.Manager, backupManager
 // WithImageCache attaches an image cache to the executor for smart pull decisions.
 func (e *Executor) WithImageCache(cache *docker.ImageCache) *Executor {
 	e.imageCache = cache
+	return e
+}
+
+// WithProgressReporter attaches a progress reporter for pull progress updates.
+func (e *Executor) WithProgressReporter(reporter ProgressReporter) *Executor {
+	e.reporter = reporter
 	return e
 }
 
@@ -166,7 +178,14 @@ func (e *Executor) executeDeploy(ctx context.Context, cmd Command, result *Resul
 	}
 
 	// Pull image first
-	if _, _, err := e.docker.PullImageIfNeeded(ctx, p.Image, e.imageCache, nil); err != nil {
+	var progressFn docker.PullProgressFunc
+	if e.reporter != nil {
+		progressFn = func(p docker.PullProgress) error {
+			e.reporter.ReportProgress(p)
+			return nil
+		}
+	}
+	if _, _, err := e.docker.PullImageIfNeeded(ctx, p.Image, e.imageCache, progressFn); err != nil {
 		return fmt.Errorf("pull image: %w", err)
 	}
 
