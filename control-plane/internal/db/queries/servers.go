@@ -59,3 +59,27 @@ func UpdateServerConnection(db *sql.DB, serverID, status string) error {
 	)
 	return err
 }
+
+func UpdateServerSystemInfo(db *sql.DB, serverID, osVersion, osPretty, dockerVersion string, ramAvailableMB, diskTotalGB, diskAvailableGB int, diskUsedPercent float64) error {
+	_, err := db.Exec(
+		`UPDATE servers SET
+			os_version = ?, os_pretty = ?,
+			ram_available_mb = ?, disk_total_gb = ?, disk_available_gb = ?, disk_used_percent = ?,
+			docker_version = ?,
+			last_seen = datetime('now')
+		WHERE id = ?`,
+		osVersion, osPretty,
+		ramAvailableMB, diskTotalGB, diskAvailableGB, diskUsedPercent,
+		dockerVersion,
+		serverID,
+	)
+	return err
+}
+
+func InsertServerEvent(db *sql.DB, id, serverID, eventType, checkName, message, details string) error {
+	_, err := db.Exec(
+		"INSERT INTO server_events (id, server_id, event_type, check_name, message, details) VALUES (?, ?, ?, ?, ?, ?)",
+		id, serverID, eventType, checkName, message, details,
+	)
+	return err
+}
