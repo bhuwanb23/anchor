@@ -151,13 +151,16 @@ func TestDiskPressureLevel_NoDocker(t *testing.T) {
 		socket:    "unix:///var/run/docker.sock",
 		connected: false,
 	}
-	level, err := client.DiskPressureLevel(context.Background())
-	if err == nil {
-		t.Skip("expected error without real Docker socket")
-	}
+	// DiskPressureLevel uses cli.Info() which requires a non-nil Docker client.
+	// Without a real Docker socket, NewClient would fail before we get here,
+	// so this test verifies the function doesn't panic when called on a
+	// client that was constructed with a nil SDK client.
+	level, msg := client.DiskPressureLevel(context.Background())
+	// Without a real Docker connection, we expect level 0 (normal)
 	if level != 0 {
-		t.Errorf("expected level 0 on error, got %d", level)
+		t.Errorf("expected level 0 without Docker, got %d", level)
 	}
+	t.Logf("disk pressure level=%d msg=%q", level, msg)
 }
 
 // ---------------------------------------------------------------------------
