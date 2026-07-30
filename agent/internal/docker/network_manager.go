@@ -208,6 +208,10 @@ func DatabaseAliases(dbType ContainerType) []string {
 //   3. Remove the project network
 //   4. Optionally remove volumes
 func (c *Client) RemoveProject(ctx context.Context, projectName string, removeVolumes bool) error {
+	if err := c.ensureConnected(ctx); err != nil {
+		return fmt.Errorf("docker unavailable: %w", err)
+	}
+
 	projectSafe := SanitizeProjectName(projectName)
 
 	// Find the project network
