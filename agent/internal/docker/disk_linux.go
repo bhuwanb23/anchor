@@ -3,8 +3,11 @@
 package docker
 
 import (
+	"bufio"
 	"fmt"
 	"log/slog"
+	"os"
+	"strings"
 
 	"golang.org/x/sys/unix"
 )
@@ -43,4 +46,27 @@ func checkDiskPressure(dir string) (int, string) {
 	}
 
 	return 0, ""
+}
+
+// GetTotalRAMMB reads total physical RAM from /proc/meminfo on Linux.
+// Returns 0 if the value cannot be determined.
+func GetTotalRAMMB() int64 {
+	f, err := os.Open("/proc/meminfo")
+	if err != nil {
+		slog.Warn("failed to open /proc/meminfo for RAM check", "error", err)
+		return 0
+	}
+	defer f.Close()
+
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		line := scanner.Text()
+		if strings.HasPrefix(line, "MemTotal:") {
+			var kb int64
+			fmt.Sscanf(strings.TrimPrefix(line, "MemTotal:"), "%d kB", &kb)
+			return kb / 1024 // convert kB to MB
+		}
+	}
+
+	return 0
 }
