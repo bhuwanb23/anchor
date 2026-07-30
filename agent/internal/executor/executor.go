@@ -172,6 +172,13 @@ func (e *Executor) executeDeploy(ctx context.Context, cmd Command, result *Resul
 		return fmt.Errorf("start container: %w", err)
 	}
 
+	// Connect container to project network for inter-container communication
+	if err := e.docker.ConnectContainerToNetwork(ctx, id, p.AppName); err != nil {
+		slog.Warn("failed to connect container to project network",
+			"app", p.AppName, "container", id[:12], "error", err)
+		// Non-fatal — container can still serve traffic without network
+	}
+
 	if p.Domain != "" && p.Port > 0 {
 		if err := e.caddy.SetRoute(p.Domain, p.Port); err != nil {
 			slog.Warn("failed to set caddy route", "error", err)
