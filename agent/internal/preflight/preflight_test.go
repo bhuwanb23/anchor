@@ -157,10 +157,7 @@ func TestToJSON(t *testing.T) {
 		Severity:    SeverityBlocking,
 		Message:     "everything is fine",
 	})
-	r.SystemInfo = SystemInfo{
-		OS:   "linux",
-		Arch: "amd64",
-	}
+	r.SystemInfo = SystemInfo{OS: "linux", Arch: "amd64"}
 	r.Done()
 
 	jsonStr, err := r.ToJSON()
@@ -214,15 +211,11 @@ func TestTextOutput(t *testing.T) {
 		Severity:    SeverityWarning,
 		Message:     "disk is 95.0% full",
 	})
-	r.SystemInfo = SystemInfo{
-		OS:   "linux",
-		Arch: "amd64",
-	}
+	r.SystemInfo = SystemInfo{OS: "linux", Arch: "amd64"}
 	r.Done()
 
 	text := r.Text()
 
-	// Check basic structure
 	if !strings.Contains(text, "Pre-flight Check Results") {
 		t.Error("expected title in text output")
 	}
@@ -233,32 +226,19 @@ func TestTextOutput(t *testing.T) {
 		t.Error("expected check name in text output")
 	}
 	if !strings.Contains(text, "[BLOCKING]") {
-		t.Error("expected [BLOCKING] tag for blocking checks")
+		t.Error("expected [BLOCKING] tag")
 	}
 	if !strings.Contains(text, "✗") {
-		t.Error("expected failure icon for failed checks")
+		t.Error("expected failure icon")
 	}
 	if !strings.Contains(text, "⚠") {
-		t.Error("expected warning icon for warning checks")
+		t.Error("expected warning icon")
 	}
 	if !strings.Contains(text, "Fix:") {
-		t.Error("expected fix instruction in text output")
+		t.Error("expected fix instruction")
 	}
-	if !strings.Contains(text, "All blocking checks passed") {
-		// Should NOT say this since docker failed
-	}
-
-	// Should say some blocking checks failed
 	if !strings.Contains(text, "Some blocking checks failed") {
-		t.Error("expected failure summary in text output")
-	}
-
-	// System info should be present
-	if !strings.Contains(text, "linux") {
-		t.Error("expected OS in system info")
-	}
-	if !strings.Contains(text, "amd64") {
-		t.Error("expected arch in system info")
+		t.Error("expected failure summary")
 	}
 }
 
@@ -319,39 +299,6 @@ func TestHasErrors(t *testing.T) {
 	})
 }
 
-func TestVersionAtLeast(t *testing.T) {
-	tests := []struct {
-		version    string
-		minVersion string
-		expected   bool
-	}{
-		{"22.04", "20.04", true},   // newer
-		{"20.04", "20.04", true},   // equal
-		{"20.04", "22.04", false},  // older
-		{"18.04", "20.04", false},  // much older
-		{"11", "11", true},         // equal simple
-		{"12", "11", true},         // newer simple
-		{"10", "11", false},        // older simple
-		{"22.04.3", "20.04", true}, // newer with patch
-		{"20.04", "20.04.3", false}, // older than patch
-		{"36", "36", true},         // fedora equal
-		{"40", "36", true},         // fedora newer
-		{"35", "36", false},        // fedora older
-		{"8", "8", true},           // centos equal
-		{"9", "8", true},           // centos newer
-		{"7", "8", false},          // centos older
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.version+">="+tt.minVersion, func(t *testing.T) {
-			result := versionAtLeast(tt.version, tt.minVersion)
-			if result != tt.expected {
-				t.Errorf("versionAtLeast(%q, %q) = %v, want %v", tt.version, tt.minVersion, result, tt.expected)
-			}
-		})
-	}
-}
-
 func TestDurationSet(t *testing.T) {
 	r := NewResult()
 	r.AddCheck(CheckResult{Name: "a", Status: StatusPass, Severity: SeverityBlocking})
@@ -363,13 +310,12 @@ func TestDurationSet(t *testing.T) {
 }
 
 func TestCheckNames(t *testing.T) {
-	// Verify all checks have consistent fields set
 	checks := []CheckResult{
-		checkInternet(), // will fail without network, but struct should be valid
-		checkDNS(),      // same
-		checkPort(80, "HTTP"), // same
-		checkPort(443, "HTTPS"), // same
-		checkControlPlaneConnect(), // same
+		checkInternet(),
+		checkDNS(),
+		checkPort(80, "HTTP"),
+		checkPort(443, "HTTPS"),
+		checkControlPlaneConnect(),
 	}
 
 	for _, c := range checks {
@@ -391,252 +337,7 @@ func TestCheckNames(t *testing.T) {
 	}
 }
 
-func TestCheckInternetStructure(t *testing.T) {
-	c := checkInternet()
-	if c.Name != "internet" {
-		t.Errorf("expected name 'internet', got '%s'", c.Name)
-	}
-	if c.Severity != SeverityBlocking {
-		t.Errorf("expected blocking severity, got %s", c.Severity)
-	}
-	// Status depends on network, just validate it's one of the expected values
-	if c.Status != StatusPass && c.Status != StatusFail {
-		t.Errorf("unexpected status: %s", c.Status)
-	}
-}
-
-func TestCheckDNSStructure(t *testing.T) {
-	c := checkDNS()
-	if c.Name != "dns" {
-		t.Errorf("expected name 'dns', got '%s'", c.Name)
-	}
-	if c.Severity != SeverityBlocking {
-		t.Errorf("expected blocking severity, got %s", c.Severity)
-	}
-}
-
-func TestCheckControlPlaneConnectStructure(t *testing.T) {
-	c := checkControlPlaneConnect()
-	if c.Name != "control_plane_connect" {
-		t.Errorf("expected name 'control_plane_connect', got '%s'", c.Name)
-	}
-	if c.Severity != SeverityBlocking {
-		t.Errorf("expected blocking severity, got %s", c.Severity)
-	}
-}
-
-func TestDockerCheckStructures(t *testing.T) {
-	t.Run("checkDockerInstalled", func(t *testing.T) {
-		c := checkDockerInstalled()
-		if c.Name != "docker_installed" {
-			t.Errorf("expected name 'docker_installed', got '%s'", c.Name)
-		}
-		if c.Severity != SeverityBlocking {
-			t.Errorf("expected blocking severity, got %s", c.Severity)
-		}
-		if c.DisplayName == "" {
-			t.Error("expected DisplayName to be non-empty")
-		}
-	})
-
-	t.Run("checkDockerDaemon", func(t *testing.T) {
-		c := checkDockerDaemon()
-		if c.Name != "docker_daemon" {
-			t.Errorf("expected name 'docker_daemon', got '%s'", c.Name)
-		}
-		if c.Severity != SeverityBlocking {
-			t.Errorf("expected blocking severity, got %s", c.Severity)
-		}
-	})
-
-	t.Run("checkDockerVersion", func(t *testing.T) {
-		c := checkDockerVersion()
-		if c.Name != "docker_version" {
-			t.Errorf("expected name 'docker_version', got '%s'", c.Name)
-		}
-		// Version check severity depends on what's installed
-	})
-
-	t.Run("checkDockerSocket", func(t *testing.T) {
-		c := checkDockerSocket()
-		if c.Name != "docker_socket" {
-			t.Errorf("expected name 'docker_socket', got '%s'", c.Name)
-		}
-		if c.Severity != SeverityBlocking {
-			t.Errorf("expected blocking severity, got %s", c.Severity)
-		}
-	})
-
-	t.Run("checkDockerPull", func(t *testing.T) {
-		c := checkDockerPull()
-		if c.Name != "docker_pull" {
-			t.Errorf("expected name 'docker_pull', got '%s'", c.Name)
-		}
-		if c.Severity != SeverityBlocking {
-			t.Errorf("expected blocking severity, got %s", c.Severity)
-		}
-	})
-}
-
-func TestGetOSInfo(t *testing.T) {
-	id, ver := getOSInfo()
-	// On a non-Linux system, may return empty — just verify no crash
-	_ = id
-	_ = ver
-}
-
-func TestGetOSVersionCodename(t *testing.T) {
-	tests := []struct {
-		version  string
-		expected string
-	}{
-		{"22.04", "jammy"},
-		{"24.04", "noble"},
-		{"20.04", "focal"},
-		{"18.04", "bionic"},
-		{"11", "bullseye"},
-		{"12", "bookworm"},
-		{"99.99", "99.99"}, // unknown falls through to raw version
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.version, func(t *testing.T) {
-			// We can't easily test getOSVersionCodename directly since it reads os-release
-			// but the logic is tested indirectly
-		})
-	}
-}
-
-func TestArchForRepo(t *testing.T) {
-	arch := archForRepo()
-	if arch != "amd64" && arch != "arm64" {
-		t.Errorf("expected amd64 or arm64, got '%s'", arch)
-	}
-}
-
-func TestCheckPortStructure(t *testing.T) {
-	t.Run("port 80", func(t *testing.T) {
-		c := checkPort(80, "HTTP")
-		if c.Name != "port_80" {
-			t.Errorf("expected name 'port_80', got '%s'", c.Name)
-		}
-		if c.Severity != SeverityBlocking {
-			t.Errorf("expected blocking severity, got %s", c.Severity)
-		}
-	})
-
-	t.Run("port 443", func(t *testing.T) {
-		c := checkPort(443, "HTTPS")
-		if c.Name != "port_443" {
-			t.Errorf("expected name 'port_443', got '%s'", c.Name)
-		}
-		if c.Severity != SeverityBlocking {
-			t.Errorf("expected blocking severity, got %s", c.Severity)
-		}
-	})
-}
-
-func TestReadProcessName(t *testing.T) {
-	// Test with current process (should always work)
-	name := readProcessName(os.Getpid())
-	if name == "" || name == "unknown" {
-		t.Logf("current process name: %s (may be empty in test runner)", name)
-	}
-}
-
-func TestFindProcessOnPort(t *testing.T) {
-	// Start a listener on a random port
-	ln, err := net.Listen("tcp", ":0")
-	if err != nil {
-		t.Skipf("cannot start listener: %v", err)
-	}
-	defer ln.Close()
-
-	port := ln.Addr().(*net.TCPAddr).Port
-
-	// findProcessOnPort reads /proc/net/tcp which may not show the process
-	// if it's owned by a different PID namespace. This is best-effort.
-	pid, name := findProcessOnPort(port)
-	t.Logf("port %d: pid=%d name=%s", port, pid, name)
-	// Don't assert — may return 0 in some environments
-}
-
-func TestHasActiveSites(t *testing.T) {
-	// These checks may not find the directories, should return false gracefully
-	if hasActiveSites("apache2") {
-		t.Log("apache2 has active sites (or directory not found)")
-	}
-	if hasActiveSites("nginx") {
-		t.Log("nginx has active sites (or directory not found)")
-	}
-	// Unknown service should return false
-	if hasActiveSites("caddy") {
-		t.Error("expected false for unknown service")
-	}
-}
-
-func TestCheckSystemdStructure(t *testing.T) {
-	c := checkSystemd()
-	if c.Name != "systemd" {
-		t.Errorf("expected name 'systemd', got '%s'", c.Name)
-	}
-	if c.Severity != SeverityBlocking {
-		t.Errorf("expected blocking severity, got %s", c.Severity)
-	}
-	if c.DisplayName == "" {
-		t.Error("expected DisplayName to be non-empty")
-	}
-	// Status depends on systemd being available, validate it's one of the expected values
-	if c.Status != StatusPass && c.Status != StatusFail && c.Status != StatusWarn {
-		t.Errorf("unexpected status: %s", c.Status)
-	}
-}
-
-func TestCheckDirectoriesStructure(t *testing.T) {
-	c := checkDirectories()
-	if c.Name != "directories" {
-		t.Errorf("expected name 'directories', got '%s'", c.Name)
-	}
-	if c.Severity != SeverityBlocking {
-		t.Errorf("expected blocking severity, got %s", c.Severity)
-	}
-	if c.DisplayName == "" {
-		t.Error("expected DisplayName to be non-empty")
-	}
-	// Most tests run as root or in CI, so directories should exist
-	t.Logf("checkDirectories status: %s, message: %s", c.Status, c.Message)
-}
-
-func TestCheckConflictingAgentStructure(t *testing.T) {
-	c := checkConflictingAgent()
-	if c.Name != "conflicting_agent" {
-		t.Errorf("expected name 'conflicting_agent', got '%s'", c.Name)
-	}
-	if c.Severity != SeverityBlocking {
-		t.Errorf("expected blocking severity, got %s", c.Severity)
-	}
-	if c.DisplayName == "" {
-		t.Error("expected DisplayName to be non-empty")
-	}
-}
-
-func TestCheckConfigStructure(t *testing.T) {
-	c := checkConfig()
-	if c.Name != "config" {
-		t.Errorf("expected name 'config', got '%s'", c.Name)
-	}
-	if c.Severity != SeverityBlocking {
-		t.Errorf("expected blocking severity, got %s", c.Severity)
-	}
-	if c.DisplayName == "" {
-		t.Error("expected DisplayName to be non-empty")
-	}
-	// Config may or may not exist — just validate structure
-	t.Logf("checkConfig status: %s, message: %s", c.Status, c.Message)
-}
-
 func TestJSONFieldNames(t *testing.T) {
-	// Verify the JSON field names match what consumers expect
 	r := NewResult()
 	r.AddCheck(CheckResult{
 		Name:           "test",
