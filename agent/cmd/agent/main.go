@@ -12,6 +12,7 @@ import (
 	"os/signal"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/yourname/yourplatform/agent/internal/backup"
 	"github.com/yourname/yourplatform/agent/internal/caddy"
@@ -104,13 +105,16 @@ func run(configPath string) {
 
 	caddyManager := caddy.NewManager("http://localhost:2019")
 	backupManager := backup.NewManager(cfg.BackupDest)
-	exec := executor.New(dockerClient, caddyManager, backupManager).WithImageCache(imageCache)
 
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 
 	wsURL := cfg.ControlPlaneURL + "/ws/agent"
 	wsClient := ws.NewClient(wsURL, cfg.AgentID, cfg.AgentSecret, cfg.WSReconnectSec)
+
+	exec := executor.New(dockerClient, caddyManager, backupManager).
+		WithImageCache(imageCache).
+		WithProgressReporter(&wsProgressReporter{client: wsClient})
 
 	// Start background Docker health monitor
 	// This ensures the agent survives Docker daemon restarts
@@ -354,5 +358,25 @@ func runPreflight(useJSON bool) {
 
 	if result.HasBlockingFailures() {
 		os.Exit(1)
+	}
+}
+
+// wsProgressReporter sends image pull progress updates to the control plane
+// via the agent's WebSocket connection.
+type wsProgressReporter struct {
+	client *ws.Client
+}
+
+func (r *wsProgressReporter) ReportProgress(p docker.PullProgress) {
+	payload := map[string]interface{}{
+		"type":     "pull_progress",
+		"image_id": p.ID,
+		"status":   p.Status,
+		"stream":   p.Stream,
+		"current":  p.Current,
+		"total":    p.Total,
+	}
+	if err := r.client.SendJSON(payload); err != nil {
+		slog.Debug("failed to send pull progress", "error", err)
 	}
 }
