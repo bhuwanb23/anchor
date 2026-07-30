@@ -244,13 +244,13 @@ func monitorDockerHealth(ctx context.Context, dockerClient *docker.Client, wsCli
 	// If initial connection test failed, attempt reconnect in background
 	if !wasConnected {
 		slog.Warn("docker daemon not connected on startup, will retry in background")
-		reportDockerStatus(ctx, wsClient, "unavailable", "Docker daemon was unreachable on agent startup. Retrying...")
+		reportDockerStatus(wsClient, "unavailable", "Docker daemon was unreachable on agent startup. Retrying...")
 		go func() {
 			if err := dockerClient.Reconnect(ctx); err != nil {
 				slog.Error("initial docker reconnect failed", "error", err)
 			} else {
 				slog.Info("docker reconnected after initial failure")
-				reportDockerStatus(ctx, wsClient, "connected",
+				reportDockerStatus(wsClient, "connected",
 					fmt.Sprintf("Docker reconnected (version %s)", dockerClient.DockerInfo().Version))
 			}
 		}()
@@ -266,7 +266,7 @@ func monitorDockerHealth(ctx context.Context, dockerClient *docker.Client, wsCli
 			// State transition: connected -> disconnected
 			if wasConnected && !isConnected {
 				slog.Warn("docker daemon connection lost")
-				reportDockerStatus(ctx, wsClient, "unavailable", "Docker daemon connection lost. Reconnecting...")
+				reportDockerStatus(wsClient, "unavailable", "Docker daemon connection lost. Reconnecting...")
 
 				// Attempt reconnect in background
 				go func() {
@@ -274,7 +274,7 @@ func monitorDockerHealth(ctx context.Context, dockerClient *docker.Client, wsCli
 						slog.Error("docker reconnect failed", "error", err)
 					} else {
 						slog.Info("docker reconnected")
-						reportDockerStatus(ctx, wsClient, "connected",
+						reportDockerStatus(wsClient, "connected",
 							fmt.Sprintf("Docker reconnected (version %s)", dockerClient.DockerInfo().Version))
 					}
 				}()
@@ -283,7 +283,7 @@ func monitorDockerHealth(ctx context.Context, dockerClient *docker.Client, wsCli
 			// State transition: disconnected -> connected
 			if !wasConnected && isConnected {
 				slog.Info("docker daemon connection restored")
-				reportDockerStatus(ctx, wsClient, "connected",
+				reportDockerStatus(wsClient, "connected",
 					fmt.Sprintf("Docker connection restored (version %s)", dockerClient.DockerInfo().Version))
 			}
 
@@ -293,7 +293,7 @@ func monitorDockerHealth(ctx context.Context, dockerClient *docker.Client, wsCli
 }
 
 // reportDockerStatus sends a Docker availability event to the control plane.
-func reportDockerStatus(ctx context.Context, wsClient *ws.Client, status, message string) {
+func reportDockerStatus(wsClient *ws.Client, status, message string) {
 	payload := map[string]interface{}{
 		"type":    "docker_status",
 		"status":  status,
