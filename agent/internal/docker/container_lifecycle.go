@@ -103,9 +103,21 @@ func (c *Client) DeployContainer(ctx context.Context, opts CreateContainerOpts) 
 		"id", id[:12],
 	)
 
+	// Extract the assigned host port from the port bindings
+	var hostPort int
+	if opts.PortBindings != nil {
+		for _, bindings := range opts.PortBindings {
+			if len(bindings) > 0 {
+				fmt.Sscanf(bindings[0].HostPort, "%d", &hostPort)
+				break
+			}
+		}
+	}
+
 	return &CreateContainerResult{
 		ContainerID: id,
 		Name:        opts.Name,
+		HostPort:    hostPort,
 	}, nil
 }
 
