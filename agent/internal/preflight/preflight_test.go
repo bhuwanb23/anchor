@@ -397,7 +397,7 @@ func TestJSONFieldNames(t *testing.T) {
 	}
 
 	sysInfo := raw["system_info"].(map[string]interface{})
-	expectedSysFields := []string{"os", "os_version", "os_pretty", "arch", "ram_mb", "disk_gb"}
+	expectedSysFields := []string{"os", "os_version", "os_pretty", "arch", "ram_mb", "ram_available_mb", "disk_total_gb", "disk_available_gb", "disk_used_percent"}
 	for _, f := range expectedSysFields {
 		if _, ok := sysInfo[f]; !ok {
 			t.Errorf("expected field '%s' in system_info JSON", f)
