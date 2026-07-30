@@ -25,6 +25,13 @@ const (
 	SeverityWarning  Severity = "warning"
 )
 
+// AutoFixEntry records a single auto-fix action taken by the agent.
+type AutoFixEntry struct {
+	Check     string `json:"check"`
+	Action    string `json:"action"`
+	Timestamp string `json:"timestamp"`
+}
+
 // CheckResult is a single pre-flight check result.
 type CheckResult struct {
 	Name           string   `json:"name"`
@@ -52,13 +59,13 @@ type SystemInfo struct {
 
 // Result is the overall pre-flight check result.
 type Result struct {
-	Passed     bool          `json:"passed"`
-	Checks     []CheckResult `json:"checks"`
-	AutoFixed  []string      `json:"auto_fixed"`
-	SystemInfo SystemInfo    `json:"system_info"`
-	Timestamp  string        `json:"timestamp"`
-	Duration   string        `json:"duration"`
-	startTime  time.Time     // internal, not serialized
+	Passed     bool           `json:"passed"`
+	Checks     []CheckResult  `json:"checks"`
+	AutoFixed  []AutoFixEntry `json:"auto_fixed"`
+	SystemInfo SystemInfo     `json:"system_info"`
+	Timestamp  string         `json:"timestamp"`
+	Duration   string         `json:"duration"`
+	startTime  time.Time      // internal, not serialized
 }
 
 // NewResult creates a new Result with the current timestamp and starts the timer.
@@ -66,7 +73,7 @@ func NewResult() *Result {
 	return &Result{
 		Timestamp: time.Now().UTC().Format(time.RFC3339),
 		startTime: time.Now(),
-		AutoFixed: make([]string, 0),
+		AutoFixed: make([]AutoFixEntry, 0),
 		Checks:    make([]CheckResult, 0),
 	}
 }
@@ -82,7 +89,11 @@ func (r *Result) Done() {
 func (r *Result) AddCheck(cr CheckResult) {
 	r.Checks = append(r.Checks, cr)
 	if cr.AutoFixed {
-		r.AutoFixed = append(r.AutoFixed, cr.DisplayName)
+		r.AutoFixed = append(r.AutoFixed, AutoFixEntry{
+			Check:     cr.Name,
+			Action:    cr.Message,
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
+		})
 	}
 }
 
@@ -122,9 +133,19 @@ func (r *Result) CountByStatus(status Status) int {
 	return count
 }
 
-// ToJSON serializes the result as indented JSON.
+// ToJSON serializes the result as indented human-readable JSON.
 func (r *Result) ToJSON() (string, error) {
 	data, err := json.MarshalIndent(r, "", "  ")
+	if err != nil {
+		return "", fmt.Errorf("marshal preflight result: %w", err)
+	}
+	return string(data), nil
+}
+
+// ToJSONCompact serializes the result as compact JSON (single line, no indent).
+// Used by the install script via the --json flag.
+func (r *Result) ToJSONCompact() (string, error) {
+	data, err := json.Marshal(r)
 	if err != nil {
 		return "", fmt.Errorf("marshal preflight result: %w", err)
 	}
