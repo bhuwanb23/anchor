@@ -114,12 +114,18 @@ func (r *Result) HasBlockingFailures() bool {
 
 // HasWarnings returns true if any warning-level check has a warning status.
 func (r *Result) HasWarnings() bool {
+	return len(r.Warnings()) > 0
+}
+
+// Warnings returns all checks with a warning status.
+func (r *Result) Warnings() []CheckResult {
+	var warns []CheckResult
 	for _, c := range r.Checks {
 		if c.Status == StatusWarn {
-			return true
+			warns = append(warns, c)
 		}
 	}
-	return false
+	return warns
 }
 
 // CountByStatus returns the number of checks with the given status.
