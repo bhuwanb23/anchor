@@ -62,7 +62,7 @@ export default function ServerDetailPage({
         <StatusBadge status={server.status} />
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         <Card>
           <CardHeader>
             <CardTitle className="text-sm font-medium text-gray-500">Server ID</CardTitle>
@@ -77,6 +77,77 @@ export default function ServerDetailPage({
           </CardHeader>
           <CardContent>
             <StatusBadge status={server.status} />
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-sm font-medium text-gray-500">IP Address</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="flex items-center gap-2">
+              <Wifi className="h-4 w-4 text-gray-400" />
+              <span className="text-sm text-gray-900 dark:text-white">{server.ip_address || "N/A"}</span>
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-sm font-medium text-gray-500">Operating System</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="flex items-center gap-2">
+              <Server className="h-4 w-4 text-gray-400" />
+              <span className="text-sm text-gray-900 dark:text-white">
+                {server.os_pretty || (server.os_info && server.os_version ? `${server.os_info} ${server.os_version}` : server.os_info || "N/A")}
+              </span>
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-sm font-medium text-gray-500">Architecture</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="flex items-center gap-2">
+              <Cpu className="h-4 w-4 text-gray-400" />
+              <span className="text-sm text-gray-900 dark:text-white">{server.arch || "N/A"}</span>
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-sm font-medium text-gray-500">Memory</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="flex items-center gap-2">
+              <Activity className="h-4 w-4 text-gray-400" />
+              <span className="text-sm text-gray-900 dark:text-white">
+                {server.ram_mb ? `${server.ram_mb} MB` : "N/A"}
+                {server.ram_available_mb ? ` (${server.ram_available_mb} MB free)` : ""}
+              </span>
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-sm font-medium text-gray-500">Disk</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="flex items-center gap-2">
+              <HardDrive className="h-4 w-4 text-gray-400" />
+              <span className="text-sm text-gray-900 dark:text-white">
+                {server.disk_total_gb ? `${server.disk_total_gb} GB` : server.disk_gb ? `${server.disk_gb} GB` : "N/A"}
+                {server.disk_available_gb ? ` (${server.disk_available_gb} GB free)` : ""}
+              </span>
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-sm font-medium text-gray-500">Docker</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <span className="text-sm text-gray-900 dark:text-white">{server.docker_version || "N/A"}</span>
           </CardContent>
         </Card>
         <Card>
