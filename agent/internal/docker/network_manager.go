@@ -14,7 +14,6 @@ import (
 const (
 	networkPrefix   = "yourplatform_"
 	labelOwner      = "yourplatform.owner"
-	labelProject    = "yourplatform.project"
 	labelOwnerValue = "yourplatform-agent"
 )
 
@@ -80,8 +79,8 @@ func (c *Client) EnsureProjectNetwork(ctx context.Context, projectName string) (
 		Internal:   false, // containers can reach internet for npm install etc.
 		Attachable: true,
 		Labels: map[string]string{
-			labelOwner:   labelOwnerValue,
-			labelProject: projectSafe,
+			labelOwner:            labelOwnerValue,
+			"yourplatform.project": projectSafe,
 		},
 	})
 	if err != nil {
