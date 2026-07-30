@@ -40,6 +40,7 @@ type CheckResult struct {
 type SystemInfo struct {
 	OS            string `json:"os"`
 	OSVersion     string `json:"os_version"`
+	OSPretty      string `json:"os_pretty,omitempty"`
 	Arch          string `json:"arch"`
 	RAMMB         int    `json:"ram_mb"`
 	DiskGB        int    `json:"disk_gb"`
@@ -136,7 +137,11 @@ func (r *Result) Text() string {
 
 	// System info
 	b.WriteString("System:\n")
-	b.WriteString(fmt.Sprintf("  OS:          %s %s\n", r.SystemInfo.OS, r.SystemInfo.OSVersion))
+	if r.SystemInfo.OSPretty != "" {
+		b.WriteString(fmt.Sprintf("  OS:          %s\n", r.SystemInfo.OSPretty))
+	} else {
+		b.WriteString(fmt.Sprintf("  OS:          %s %s\n", r.SystemInfo.OS, r.SystemInfo.OSVersion))
+	}
 	b.WriteString(fmt.Sprintf("  Arch:        %s\n", r.SystemInfo.Arch))
 	if r.SystemInfo.RAMMB > 0 {
 		b.WriteString(fmt.Sprintf("  RAM:         %d MB\n", r.SystemInfo.RAMMB))
