@@ -30,8 +30,8 @@ type Result struct {
 
 // VolumeSpec describes a volume to create and mount into a container.
 type VolumeSpec struct {
-	Purpose   string `json:"purpose"`    // e.g., "uploads", "app-data"
-	MountPath string `json:"mount_path"` // e.g., "/var/www/html/wp-content/uploads"
+	Purpose   string `json:"purpose"`
+	MountPath string `json:"mount_path"`
 }
 
 type DeployPayload struct {
@@ -42,6 +42,7 @@ type DeployPayload struct {
 	Name          string              `json:"name"`
 	ContainerType docker.ContainerType `json:"container_type,omitempty"`
 	Volumes       []VolumeSpec        `json:"volumes,omitempty"`
+	MemoryLimitMB int64               `json:"memory_limit_mb,omitempty"` // override default memory limit
 }
 
 type StopPayload struct {
@@ -164,14 +165,9 @@ func (e *Executor) executeDeploy(ctx context.Context, cmd Command, result *Resul
 		return fmt.Errorf("invalid deploy payload: %w", err)
 	}
 
-	// Pull the image first
+	// Pull image first
 	if _, _, err := e.docker.PullImageIfNeeded(ctx, p.Image, e.imageCache, nil); err != nil {
 		return fmt.Errorf("pull image: %w", err)
-	}
-
-	containerName := p.Name
-	if containerName == "" {
-		containerName = p.AppName
 	}
 
 	// Determine container type (default to "app")
@@ -179,6 +175,9 @@ func (e *Executor) executeDeploy(ctx context.Context, cmd Command, result *Resul
 	if ct == "" {
 		ct = docker.ContainerTypeApp
 	}
+
+	// Build container name using naming convention
+	containerName := docker.ContainerName(p.AppName, docker.ContainerRole(ct))
 
 	// --- Network setup ---
 	networkName := docker.ProjectNetworkName(p.AppName)
@@ -194,7 +193,6 @@ func (e *Executor) executeDeploy(ctx context.Context, cmd Command, result *Resul
 	}
 
 	// --- Volume setup ---
-	// Database containers always get a persistent data volume
 	var volumeMounts []docker.VolumeMount
 	if ct != docker.ContainerTypeApp {
 		dbMount, err := e.docker.EnsureDBVolume(ctx, p.AppName, ct)
@@ -205,7 +203,6 @@ func (e *Executor) executeDeploy(ctx context.Context, cmd Command, result *Resul
 		}
 	}
 
-	// Additional volumes from deploy payload
 	for _, vs := range p.Volumes {
 		vol, err := e.docker.EnsureVolume(ctx, p.AppName, vs.Purpose)
 		if err != nil {
@@ -225,21 +222,49 @@ func (e *Executor) executeDeploy(ctx context.Context, cmd Command, result *Resul
 	}
 	portMap, exposedPorts := docker.PortMapping(ct, portSpec)
 
-	// --- Create container ---
+	// --- Resource limits ---
+	rlimits := docker.DefaultResourceLimits(ct)
+	if p.MemoryLimitMB > 0 {
+		rlimits.MemoryHard = p.MemoryLimitMB * 1024 * 1024
+	}
+	// No validation against total RAM here (agent may not know it)
+
+	// --- Health check ---
+	healthCheck := docker.DefaultHealthCheck(ct, p.Port)
+
+	// --- Container labels ---
+	labels := docker.ContainerLabels(p.AppName, ct)
+
+	// --- Deploy (create + start with crash detection) ---
 	id, err := e.docker.CreateContainer(ctx, docker.CreateContainerOpts{
-		Name:         containerName,
-		Image:        p.Image,
-		Env:          []string{},
-		PortBindings: portMap,
-		ExposedPorts: exposedPorts,
-		Networks:     []docker.NetworkEndpointConfig{networkEndpoint},
-		VolumeMounts: volumeMounts,
+		Name:           containerName,
+		Image:          p.Image,
+		Env:            []string{},
+		PortBindings:   portMap,
+		ExposedPorts:   exposedPorts,
+		Networks:       []docker.NetworkEndpointConfig{networkEndpoint},
+		VolumeMounts:   volumeMounts,
+		Labels:         labels,
+		ResourceLimits: rlimits,
+		HealthCheck:    healthCheck,
+		RestartPolicy:  "always",
 	})
 	if err != nil {
 		return fmt.Errorf("create container: %w", err)
 	}
 
-	if err := e.docker.StartContainer(ctx, id); err != nil {
+	// Start with crash detection (30s timeout)
+	if err := e.docker.StartContainerWithWait(ctx, id, 30*time.Second); err != nil {
+		// If it's a crash, surface the crash reason
+		if crashErr, ok := err.(*docker.CrashError); ok {
+			_ = e.docker.RemoveContainerSafe(ctx, id)
+			result.Status = "error"
+			result.Output = ""
+			result.Error = crashErr.Error()
+			return nil
+		}
+		// Some other error starting
+		_ = e.docker.RemoveContainerSafe(ctx, id)
 		return fmt.Errorf("start container: %w", err)
 	}
 
@@ -271,7 +296,7 @@ func (e *Executor) executeRollback(ctx context.Context, cmd Command, result *Res
 	}
 
 	if p.ContainerID != "" {
-		_ = e.docker.StopContainer(ctx, p.ContainerID)
+		_ = e.docker.StopContainerGraceful(ctx, p.ContainerID)
 	}
 
 	if p.PreviousImage != "" {
@@ -312,12 +337,8 @@ func (e *Executor) executeRestart(ctx context.Context, cmd Command, result *Resu
 		return fmt.Errorf("invalid restart payload: %w", err)
 	}
 
-	if err := e.docker.StopContainer(ctx, p.ContainerID); err != nil {
-		slog.Warn("stop container for restart failed", "error", err)
-	}
-
-	if err := e.docker.StartContainer(ctx, p.ContainerID); err != nil {
-		return fmt.Errorf("start container: %w", err)
+	if err := e.docker.RestartContainer(ctx, p.ContainerID); err != nil {
+		return fmt.Errorf("restart container: %w", err)
 	}
 
 	result.Status = "success"
@@ -331,7 +352,7 @@ func (e *Executor) executeStop(ctx context.Context, cmd Command, result *Result)
 		return fmt.Errorf("invalid stop payload: %w", err)
 	}
 
-	if err := e.docker.StopContainer(ctx, p.ContainerID); err != nil {
+	if err := e.docker.StopContainerGraceful(ctx, p.ContainerID); err != nil {
 		return fmt.Errorf("stop container: %w", err)
 	}
 
