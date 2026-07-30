@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"log/slog"
+	"fmt"
 	"net/http"
 	"time"
 
@@ -47,7 +48,12 @@ func (t *Token) CreateRegistrationToken(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	installCommand := "curl -fsSL https://get.yourplatform.com/install.sh | sudo sh -s -- --token=" + rawToken
+	scheme := "http://"
+	if r.TLS != nil {
+		scheme = "https://"
+	}
+	baseURL := scheme + r.Host
+	installCommand := fmt.Sprintf("curl -fsSL %%s/install.sh | sudo sh -s -- --token=%%s --base-url=%%s", baseURL, rawToken, baseURL)
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
