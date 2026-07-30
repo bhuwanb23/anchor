@@ -10,6 +10,7 @@ import (
 	"github.com/yourname/yourplatform/control-plane/internal/api"
 	"github.com/yourname/yourplatform/control-plane/internal/config"
 	"github.com/yourname/yourplatform/control-plane/internal/db"
+	"github.com/yourname/yourplatform/control-plane/internal/ws"
 )
 
 func main() {
@@ -31,7 +32,10 @@ func main() {
 		os.Exit(1)
 	}
 
-	router := api.NewRouter(database, cfg)
+	hub := ws.NewHub()
+	go hub.StartHeartbeat(database)
+
+	router := api.NewRouter(database, cfg, hub)
 
 	addr := fmt.Sprintf(":%s", cfg.Port)
 	slog.Info("control plane starting", "addr", addr, "env", cfg.Env)
