@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/docker/docker/api/types"
+	"github.com/docker/docker/api/types/filters"
 )
 
 // ---------------------------------------------------------------------------
@@ -585,7 +586,7 @@ func (c *Client) PruneUnusedImages(ctx context.Context) error {
 		return fmt.Errorf("docker unavailable: %w", err)
 	}
 
-	report, err := c.cliUnsafe().ImagesPrune(ctx, types.ImagesPruneConfig{})
+	report, err := c.cliUnsafe().ImagesPrune(ctx, filters.NewArgs())
 	if err != nil {
 		return fmt.Errorf("prune images: %w", err)
 	}
