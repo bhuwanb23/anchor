@@ -383,23 +383,42 @@ func (c *Client) RunScheduledCleanup(ctx context.Context, policy *CleanupPolicy,
 func (c *Client) runCleanupCycle(ctx context.Context, policy *CleanupPolicy, reason string) {
 	slog.Info("image cleanup cycle triggered", "reason", reason)
 
-	report, triggered, err := c.RunCleanupIfNeeded(ctx, policy)
+	// First, always run standard cleanup (scheduled task)
+	report, err := c.RunCleanup(ctx, policy)
 	if err != nil {
 		slog.Error("image cleanup failed", "reason", reason, "error", err)
 		return
 	}
 
-	if !triggered {
-		slog.Debug("image cleanup not needed", "reason", reason)
-		return
-	}
-
-	if report.ImagesRemoved > 0 || report.Aggressive {
+	if report.ImagesRemoved > 0 {
 		slog.Info("image cleanup completed",
 			"reason", reason,
 			"removed", report.ImagesRemoved,
 			"reclaimed_mb", report.BytesReclaimed/(1024*1024),
-			"aggressive", report.Aggressive,
 		)
+	}
+
+	// Then check if disk pressure requires aggressive cleanup
+	pressure, checkErr := c.DiskPressureLevel(ctx)
+	if checkErr != nil {
+		slog.Warn("failed to check disk pressure after cleanup", "error", checkErr)
+		return
+	}
+
+	if pressure >= 2 {
+		slog.Warn("CRITICAL disk pressure after standard cleanup, running aggressive")
+		aggReport, aggErr := c.RunAggressiveCleanup(ctx, policy)
+		if aggErr != nil {
+			slog.Error("aggressive cleanup failed", "error", aggErr)
+			return
+		}
+		slog.Info("aggressive cleanup completed",
+			"reason", reason,
+			"removed", aggReport.ImagesRemoved,
+			"reclaimed_mb", aggReport.BytesReclaimed/(1024*1024),
+		)
+	} else if pressure >= 1 {
+		slog.Info("elevated disk pressure persists after standard cleanup",
+			"pressure_level", pressure)
 	}
 }

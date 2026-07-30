@@ -263,8 +263,27 @@ func TestIsImageStaleEnough_WithCache(t *testing.T) {
 	policy.ImageCache = cache
 
 	// No cache entry — should fall back to Created time
-	if client.isImageStaleEnough(policy, "unknown:latest", time.Now().Add(-60*24*time.Hour)) {
-		t.Error("expected stale without cache entry when Created is old")
+	// 60 days old Created > 30 day stale age → IS stale
+	if !client.isImageStaleEnough(policy, "unknown:latest", time.Now().Add(-60*24*time.Hour)) {
+		t.Error("expected image to be stale (60 days old, 30 day threshold)")
+	}
+
+	// With cache entry that has recent LastUsedAt → NOT stale
+	cache.Set(&CacheEntry{
+		Ref:        "nginx:latest",
+		LastUsedAt: time.Now().Add(-1 * time.Hour),
+	})
+	if client.isImageStaleEnough(policy, "nginx:latest", time.Now().Add(-60*24*time.Hour)) {
+		t.Error("expected image NOT to be stale (last used 1 hour ago)")
+	}
+
+	// With cache entry that has old LastUsedAt → IS stale
+	cache.Set(&CacheEntry{
+		Ref:        "old:image",
+		LastUsedAt: time.Now().Add(-60 * 24 * time.Hour),
+	})
+	if !client.isImageStaleEnough(policy, "old:image", time.Now()) {
+		t.Error("expected image to be stale (last used 60 days ago)")
 	}
 }
 
