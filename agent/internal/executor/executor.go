@@ -13,6 +13,7 @@ import (
 	"github.com/yourname/yourplatform/agent/internal/caddy"
 	"github.com/yourname/yourplatform/agent/internal/docker"
 	"github.com/yourname/yourplatform/agent/internal/env"
+	"github.com/yourname/yourplatform/agent/internal/logstream"
 )
 
 type Command struct {
@@ -74,12 +75,13 @@ type DeleteProjectPayload struct {
 }
 
 type Executor struct {
-	docker     *docker.Client
-	caddy      *caddy.Manager
-	backup     *backup.BackupManager
-	imageCache *docker.ImageCache
-	reporter   ProgressReporter
-	envManager *env.Manager
+	docker      *docker.Client
+	caddy       *caddy.Manager
+	backup      *backup.BackupManager
+	imageCache  *docker.ImageCache
+	reporter    ProgressReporter
+	envManager  *env.Manager
+	logStreamer *logstream.LogStreamer
 }
 
 // ProgressReporter sends image pull progress updates to the control plane.
@@ -106,6 +108,17 @@ func (e *Executor) WithImageCache(cache *docker.ImageCache) *Executor {
 func (e *Executor) WithProgressReporter(reporter ProgressReporter) *Executor {
 	e.reporter = reporter
 	return e
+}
+
+// WithLogStreamer attaches a log streamer for container log streaming.
+func (e *Executor) WithLogStreamer(ls *logstream.LogStreamer) *Executor {
+	e.logStreamer = ls
+	return e
+}
+
+// LogStreamer returns the attached log streamer, or nil if not configured.
+func (e *Executor) LogStreamer() *logstream.LogStreamer {
+	return e.logStreamer
 }
 
 type CommandQueue struct {

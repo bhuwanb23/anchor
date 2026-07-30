@@ -19,6 +19,7 @@ import (
 	"github.com/yourname/yourplatform/agent/internal/config"
 	"github.com/yourname/yourplatform/agent/internal/docker"
 	"github.com/yourname/yourplatform/agent/internal/executor"
+	"github.com/yourname/yourplatform/agent/internal/logstream"
 	"github.com/yourname/yourplatform/agent/internal/preflight"
 	"github.com/yourname/yourplatform/agent/internal/ws"
 )
@@ -115,6 +116,14 @@ func run(configPath string) {
 	exec := executor.New(dockerClient, caddyManager, backupManager).
 		WithImageCache(imageCache).
 		WithProgressReporter(&wsProgressReporter{client: wsClient})
+
+	// Create log streamer for container log streaming
+	logStreamer := logstream.NewLogStreamer(
+		dockerClient.GetContainerLogs,
+		dockerClient.GetContainerLogsTail,
+		wsClient,
+	)
+	exec.WithLogStreamer(logStreamer)
 
 	// Start background Docker health monitor
 	// This ensures the agent survives Docker daemon restarts

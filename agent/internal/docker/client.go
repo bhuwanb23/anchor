@@ -439,6 +439,16 @@ func (c *Client) CreateContainer(ctx context.Context, opts CreateContainerOpts) 
 		AutoRemove:   false, // We manage container lifecycle explicitly
 	}
 
+	// Configure log rotation to prevent disk filling up on chatty apps.
+	// Max 10MB per file, max 3 files = 30MB total per container.
+	hostConfig.LogConfig = container.LogConfig{
+		Type: "json-file",
+		Config: map[string]string{
+			"max-size": "10m",
+			"max-file": "3",
+		},
+	}
+
 	// Apply restart policy
 	hostConfig.RestartPolicy = container.RestartPolicy{
 		Name: opts.RestartPolicy,
@@ -527,6 +537,43 @@ func (c *Client) GetContainerLogs(ctx context.Context, id string) (io.ReadCloser
 		Follow:     true,
 		Timestamps: true,
 	})
+}
+
+// GetContainerLogsTail returns the last N lines of container logs without following.
+// Used to fetch historical logs before starting a live stream.
+func (c *Client) GetContainerLogsTail(ctx context.Context, id string, tail int) (string, error) {
+	if err := c.ensureConnected(ctx); err != nil {
+		return "", fmt.Errorf("docker unavailable: %w", err)
+	}
+
+	reader, err := c.cliUnsafe().ContainerLogs(ctx, id, types.ContainerLogsOptions{
+		ShowStdout: true,
+		ShowStderr: true,
+		Tail:       fmt.Sprintf("%d", tail),
+	})
+	if err != nil {
+		return "", err
+	}
+	defer reader.Close()
+
+	data, err := io.ReadAll(reader)
+	if err != nil {
+		return "", err
+	}
+
+	// Strip Docker log headers (8-byte per line in stream format)
+	raw := string(data)
+	if len(raw) > 8 {
+		lines := strings.Split(raw, "\n")
+		for i, line := range lines {
+			if len(line) > 8 {
+				lines[i] = line[8:]
+			}
+		}
+		raw = strings.Join(lines, "\n")
+	}
+
+	return strings.TrimSpace(raw), nil
 }
 
 // ---------------------------------------------------------------------------
