@@ -9,6 +9,29 @@ export interface Server {
   status: "connected" | "disconnected" | "pending"
   connected_at: string
   last_seen: string
+  // System info from preflight
+  os_info?: string
+  os_version?: string
+  os_pretty?: string
+  arch?: string
+  ram_mb?: number
+  ram_available_mb?: number
+  disk_gb?: number
+  disk_total_gb?: number
+  disk_available_gb?: number
+  disk_used_percent?: number
+  docker_version?: string
+  ip_address?: string
+}
+
+export interface ServerEvent {
+  id: string
+  server_id: string
+  event_type: "warning" | "auto_fixed" | "alert"
+  check_name?: string
+  message?: string
+  details?: string
+  created_at: string
 }
 
 export interface Deployment {
