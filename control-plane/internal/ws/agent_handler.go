@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 	"github.com/yourname/yourplatform/control-plane/internal/db/queries"
 )
@@ -107,10 +108,11 @@ func HandleAgentWS(hub *Hub, db *sql.DB) http.HandlerFunc {
 					continue
 				}
 
-				switch msg.Type {
-				case "result":
+				switch msg.Type {			case "result":
 					slog.Info("command result", "server_id", serverID, "payload", string(msg.Payload))
-				default:
+			case "preflight_result":
+					handlePreflightResult(db, serverID, msg.Payload)
+			default:
 					slog.Debug("agent message", "type", msg.Type, "server_id", serverID)
 				}
 			}
