@@ -226,6 +226,9 @@ func TestTextOutput(t *testing.T) {
 	if !strings.Contains(text, "Pre-flight Check Results") {
 		t.Error("expected title in text output")
 	}
+	if !strings.Contains(text, "OS:") {
+		t.Error("expected OS in text output")
+	}
 	if !strings.Contains(text, "Operating System") {
 		t.Error("expected check name in text output")
 	}
@@ -316,6 +319,39 @@ func TestHasErrors(t *testing.T) {
 	})
 }
 
+func TestVersionAtLeast(t *testing.T) {
+	tests := []struct {
+		version    string
+		minVersion string
+		expected   bool
+	}{
+		{"22.04", "20.04", true},   // newer
+		{"20.04", "20.04", true},   // equal
+		{"20.04", "22.04", false},  // older
+		{"18.04", "20.04", false},  // much older
+		{"11", "11", true},         // equal simple
+		{"12", "11", true},         // newer simple
+		{"10", "11", false},        // older simple
+		{"22.04.3", "20.04", true}, // newer with patch
+		{"20.04", "20.04.3", false}, // older than patch
+		{"36", "36", true},         // fedora equal
+		{"40", "36", true},         // fedora newer
+		{"35", "36", false},        // fedora older
+		{"8", "8", true},           // centos equal
+		{"9", "8", true},           // centos newer
+		{"7", "8", false},          // centos older
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.version+">="+tt.minVersion, func(t *testing.T) {
+			result := versionAtLeast(tt.version, tt.minVersion)
+			if result != tt.expected {
+				t.Errorf("versionAtLeast(%q, %q) = %v, want %v", tt.version, tt.minVersion, result, tt.expected)
+			}
+		})
+	}
+}
+
 func TestDurationSet(t *testing.T) {
 	r := NewResult()
 	r.AddCheck(CheckResult{Name: "a", Status: StatusPass, Severity: SeverityBlocking})
@@ -361,7 +397,7 @@ func TestJSONFieldNames(t *testing.T) {
 	}
 
 	sysInfo := raw["system_info"].(map[string]interface{})
-	expectedSysFields := []string{"os", "os_version", "arch", "ram_mb", "disk_gb"}
+	expectedSysFields := []string{"os", "os_version", "os_pretty", "arch", "ram_mb", "disk_gb"}
 	for _, f := range expectedSysFields {
 		if _, ok := sysInfo[f]; !ok {
 			t.Errorf("expected field '%s' in system_info JSON", f)
