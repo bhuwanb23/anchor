@@ -307,6 +307,11 @@ func (pm *ProcessManager) ensureConfig() error {
 		return nil
 	}
 
+	// Ensure parent directory exists
+	if err := os.MkdirAll(pm.cfg.DataDir, 0755); err != nil {
+		return fmt.Errorf("create data dir: %w", err)
+	}
+
 	slog.Info("generating initial caddy config", "path", configPath)
 
 	initialConfig := map[string]interface{}{
