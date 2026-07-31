@@ -36,6 +36,9 @@ type ProcessConfig struct {
 	BinaryPath string
 	DataDir    string
 	AdminURL   string
+	ACMEmail   string // ACME email for Let's Encrypt (default: certs@yourplatform.com)
+	UseStaging bool   // Use Let's Encrypt staging (default: true)
+	CertDir    string // Certificate storage directory
 }
 
 func (pc *ProcessConfig) defaults() {
@@ -48,6 +51,13 @@ func (pc *ProcessConfig) defaults() {
 	if pc.AdminURL == "" {
 		pc.AdminURL = "http://localhost:2019"
 	}
+	if pc.ACMEmail == "" {
+		pc.ACMEmail = "certs@yourplatform.com"
+	}
+	if pc.CertDir == "" {
+		pc.CertDir = filepath.Join(pc.DataDir, "certificates")
+	}
+	// UseStaging defaults to true
 }
 
 func (pc *ProcessConfig) pidFile() string {
@@ -312,18 +322,73 @@ func (pm *ProcessManager) ensureConfig() error {
 		return fmt.Errorf("create data dir: %w", err)
 	}
 
+	// Ensure certificate directory exists
+	if err := os.MkdirAll(pm.cfg.CertDir, 0755); err != nil {
+		return fmt.Errorf("create cert dir: %w", err)
+	}
+
 	slog.Info("generating initial caddy config", "path", configPath)
+
+	acmeCA := "https://acme-staging-v02.api.letsencrypt.org/directory"
+	if !pm.cfg.UseStaging {
+		acmeCA = "https://acme-v02.api.letsencrypt.org/directory"
+	}
 
 	initialConfig := map[string]interface{}{
 		"admin": map[string]interface{}{
 			"listen": "localhost:2019",
 		},
+		"storage": map[string]interface{}{
+			"module": "file_system",
+			"root":   pm.cfg.CertDir,
+		},
 		"apps": map[string]interface{}{
+			"tls": map[string]interface{}{
+				"automation": map[string]interface{}{
+					"policies": []interface{}{
+						map[string]interface{}{
+							"issuers": []interface{}{
+								map[string]interface{}{
+									"module": "acme",
+									"email":  pm.cfg.ACMEmail,
+									"ca":     acmeCA,
+								},
+							},
+						},
+					},
+				},
+			},
 			"http": map[string]interface{}{
 				"servers": map[string]interface{}{
-					"srv0": map[string]interface{}{
-						"listen": []string{":80"},
+					"main": map[string]interface{}{
+						"listen": []string{":443"},
 						"routes": []interface{}{},
+						"tls_connection_policies": []interface{}{
+							map[string]interface{}{},
+						},
+					},
+					"redirect": map[string]interface{}{
+						"listen": []string{":80"},
+						"routes": []interface{}{
+							map[string]interface{}{
+								"match": []interface{}{
+									map[string]interface{}{
+										"path": []string{"/*"},
+									},
+								},
+								"handle": []interface{}{
+									map[string]interface{}{
+										"handler": "static_response",
+										"status_code": 308,
+										"headers": map[string]interface{}{
+											"Location": []interface{}{
+												"https://{http.request.host}{http.request.uri}",
+											},
+										},
+									},
+								},
+							},
+						},
 					},
 				},
 			},
