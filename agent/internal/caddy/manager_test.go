@@ -22,40 +22,18 @@ func newMockCaddy() *mockCaddy {
 func (m *mockCaddy) handler() http.Handler {
 	mux := http.NewServeMux()
 
-	// GET /config/apps/http/servers/srv0/routes — list routes
-	mux.HandleFunc("/config/apps/http/servers/srv0/routes", func(w http.ResponseWriter, r *http.Request) {
+	// GET /config/apps/http/servers/main/routes — list routes
+	mux.HandleFunc("/config/apps/http/servers/main/routes", func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodGet:
 			m.mu.Lock()
 			defer m.mu.Unlock()
 			w.Header().Set("Content-Type", "application/json")
 			json.NewEncoder(w).Encode(m.routes)
-		case http.MethodPost, http.MethodPut:
-			body, _ := io.ReadAll(r.Body)
-			var config map[string]interface{}
-			json.Unmarshal(body, &config)
-			m.mu.Lock()
-			defer m.mu.Unlock()
-			// Extract routes from the config
-			if apps, ok := config["apps"].(map[string]interface{}); ok {
-				if httpApp, ok := apps["http"].(map[string]interface{}); ok {
-					if servers, ok := httpApp["servers"].(map[string]interface{}); ok {
-						if srv, ok := servers["srv0"].(map[string]interface{}); ok {
-							if routes, ok := srv["routes"].([]interface{}); ok {
-								var newRoutes []caddyRoute
-								data, _ := json.Marshal(routes)
-								json.Unmarshal(data, &newRoutes)
-								m.routes = newRoutes
-							}
-						}
-					}
-				}
-			}
-			w.WriteHeader(http.StatusOK)
 		}
 	})
 
-	// POST /config — full config replacement
+	// POST /config — full config replacement (putRoutes)
 	mux.HandleFunc("/config", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			w.WriteHeader(http.StatusMethodNotAllowed)
@@ -69,7 +47,7 @@ func (m *mockCaddy) handler() http.Handler {
 		if apps, ok := config["apps"].(map[string]interface{}); ok {
 			if httpApp, ok := apps["http"].(map[string]interface{}); ok {
 				if servers, ok := httpApp["servers"].(map[string]interface{}); ok {
-					if srv, ok := servers["srv0"].(map[string]interface{}); ok {
+					if srv, ok := servers["main"].(map[string]interface{}); ok {
 						if routes, ok := srv["routes"].([]interface{}); ok {
 							var newRoutes []caddyRoute
 							data, _ := json.Marshal(routes)
