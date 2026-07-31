@@ -402,6 +402,18 @@ func (e *Executor) executeDeploy(ctx context.Context, cmd Command, result *Resul
 		}
 	}
 
+	// --- Update state file ---
+	if e.stateManager != nil {
+		_ = e.stateManager.SetContainer(p.AppName, string(ct), &state.ContainerState{
+			ContainerID:   id,
+			Image:         p.Image,
+			Status:        "running",
+			HostPort:      p.Port,
+			RestartPolicy: "always",
+			CreatedAt:     time.Now().UTC().Format(time.RFC3339),
+		})
+	}
+
 	volInfo := ""
 	if len(volumeMounts) > 0 {
 		volInfo = fmt.Sprintf(", %d volume(s) mounted", len(volumeMounts))
@@ -451,6 +463,17 @@ func (e *Executor) executeRollback(ctx context.Context, cmd Command, result *Res
 		if err := e.docker.StartContainer(ctx, id); err != nil {
 			return fmt.Errorf("start rollback container: %w", err)
 		}
+
+		// Update state with rollback image
+		if e.stateManager != nil && p.AppName != "" {
+			_ = e.stateManager.SetContainer(p.AppName, "app", &state.ContainerState{
+				ContainerID: id,
+				Image:       p.PreviousImage,
+				Status:      "running",
+				CreatedAt:   time.Now().UTC().Format(time.RFC3339),
+			})
+		}
+
 		result.Output = fmt.Sprintf("rolled back to %s (container %s)", p.PreviousImage, id[:12])
 	}
 
@@ -468,6 +491,17 @@ func (e *Executor) executeRestart(ctx context.Context, cmd Command, result *Resu
 		return fmt.Errorf("restart container: %w", err)
 	}
 
+	// Update state — lookup project/role from container labels
+	if e.stateManager != nil {
+		if inspect, err := e.docker.InspectContainer(ctx, p.ContainerID); err == nil {
+			project := inspect.Config.Labels["yourplatform.project"]
+			role := inspect.Config.Labels["yourplatform.role"]
+			if project != "" && role != "" {
+				_ = e.stateManager.UpdateStatus(project, role, "running")
+			}
+		}
+	}
+
 	result.Status = "success"
 	result.Output = fmt.Sprintf("restarted container %s", p.ContainerID[:12])
 	return nil
@@ -483,6 +517,17 @@ func (e *Executor) executeStop(ctx context.Context, cmd Command, result *Result)
 		return fmt.Errorf("stop container: %w", err)
 	}
 
+	// Update state — lookup project/role from container labels
+	if e.stateManager != nil {
+		if inspect, err := e.docker.InspectContainer(ctx, p.ContainerID); err == nil {
+			project := inspect.Config.Labels["yourplatform.project"]
+			role := inspect.Config.Labels["yourplatform.role"]
+			if project != "" && role != "" {
+				_ = e.stateManager.UpdateStatus(project, role, "stopped")
+			}
+		}
+	}
+
 	result.Status = "success"
 	result.Output = fmt.Sprintf("stopped container %s", p.ContainerID[:12])
 	return nil
@@ -496,6 +541,11 @@ func (e *Executor) executeDeleteProject(ctx context.Context, cmd Command, result
 
 	if err := e.docker.RemoveProject(ctx, p.ProjectName, false); err != nil {
 		return fmt.Errorf("delete project %s: %w", p.ProjectName, err)
+	}
+
+	// Remove from state file
+	if e.stateManager != nil {
+		_ = e.stateManager.RemoveProject(p.ProjectName)
 	}
 
 	result.Status = "success"
