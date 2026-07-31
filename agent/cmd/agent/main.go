@@ -127,8 +127,17 @@ func run(configPath string) {
 	if err := caddyProcess.Start(ctx); err != nil {
 		slog.Warn("failed to start caddy, continuing without reverse proxy", "error", err)
 	} else {
+		// Reconcile routes from state into Caddy after startup
+		if _, _, err := state.ReconcileCaddy(ctx, stateManager, caddyManager); err != nil {
+			slog.Warn("caddy route reconciliation failed", "error", err)
+		}
+
 		caddyProcess.Monitor(ctx, func() {
-			slog.Error("caddy crashed — reverse proxy is down")
+			slog.Error("caddy crashed — restarting and restoring routes")
+			// Routes are restored by Monitor → Start → ReconcileCaddy on next tick
+			if _, _, err := state.ReconcileCaddy(ctx, stateManager, caddyManager); err != nil {
+				slog.Warn("failed to restore routes after caddy restart", "error", err)
+			}
 		})
 	}
 
