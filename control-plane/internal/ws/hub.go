@@ -93,6 +93,40 @@ func (h *Hub) GetAgentSend(serverID string) <-chan []byte {
 	return ch
 }
 
+// SendToAgent sends a message to a specific agent by server ID.
+// Returns false if the agent is not connected.
+func (h *Hub) SendToAgent(serverID string, msg []byte) bool {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	agent, ok := h.agents[serverID]
+	if !ok {
+		return false
+	}
+	select {
+	case agent.Send <- msg:
+		return true
+	default:
+		return false
+	}
+}
+
+// ForwardToBrowsers sends a message to all browsers watching a specific server.
+func (h *Hub) ForwardToBrowsers(serverID string, msg []byte) {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	browsers, ok := h.browsers[serverID]
+	if !ok {
+		return
+	}
+	for _, browser := range browsers {
+		select {
+		case browser.Send <- msg:
+		default:
+			close(browser.Send)
+		}
+	}
+}
+
 func (h *Hub) RegisterBrowser(serverID string, conn *websocket.Conn) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
