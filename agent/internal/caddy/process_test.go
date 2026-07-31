@@ -21,6 +21,12 @@ func TestProcessConfig_Defaults(t *testing.T) {
 	if cfg.AdminURL != "http://localhost:2019" {
 		t.Errorf("default AdminURL = %q, want http://localhost:2019", cfg.AdminURL)
 	}
+	if cfg.ACMEmail != "certs@yourplatform.com" {
+		t.Errorf("default ACMEmail = %q, want certs@yourplatform.com", cfg.ACMEmail)
+	}
+	if !cfg.UseStagingEnabled() {
+		t.Error("default UseStaging should be true")
+	}
 }
 
 func TestProcessConfig_PidFile(t *testing.T) {
@@ -117,11 +123,40 @@ func TestProcessManager_EnsureConfig(t *testing.T) {
 	}
 
 	s := string(data)
+	// Admin API
 	if !strings.Contains(s, "localhost:2019") {
-		t.Errorf("config should contain admin listen, got: %s", s)
+		t.Error("config should contain admin listen")
 	}
+	// HTTPS server on :443
+	if !strings.Contains(s, ":443") {
+		t.Error("config should contain HTTPS listen :443")
+	}
+	// HTTP redirect server on :80
 	if !strings.Contains(s, ":80") {
-		t.Errorf("config should contain HTTP listen, got: %s", s)
+		t.Error("config should contain HTTP redirect listen :80")
+	}
+	// ACME email
+	if !strings.Contains(s, "certs@yourplatform.com") {
+		t.Error("config should contain ACME email")
+	}
+	// Staging ACME URL
+	if !strings.Contains(s, "acme-staging-v02") {
+		t.Error("config should contain staging ACME URL by default")
+	}
+	// TLS config
+	if !strings.Contains(s, `"tls"`) {
+		t.Error("config should contain tls app")
+	}
+	// Redirect handler
+	if !strings.Contains(s, "static_response") {
+		t.Error("config should contain redirect handler")
+	}
+	// Server names
+	if !strings.Contains(s, `"main"`) {
+		t.Error("config should contain main server")
+	}
+	if !strings.Contains(s, `"redirect"`) {
+		t.Error("config should contain redirect server")
 	}
 
 	// Calling again should not overwrite
@@ -131,6 +166,55 @@ func TestProcessManager_EnsureConfig(t *testing.T) {
 	data2, _ := os.ReadFile(cfg.configFile())
 	if string(data) != string(data2) {
 		t.Error("ensureConfig should not overwrite existing config")
+	}
+}
+
+func TestProcessManager_EnsureConfig_Production(t *testing.T) {
+	dir := t.TempDir()
+	f := false
+	cfg := ProcessConfig{
+		DataDir:    dir,
+		BinaryPath: "/nonexistent",
+		AdminURL:   "http://localhost:19999",
+		UseStaging: &f,
+	}
+	pm := NewProcessManager(cfg, nil)
+
+	if err := pm.ensureConfig(); err != nil {
+		t.Fatalf("ensureConfig: %v", err)
+	}
+
+	data, _ := os.ReadFile(cfg.configFile())
+	s := string(data)
+	if strings.Contains(s, "acme-staging-v02") {
+		t.Error("production config should not use staging ACME URL")
+	}
+	if !strings.Contains(s, "acme-v02.api.letsencrypt.org") {
+		t.Error("production config should use production ACME URL")
+	}
+}
+
+func TestProcessManager_EnsureConfig_CertDir(t *testing.T) {
+	dir := t.TempDir()
+	certDir := filepath.Join(dir, "certs")
+	cfg := ProcessConfig{
+		DataDir:  dir,
+		CertDir:  certDir,
+	}
+	pm := NewProcessManager(cfg, nil)
+
+	if err := pm.ensureConfig(); err != nil {
+		t.Fatalf("ensureConfig: %v", err)
+	}
+
+	if _, err := os.Stat(certDir); os.IsNotExist(err) {
+		t.Error("certificate directory should be created")
+	}
+
+	data, _ := os.ReadFile(cfg.configFile())
+	// JSON escapes backslashes on Windows, so check the dir name is present
+	if !strings.Contains(string(data), "certs") {
+		t.Error("config should contain cert directory")
 	}
 }
 
@@ -210,6 +294,8 @@ func TestProcessConfig_ExpandedDefaults(t *testing.T) {
 		BinaryPath: "/usr/bin/caddy",
 		DataDir:    "/opt/caddy",
 		AdminURL:   "http://localhost:9090",
+		ACMEmail:   "admin@example.com",
+		CertDir:    "/opt/caddy/certs",
 	}
 	cfg.defaults()
 
@@ -221,6 +307,12 @@ func TestProcessConfig_ExpandedDefaults(t *testing.T) {
 	}
 	if cfg.AdminURL != "http://localhost:9090" {
 		t.Errorf("AdminURL should be preserved, got %q", cfg.AdminURL)
+	}
+	if cfg.ACMEmail != "admin@example.com" {
+		t.Errorf("ACMEmail should be preserved, got %q", cfg.ACMEmail)
+	}
+	if cfg.CertDir != "/opt/caddy/certs" {
+		t.Errorf("CertDir should be preserved, got %q", cfg.CertDir)
 	}
 }
 
@@ -239,7 +331,7 @@ func TestEnsureConfig_ContainsValidJSON(t *testing.T) {
 	}
 
 	s := string(data)
-	for _, key := range []string{`"admin"`, `"apps"`, `"http"`, `"servers"`, `"srv0"`, `"listen"`, `"routes"`} {
+	for _, key := range []string{`"admin"`, `"apps"`, `"http"`, `"tls"`, `"main"`, `"redirect"`, `"listen"`, `"routes"`, `"storage"`, `"acme"`} {
 		if !strings.Contains(s, key) {
 			t.Errorf("config missing key %s", key)
 		}
@@ -288,7 +380,6 @@ func TestProcessManager_Stop_NoPIDFile(t *testing.T) {
 	cfg := ProcessConfig{DataDir: dir}
 	pm := NewProcessManager(cfg, nil)
 
-	// Stop with no PID file should not error
 	if err := pm.Stop(); err != nil {
 		t.Errorf("Stop should not fail: %v", err)
 	}
@@ -299,7 +390,6 @@ func TestProcessManager_Restart_NoRoutes(t *testing.T) {
 	cfg := ProcessConfig{DataDir: dir, BinaryPath: filepath.Join(dir, "no-caddy"), AdminURL: "http://localhost:19999"}
 	pm := NewProcessManager(cfg, nil)
 
-	// Restart with no routes and missing binary should fail at Start
 	err := pm.Restart(t.Context(), nil)
 	if err == nil {
 		t.Error("Restart should fail when binary is missing")
