@@ -223,9 +223,16 @@ func attemptRestart(ctx context.Context, dockerClient DockerClient, mgr *Manager
 	return false
 }
 
+// CaddyClient is the interface needed from Caddy for route reconciliation.
+type CaddyClient interface {
+	SetRouteByID(routeID string, domains []string, upstream string) error
+	DeleteRouteByID(routeID string) error
+	GetRoutes() ([]caddy.CaddyRoute, error)
+}
+
 // ReconcileCaddy synchronizes routes between state.json and Caddy.
 // It re-registers all state routes with Caddy and removes orphaned routes.
-func ReconcileCaddy(ctx context.Context, stateMgr *Manager, caddyMgr *caddy.Manager) (restored int, orphaned int, err error) {
+func ReconcileCaddy(ctx context.Context, stateMgr *Manager, caddyClient CaddyClient) (restored int, orphaned int, err error) {
 	slog.Info("reconciling caddy routes")
 
 	stateRoutes := stateMgr.GetRoutes()
@@ -238,7 +245,7 @@ func ReconcileCaddy(ctx context.Context, stateMgr *Manager, caddyMgr *caddy.Mana
 		default:
 		}
 
-		if err := caddyMgr.SetRouteByID(routeID, rs.Domains, rs.Upstream); err != nil {
+		if err := caddyClient.SetRouteByID(routeID, rs.Domains, rs.Upstream); err != nil {
 			slog.Warn("failed to restore route", "route_id", routeID, "error", err)
 			continue
 		}
@@ -247,7 +254,7 @@ func ReconcileCaddy(ctx context.Context, stateMgr *Manager, caddyMgr *caddy.Mana
 	}
 
 	// Step 2: Get current routes from Caddy, remove orphans not in state
-	caddyRoutes, err := caddyMgr.GetRoutes()
+	caddyRoutes, err := caddyClient.GetRoutes()
 	if err != nil {
 		return restored, orphaned, fmt.Errorf("get caddy routes: %w", err)
 	}
@@ -264,14 +271,14 @@ func ReconcileCaddy(ctx context.Context, stateMgr *Manager, caddyMgr *caddy.Mana
 		default:
 		}
 
-		// Only clean up routes with our prefix
-		if cr.ID == "" || len(cr.ID) < 15 || cr.ID[:15] != "yourplatform-" {
+		// Only clean up routes with our prefix ("yourplatform-")
+		if cr.ID == "" || len(cr.ID) < 14 || cr.ID[:13] != "yourplatform-" {
 			continue
 		}
 
 		if !routeIDs[cr.ID] {
 			slog.Info("removing orphaned caddy route", "route_id", cr.ID)
-			if err := caddyMgr.DeleteRouteByID(cr.ID); err != nil {
+			if err := caddyClient.DeleteRouteByID(cr.ID); err != nil {
 				slog.Warn("failed to remove orphaned route", "route_id", cr.ID, "error", err)
 				continue
 			}
