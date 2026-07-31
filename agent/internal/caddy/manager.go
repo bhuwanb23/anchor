@@ -36,16 +36,16 @@ func (m *Manager) SetRouteByID(routeID string, domains []string, upstream string
 		return fmt.Errorf("at least one domain is required")
 	}
 
-	route := caddyRoute{
+	route := CaddyRoute{
 		ID: routeID,
-		Match: []caddyMatch{
+		Match: []CaddyMatch{
 			{Host: domains},
 		},
-		Handle: []caddyHandler{
+		Handle: []CaddyHandler{
 			{
 				Handler:   "reverse_proxy",
-				Upstreams: []caddyUpstream{{Dial: upstream}},
-				Headers: &caddyHeaders{
+				Upstreams: []CaddyUpstream{{Dial: upstream}},
+				Headers: &CaddyHeaders{
 					Set: map[string][]string{
 						"X-Real-IP":        {"{http.request.remote.host}"},
 						"X-Forwarded-Proto": {"https"},
@@ -88,7 +88,7 @@ func (m *Manager) SetRouteByID(routeID string, domains []string, upstream string
 }
 
 // GetRouteByID returns a single route by its ID.
-func (m *Manager) GetRouteByID(routeID string) (*caddyRoute, error) {
+func (m *Manager) GetRouteByID(routeID string) (*CaddyRoute, error) {
 	url := fmt.Sprintf("%s/config/apps/http/servers/main/routes/%s", m.adminURL, routeID)
 	resp, err := http.Get(url)
 	if err != nil {
@@ -104,7 +104,7 @@ func (m *Manager) GetRouteByID(routeID string) (*caddyRoute, error) {
 		return nil, fmt.Errorf("caddy get route %s rejected (%d): %s", routeID, resp.StatusCode, string(body))
 	}
 
-	var route caddyRoute
+	var route CaddyRoute
 	if err := json.NewDecoder(resp.Body).Decode(&route); err != nil {
 		return nil, fmt.Errorf("decode route %s: %w", routeID, err)
 	}
@@ -142,7 +142,7 @@ func (m *Manager) DeleteRouteByID(routeID string) error {
 }
 
 // GetRoutes returns all current routes from the "main" HTTPS server.
-func (m *Manager) GetRoutes() ([]caddyRoute, error) {
+func (m *Manager) GetRoutes() ([]CaddyRoute, error) {
 	resp, err := http.Get(m.adminURL + "/config/apps/http/servers/main/routes")
 	if err != nil {
 		return nil, fmt.Errorf("get routes: %w", err)
@@ -150,14 +150,14 @@ func (m *Manager) GetRoutes() ([]caddyRoute, error) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode == 404 {
-		return []caddyRoute{}, nil
+		return []CaddyRoute{}, nil
 	}
 	if resp.StatusCode >= 400 {
 		body, _ := io.ReadAll(resp.Body)
 		return nil, fmt.Errorf("caddy get routes rejected (%d): %s", resp.StatusCode, string(body))
 	}
 
-	var routes []caddyRoute
+	var routes []CaddyRoute
 	if err := json.NewDecoder(resp.Body).Decode(&routes); err != nil {
 		return nil, fmt.Errorf("decode routes: %w", err)
 	}
@@ -228,28 +228,31 @@ func (m *Manager) verifyRoute(routeID string) error {
 	return nil
 }
 
-// Caddy JSON config types for route management.
-
-type caddyRoute struct {
+// CaddyRoute is a Caddy route configuration for the admin API.
+type CaddyRoute struct {
 	ID      string          `json:"@id"`
-	Match   []caddyMatch    `json:"match"`
-	Handle  []caddyHandler  `json:"handle"`
+	Match   []CaddyMatch    `json:"match"`
+	Handle  []CaddyHandler  `json:"handle"`
 }
 
-type caddyMatch struct {
+// CaddyMatch defines the match criteria for a route.
+type CaddyMatch struct {
 	Host []string `json:"host"`
 }
 
-type caddyHandler struct {
+// CaddyHandler defines what happens to matched requests.
+type CaddyHandler struct {
 	Handler   string           `json:"handler"`
-	Upstreams []caddyUpstream  `json:"upstreams,omitempty"`
-	Headers   *caddyHeaders    `json:"headers,omitempty"`
+	Upstreams []CaddyUpstream  `json:"upstreams,omitempty"`
+	Headers   *CaddyHeaders    `json:"headers,omitempty"`
 }
 
-type caddyUpstream struct {
+// CaddyUpstream is a backend address to proxy to.
+type CaddyUpstream struct {
 	Dial string `json:"dial"`
 }
 
-type caddyHeaders struct {
+// CaddyHeaders defines header manipulation rules.
+type CaddyHeaders struct {
 	Set map[string][]string `json:"set,omitempty"`
 }
