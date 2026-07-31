@@ -151,6 +151,7 @@ func run(configPath string) {
 		select {
 		case <-ctx.Done():
 			slog.Info("shutting down agent")
+			logStreamer.StopAll()
 			if connected {
 				os.Remove(connectedFile)
 				slog.Info("removed agent.connected file")
@@ -167,6 +168,41 @@ func run(configPath string) {
 				var cmd executor.Command
 				if err := json.Unmarshal(msg.Payload, &cmd); err != nil {
 					slog.Error("failed to parse command", "error", err)
+					continue
+				}
+
+				// Streaming commands are handled outside the executor
+				// because they spawn long-lived goroutines.
+				switch cmd.Type {
+				case "stream_logs":
+					go handleStreamLogs(ctx, logStreamer, dockerClient, cmd)
+					// Send immediate acknowledgement
+					if err := wsClient.SendJSON(executor.Result{
+						CommandID: cmd.ID,
+						Status:    "success",
+						Output:    "log streaming started",
+						Timestamp: time.Now().UTC(),
+					}); err != nil {
+						slog.Error("failed to send stream_logs ack", "error", err)
+					}
+					continue
+				case "stop_stream_logs":
+					var payload struct {
+						ContainerID string `json:"container_id"`
+					}
+					if err := json.Unmarshal(cmd.Payload, &payload); err == nil && payload.ContainerID != "" {
+						logStreamer.StopStream(payload.ContainerID)
+					} else {
+						logStreamer.StopAll()
+					}
+					if err := wsClient.SendJSON(executor.Result{
+						CommandID: cmd.ID,
+						Status:    "success",
+						Output:    "log streaming stopped",
+						Timestamp: time.Now().UTC(),
+					}); err != nil {
+						slog.Error("failed to send stop_stream_logs ack", "error", err)
+					}
 					continue
 				}
 
@@ -387,5 +423,66 @@ func (r *wsProgressReporter) ReportProgress(p docker.PullProgress) {
 	}
 	if err := r.client.SendJSON(payload); err != nil {
 		slog.Debug("failed to send pull progress", "error", err)
+	}
+}
+
+// handleStreamLogs processes a stream_logs command.
+// It resolves container IDs from project name + roles, then starts
+// live log streaming for each container.
+func handleStreamLogs(ctx context.Context, ls *logstream.LogStreamer, dockerClient *docker.Client, cmd executor.Command) {
+	var payload logstream.StreamLogsPayload
+	if err := json.Unmarshal(cmd.Payload, &payload); err != nil {
+		slog.Error("failed to parse stream_logs payload", "error", err)
+		return
+	}
+
+	if payload.Tail <= 0 {
+		payload.Tail = 200
+	}
+
+	if len(payload.Containers) == 0 {
+		payload.Containers = []string{"app"}
+	}
+
+	for _, role := range payload.Containers {
+		containerName := docker.ContainerName(payload.ProjectName, role)
+
+		// Look up container by name
+		containers, err := dockerClient.ListContainers(ctx)
+		if err != nil {
+			slog.Error("failed to list containers for log stream",
+				"project", payload.ProjectName,
+				"role", role,
+				"error", err)
+			continue
+		}
+
+		var containerID string
+		for _, c := range containers {
+			for _, name := range c.Names {
+				if name == "/"+containerName {
+					containerID = c.ID
+					break
+				}
+			}
+			if containerID != "" {
+				break
+			}
+		}
+
+		if containerID == "" {
+			slog.Warn("container not found for log stream",
+				"project", payload.ProjectName,
+				"role", role,
+				"name", containerName)
+			continue
+		}
+
+		slog.Info("starting log stream",
+			"project", payload.ProjectName,
+			"role", role,
+			"container", containerID[:12])
+
+		ls.StartStream(ctx, containerID, payload.ProjectName, role, payload.Tail)
 	}
 }
