@@ -37,8 +37,16 @@ type ProcessConfig struct {
 	DataDir    string
 	AdminURL   string
 	ACMEmail   string // ACME email for Let's Encrypt (default: certs@yourplatform.com)
-	UseStaging bool   // Use Let's Encrypt staging (default: true)
+	UseStaging *bool  // Use Let's Encrypt staging (nil or true = staging; false = production)
 	CertDir    string // Certificate storage directory
+}
+
+// UseStagingEnabled returns whether staging mode is on. Defaults to true.
+func (pc *ProcessConfig) UseStagingEnabled() bool {
+	if pc.UseStaging == nil {
+		return true
+	}
+	return *pc.UseStaging
 }
 
 func (pc *ProcessConfig) defaults() {
@@ -57,7 +65,10 @@ func (pc *ProcessConfig) defaults() {
 	if pc.CertDir == "" {
 		pc.CertDir = filepath.Join(pc.DataDir, "certificates")
 	}
-	// UseStaging defaults to true
+	if pc.UseStaging == nil {
+		t := true
+		pc.UseStaging = &t
+	}
 }
 
 func (pc *ProcessConfig) pidFile() string {
@@ -330,7 +341,7 @@ func (pm *ProcessManager) ensureConfig() error {
 	slog.Info("generating initial caddy config", "path", configPath)
 
 	acmeCA := "https://acme-staging-v02.api.letsencrypt.org/directory"
-	if !pm.cfg.UseStaging {
+	if !pm.cfg.UseStagingEnabled() {
 		acmeCA = "https://acme-v02.api.letsencrypt.org/directory"
 	}
 
