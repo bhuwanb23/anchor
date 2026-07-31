@@ -159,7 +159,7 @@ func HandleAgentWS(hub *Hub, db *sql.DB) http.HandlerFunc {
 				slog.Info("command result", "server_id", serverID, "payload", string(msg.Payload))
 			case "preflight_result":
 				handlePreflightResult(db, serverID, msg.Payload)
-			case "log_line", "log_history", "pull_progress", "docker_status":
+			case "log_line", "log_history", "pull_progress", "docker_status", "reconciliation_result":
 				// Forward streaming messages to all browsers watching this server
 				hub.ForwardToBrowsers(serverID, data)
 			default:
