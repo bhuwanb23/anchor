@@ -78,3 +78,32 @@ export interface RegistrationTokenResponse {
   install_command: string
   expires_at: string
 }
+
+export interface LogEntry {
+  type: "log_line"
+  project: string
+  container: string
+  stream: "stdout" | "stderr"
+  line: string
+  timestamp: string
+}
+
+export interface LogHistory {
+  type: "log_history"
+  project: string
+  container: string
+  lines: LogEntry[]
+}
+
+export interface StreamLogsCommand {
+  type: "stream_logs"
+  project_name: string
+  containers: string[]
+  tail?: number
+}
+
+export interface StopStreamLogsCommand {
+  type: "stop_stream_logs"
+  container_id?: string
+  all?: boolean
+}
