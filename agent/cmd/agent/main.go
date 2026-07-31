@@ -111,6 +111,9 @@ func run(configPath string) {
 		BinaryPath: cfg.CaddyBinaryPath,
 		DataDir:    cfg.CaddyDataDir,
 		AdminURL:   caddyAdminURL,
+		ACMEmail:   cfg.CaddyACMEmail,
+		UseStaging: cfg.CaddyUseStaging,
+		CertDir:    cfg.CaddyCertDir,
 	}, caddyManager)
 	backupManager := backup.NewManager(cfg.BackupDest)
 
