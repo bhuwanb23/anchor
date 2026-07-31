@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/docker/docker/api/types"
+	"github.com/docker/docker/api/types/filters"
 )
 
 // ---------------------------------------------------------------------------
@@ -234,6 +235,12 @@ func (c *Client) GetLocalDigest(ctx context.Context, ref string) (string, error)
 //  3. For images from custom registries:
 //     Always pull (user may have pushed a new version with the same tag)
 //
+// pullResult holds the return values from pull operations for singleflight.
+type pullResult struct {
+	summary   *ImageSummary
+	wasPulled bool
+}
+
 // After a successful pull, the cache is updated with the new digest and metadata.
 // Returns (summary, wasPulled, error).
 func (c *Client) PullImageIfNeeded(ctx context.Context, ref string, cache *ImageCache, progressFn PullProgressFunc) (*ImageSummary, bool, error) {
@@ -242,13 +249,35 @@ func (c *Client) PullImageIfNeeded(ctx context.Context, ref string, cache *Image
 
 	// Strategy for "latest" tags: use digest comparison
 	if parsed.IsLatest() {
-		return c.pullLatestWithDigestCheck(ctx, ref, normalized, cache, progressFn)
+		v, err, _ := c.pullGroup.Do(normalized, func() (interface{}, error) {
+			summary, pulled, pullErr := c.pullLatestWithDigestCheck(ctx, ref, normalized, cache, progressFn)
+			if pullErr != nil {
+				return nil, pullErr
+			}
+			return &pullResult{summary: summary, wasPulled: pulled}, nil
+		})
+		if err != nil {
+			return nil, false, err
+		}
+		r := v.(*pullResult)
+		return r.summary, r.wasPulled, nil
 	}
 
 	// Strategy for custom registries: always pull (user images)
 	if parsed.IsRegistrySpecific() {
 		slog.Debug("custom registry detected, always pulling", "image", ref)
-		return c.pullAndCache(ctx, ref, cache, progressFn)
+		v, err, _ := c.pullGroup.Do(normalized, func() (interface{}, error) {
+			summary, pulled, pullErr := c.pullAndCache(ctx, ref, cache, progressFn)
+			if pullErr != nil {
+				return nil, pullErr
+			}
+			return &pullResult{summary: summary, wasPulled: pulled}, nil
+		})
+		if err != nil {
+			return nil, false, err
+		}
+		r := v.(*pullResult)
+		return r.summary, r.wasPulled, nil
 	}
 
 	// Strategy for specific version tags: check local, skip if present
@@ -268,7 +297,18 @@ func (c *Client) PullImageIfNeeded(ctx context.Context, ref string, cache *Image
 		return summary, false, nil
 	}
 
-	return c.pullAndCache(ctx, ref, cache, progressFn)
+	v, err, _ := c.pullGroup.Do(normalized, func() (interface{}, error) {
+		summary, pulled, pullErr := c.pullAndCache(ctx, ref, cache, progressFn)
+		if pullErr != nil {
+			return nil, pullErr
+		}
+		return &pullResult{summary: summary, wasPulled: pulled}, nil
+	})
+	if err != nil {
+		return nil, false, err
+	}
+	r := v.(*pullResult)
+	return r.summary, r.wasPulled, nil
 }
 
 // pullLatestWithDigestCheck handles the "latest" tag strategy with digest comparison.
@@ -585,7 +625,7 @@ func (c *Client) PruneUnusedImages(ctx context.Context) error {
 		return fmt.Errorf("docker unavailable: %w", err)
 	}
 
-	report, err := c.cliUnsafe().ImagesPrune(ctx, types.ImagesPruneConfig{})
+	report, err := c.cliUnsafe().ImagesPrune(ctx, filters.NewArgs())
 	if err != nil {
 		return fmt.Errorf("prune images: %w", err)
 	}

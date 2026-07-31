@@ -12,13 +12,16 @@ import (
 	"os/signal"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/yourname/yourplatform/agent/internal/backup"
 	"github.com/yourname/yourplatform/agent/internal/caddy"
 	"github.com/yourname/yourplatform/agent/internal/config"
 	"github.com/yourname/yourplatform/agent/internal/docker"
 	"github.com/yourname/yourplatform/agent/internal/executor"
+	"github.com/yourname/yourplatform/agent/internal/logstream"
 	"github.com/yourname/yourplatform/agent/internal/preflight"
+	"github.com/yourname/yourplatform/agent/internal/state"
 	"github.com/yourname/yourplatform/agent/internal/ws"
 )
 
@@ -104,13 +107,54 @@ func run(configPath string) {
 
 	caddyManager := caddy.NewManager("http://localhost:2019")
 	backupManager := backup.NewManager(cfg.BackupDest)
-	exec := executor.New(dockerClient, caddyManager, backupManager).WithImageCache(imageCache)
+
+	// Create state manager for persistence across restarts
+	stateManager := state.NewManager("")
 
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 
 	wsURL := cfg.ControlPlaneURL + "/ws/agent"
 	wsClient := ws.NewClient(wsURL, cfg.AgentID, cfg.AgentSecret, cfg.WSReconnectSec)
+
+	// Run reconciliation on boot — discover running containers and sync state
+	go func() {
+		reconcileResult, err := state.Reconcile(ctx, stateManager, dockerClient)
+		if err != nil {
+			slog.Error("reconciliation failed", "error", err)
+			return
+		}
+		slog.Info("reconciliation complete",
+			"running", reconcileResult.Running,
+			"restarted", reconcileResult.Restarted,
+			"failed", reconcileResult.Failed,
+			"adopted", reconcileResult.Adopted)
+		for _, msg := range reconcileResult.Messages {
+			slog.Info("reconciliation", "message", msg)
+		}
+		// Report to control plane
+		wsClient.SendJSON(map[string]interface{}{
+			"type":      "reconciliation_result",
+			"running":   reconcileResult.Running,
+			"restarted": reconcileResult.Restarted,
+			"failed":    reconcileResult.Failed,
+			"adopted":   reconcileResult.Adopted,
+			"messages":  reconcileResult.Messages,
+		})
+	}()
+
+	exec := executor.New(dockerClient, caddyManager, backupManager).
+		WithImageCache(imageCache).
+		WithProgressReporter(&wsProgressReporter{client: wsClient}).
+		WithStateManager(stateManager)
+
+	// Create log streamer for container log streaming
+	logStreamer := logstream.NewLogStreamer(
+		dockerClient.GetContainerLogs,
+		dockerClient.GetContainerLogsTail,
+		wsClient,
+	)
+	exec.WithLogStreamer(logStreamer)
 
 	// Start background Docker health monitor
 	// This ensures the agent survives Docker daemon restarts
@@ -138,6 +182,7 @@ func run(configPath string) {
 		select {
 		case <-ctx.Done():
 			slog.Info("shutting down agent")
+			logStreamer.StopAll()
 			if connected {
 				os.Remove(connectedFile)
 				slog.Info("removed agent.connected file")
@@ -154,6 +199,41 @@ func run(configPath string) {
 				var cmd executor.Command
 				if err := json.Unmarshal(msg.Payload, &cmd); err != nil {
 					slog.Error("failed to parse command", "error", err)
+					continue
+				}
+
+				// Streaming commands are handled outside the executor
+				// because they spawn long-lived goroutines.
+				switch cmd.Type {
+				case "stream_logs":
+					go handleStreamLogs(ctx, logStreamer, dockerClient, cmd)
+					// Send immediate acknowledgement
+					if err := wsClient.SendJSON(executor.Result{
+						CommandID: cmd.ID,
+						Status:    "success",
+						Output:    "log streaming started",
+						Timestamp: time.Now().UTC(),
+					}); err != nil {
+						slog.Error("failed to send stream_logs ack", "error", err)
+					}
+					continue
+				case "stop_stream_logs":
+					var payload struct {
+						ContainerID string `json:"container_id"`
+					}
+					if err := json.Unmarshal(cmd.Payload, &payload); err == nil && payload.ContainerID != "" {
+						logStreamer.StopStream(payload.ContainerID)
+					} else {
+						logStreamer.StopAll()
+					}
+					if err := wsClient.SendJSON(executor.Result{
+						CommandID: cmd.ID,
+						Status:    "success",
+						Output:    "log streaming stopped",
+						Timestamp: time.Now().UTC(),
+					}); err != nil {
+						slog.Error("failed to send stop_stream_logs ack", "error", err)
+					}
 					continue
 				}
 
@@ -354,5 +434,86 @@ func runPreflight(useJSON bool) {
 
 	if result.HasBlockingFailures() {
 		os.Exit(1)
+	}
+}
+
+// wsProgressReporter sends image pull progress updates to the control plane
+// via the agent's WebSocket connection.
+type wsProgressReporter struct {
+	client *ws.Client
+}
+
+func (r *wsProgressReporter) ReportProgress(p docker.PullProgress) {
+	payload := map[string]interface{}{
+		"type":     "pull_progress",
+		"image_id": p.ID,
+		"status":   p.Status,
+		"stream":   p.Stream,
+		"current":  p.Current,
+		"total":    p.Total,
+	}
+	if err := r.client.SendJSON(payload); err != nil {
+		slog.Debug("failed to send pull progress", "error", err)
+	}
+}
+
+// handleStreamLogs processes a stream_logs command.
+// It resolves container IDs from project name + roles, then starts
+// live log streaming for each container.
+func handleStreamLogs(ctx context.Context, ls *logstream.LogStreamer, dockerClient *docker.Client, cmd executor.Command) {
+	var payload logstream.StreamLogsPayload
+	if err := json.Unmarshal(cmd.Payload, &payload); err != nil {
+		slog.Error("failed to parse stream_logs payload", "error", err)
+		return
+	}
+
+	if payload.Tail <= 0 {
+		payload.Tail = 200
+	}
+
+	if len(payload.Containers) == 0 {
+		payload.Containers = []string{"app"}
+	}
+
+	for _, role := range payload.Containers {
+		containerName := docker.ContainerName(payload.ProjectName, role)
+
+		// Look up container by name
+		containers, err := dockerClient.ListContainers(ctx)
+		if err != nil {
+			slog.Error("failed to list containers for log stream",
+				"project", payload.ProjectName,
+				"role", role,
+				"error", err)
+			continue
+		}
+
+		var containerID string
+		for _, c := range containers {
+			for _, name := range c.Names {
+				if name == "/"+containerName {
+					containerID = c.ID
+					break
+				}
+			}
+			if containerID != "" {
+				break
+			}
+		}
+
+		if containerID == "" {
+			slog.Warn("container not found for log stream",
+				"project", payload.ProjectName,
+				"role", role,
+				"name", containerName)
+			continue
+		}
+
+		slog.Info("starting log stream",
+			"project", payload.ProjectName,
+			"role", role,
+			"container", containerID[:12])
+
+		ls.StartStream(ctx, containerID, payload.ProjectName, role, payload.Tail)
 	}
 }

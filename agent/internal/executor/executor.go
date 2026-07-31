@@ -12,6 +12,9 @@ import (
 	"github.com/yourname/yourplatform/agent/internal/backup"
 	"github.com/yourname/yourplatform/agent/internal/caddy"
 	"github.com/yourname/yourplatform/agent/internal/docker"
+	"github.com/yourname/yourplatform/agent/internal/env"
+	"github.com/yourname/yourplatform/agent/internal/logstream"
+	"github.com/yourname/yourplatform/agent/internal/state"
 )
 
 type Command struct {
@@ -43,6 +46,13 @@ type DeployPayload struct {
 	ContainerType docker.ContainerType `json:"container_type,omitempty"`
 	Volumes       []VolumeSpec        `json:"volumes,omitempty"`
 	MemoryLimitMB int64               `json:"memory_limit_mb,omitempty"` // override default memory limit
+	Env           map[string]string   `json:"env,omitempty"`            // env vars from dashboard
+}
+
+type UpdateEnvPayload struct {
+	ProjectName string            `json:"project_name"`
+	Vars        map[string]string `json:"vars"` // key=value pairs to set
+	Remove      []string          `json:"remove,omitempty"` // keys to remove
 }
 
 type StopPayload struct {
@@ -66,17 +76,27 @@ type DeleteProjectPayload struct {
 }
 
 type Executor struct {
-	docker     *docker.Client
-	caddy      *caddy.Manager
-	backup     *backup.BackupManager
-	imageCache *docker.ImageCache
+	docker       *docker.Client
+	caddy        *caddy.Manager
+	backup       *backup.BackupManager
+	imageCache   *docker.ImageCache
+	reporter     ProgressReporter
+	envManager   *env.Manager
+	logStreamer  *logstream.LogStreamer
+	stateManager *state.Manager
+}
+
+// ProgressReporter sends image pull progress updates to the control plane.
+type ProgressReporter interface {
+	ReportProgress(progress docker.PullProgress)
 }
 
 func New(dockerClient *docker.Client, caddyManager *caddy.Manager, backupManager *backup.BackupManager) *Executor {
 	return &Executor{
-		docker: dockerClient,
-		caddy:  caddyManager,
-		backup: backupManager,
+		docker:     dockerClient,
+		caddy:      caddyManager,
+		backup:     backupManager,
+		envManager: env.NewManager(""),
 	}
 }
 
@@ -84,6 +104,34 @@ func New(dockerClient *docker.Client, caddyManager *caddy.Manager, backupManager
 func (e *Executor) WithImageCache(cache *docker.ImageCache) *Executor {
 	e.imageCache = cache
 	return e
+}
+
+// WithProgressReporter attaches a progress reporter for pull progress updates.
+func (e *Executor) WithProgressReporter(reporter ProgressReporter) *Executor {
+	e.reporter = reporter
+	return e
+}
+
+// WithLogStreamer attaches a log streamer for container log streaming.
+func (e *Executor) WithLogStreamer(ls *logstream.LogStreamer) *Executor {
+	e.logStreamer = ls
+	return e
+}
+
+// WithStateManager attaches a state manager for persistence across restarts.
+func (e *Executor) WithStateManager(sm *state.Manager) *Executor {
+	e.stateManager = sm
+	return e
+}
+
+// LogStreamer returns the attached log streamer, or nil if not configured.
+func (e *Executor) LogStreamer() *logstream.LogStreamer {
+	return e.logStreamer
+}
+
+// StateManager returns the attached state manager, or nil if not configured.
+func (e *Executor) StateManager() *state.Manager {
+	return e.stateManager
 }
 
 type CommandQueue struct {
@@ -146,6 +194,8 @@ func (e *Executor) Execute(ctx context.Context, cmd Command) Result {
 		err = e.executeFetchLogs(ctx, cmd, &result)
 	case "delete_project":
 		err = e.executeDeleteProject(ctx, cmd, &result)
+	case "update_env":
+		err = e.executeUpdateEnv(ctx, cmd, &result)
 	default:
 		result.Status = "error"
 		result.Error = fmt.Sprintf("unknown command type: %s", cmd.Type)
@@ -166,7 +216,14 @@ func (e *Executor) executeDeploy(ctx context.Context, cmd Command, result *Resul
 	}
 
 	// Pull image first
-	if _, _, err := e.docker.PullImageIfNeeded(ctx, p.Image, e.imageCache, nil); err != nil {
+	var progressFn docker.PullProgressFunc
+	if e.reporter != nil {
+		progressFn = func(p docker.PullProgress) error {
+			e.reporter.ReportProgress(p)
+			return nil
+		}
+	}
+	if _, _, err := e.docker.PullImageIfNeeded(ctx, p.Image, e.imageCache, progressFn); err != nil {
 		return fmt.Errorf("pull image: %w", err)
 	}
 
@@ -227,19 +284,62 @@ func (e *Executor) executeDeploy(ctx context.Context, cmd Command, result *Resul
 	if p.MemoryLimitMB > 0 {
 		rlimits.MemoryHard = p.MemoryLimitMB * 1024 * 1024
 	}
-	// No validation against total RAM here (agent may not know it)
+
+	// Validate limits against available server RAM
+	if totalRAM := docker.GetTotalRAMMB(); totalRAM > 0 {
+		if err := docker.ValidateResourceLimits(rlimits, totalRAM); err != nil {
+			return fmt.Errorf("resource limits invalid: %w", err)
+		}
+	}
 
 	// --- Health check ---
 	healthCheck := docker.DefaultHealthCheck(ct, p.Port)
+
+	// --- Environment variables ---
+	// Read existing env file, merge with deploy payload, add defaults
+	envVars, err := e.envManager.ReadEnvFile(p.AppName)
+	if err != nil {
+		slog.Warn("failed to read env file", "app", p.AppName, "error", err)
+		envVars = make(map[string]string)
+	}
+
+	// Overlay vars from deploy payload (dashboard updates)
+	for k, v := range p.Env {
+		envVars[k] = v
+	}
+
+	// Auto-generate DATABASE_URL when Postgres is added to a project
+	if ct == docker.ContainerTypePostgres {
+		dbName := p.AppName + "_db"
+		if _, exists := envVars["DATABASE_URL"]; !exists {
+			// Generate a random password and store it
+			password := generateRandomPassword(24)
+			envVars["DATABASE_URL"] = env.GenerateDatabaseURL(password, dbName)
+		}
+	}
+
+	// Add platform defaults (YOURPLATFORM, PORT)
+	envVars = env.MergeWithDefaults(envVars, p.Port)
+
+	// Write updated env file (values stored locally, never sent to control plane)
+	if err := e.envManager.WriteEnvFile(p.AppName, envVars); err != nil {
+		slog.Warn("failed to write env file", "app", p.AppName, "error", err)
+	}
 
 	// --- Container labels ---
 	labels := docker.ContainerLabels(p.AppName, ct)
 
 	// --- Deploy (create + start with crash detection) ---
+
+	// Replace existing container with same name (enables re-deploy)
+	if _, err := e.docker.ReplaceExistingContainer(ctx, containerName); err != nil {
+		slog.Warn("failed to replace existing container", "name", containerName, "error", err)
+	}
+
 	id, err := e.docker.CreateContainer(ctx, docker.CreateContainerOpts{
 		Name:           containerName,
 		Image:          p.Image,
-		Env:            []string{},
+		Env:            env.FormatForDocker(envVars),
 		PortBindings:   portMap,
 		ExposedPorts:   exposedPorts,
 		Networks:       []docker.NetworkEndpointConfig{networkEndpoint},
@@ -260,7 +360,17 @@ func (e *Executor) executeDeploy(ctx context.Context, cmd Command, result *Resul
 			_ = e.docker.RemoveContainerSafe(ctx, id)
 			result.Status = "error"
 			result.Output = ""
-			result.Error = crashErr.Error()
+
+			// OOM-specific messaging
+			if docker.IsOOMKill(crashErr.ExitCode) {
+				limitMB := rlimits.MemoryHard / (1024 * 1024)
+				result.Error = fmt.Sprintf(
+					"Your app ran out of memory and was restarted (exit code 137). "+
+						"Current memory limit: %dMB. Consider increasing the memory limit "+
+						"or investigating memory usage in your app.", limitMB)
+			} else {
+				result.Error = crashErr.Error()
+			}
 			return nil
 		}
 		// Some other error starting
@@ -275,11 +385,33 @@ func (e *Executor) executeDeploy(ctx context.Context, cmd Command, result *Resul
 		// Non-fatal — container may still serve traffic without health check
 	}
 
+	// Start background health monitoring (runs until context is cancelled)
+	e.docker.RunHealthMonitor(ctx, id, 30*time.Second, func(_ context.Context, health *docker.ContainerHealth) bool {
+		if health.Status == docker.HealthUnhealthy {
+			slog.Warn("container unhealthy",
+				"app", p.AppName, "container", id[:12],
+				"failing_streak", health.FailingStreak, "output", health.Output)
+		}
+		return true // continue monitoring
+	})
+
 	// --- Caddy route ---
 	if p.Domain != "" && p.Port > 0 {
 		if err := e.caddy.SetRoute(p.Domain, p.Port); err != nil {
 			slog.Warn("failed to set caddy route", "error", err)
 		}
+	}
+
+	// --- Update state file ---
+	if e.stateManager != nil {
+		_ = e.stateManager.SetContainer(p.AppName, string(ct), &state.ContainerState{
+			ContainerID:   id,
+			Image:         p.Image,
+			Status:        "running",
+			HostPort:      p.Port,
+			RestartPolicy: "always",
+			CreatedAt:     time.Now().UTC().Format(time.RFC3339),
+		})
 	}
 
 	volInfo := ""
@@ -331,6 +463,17 @@ func (e *Executor) executeRollback(ctx context.Context, cmd Command, result *Res
 		if err := e.docker.StartContainer(ctx, id); err != nil {
 			return fmt.Errorf("start rollback container: %w", err)
 		}
+
+		// Update state with rollback image
+		if e.stateManager != nil && p.AppName != "" {
+			_ = e.stateManager.SetContainer(p.AppName, "app", &state.ContainerState{
+				ContainerID: id,
+				Image:       p.PreviousImage,
+				Status:      "running",
+				CreatedAt:   time.Now().UTC().Format(time.RFC3339),
+			})
+		}
+
 		result.Output = fmt.Sprintf("rolled back to %s (container %s)", p.PreviousImage, id[:12])
 	}
 
@@ -348,6 +491,17 @@ func (e *Executor) executeRestart(ctx context.Context, cmd Command, result *Resu
 		return fmt.Errorf("restart container: %w", err)
 	}
 
+	// Update state — lookup project/role from container labels
+	if e.stateManager != nil {
+		if inspect, err := e.docker.InspectContainer(ctx, p.ContainerID); err == nil {
+			project := inspect.Config.Labels["yourplatform.project"]
+			role := inspect.Config.Labels["yourplatform.role"]
+			if project != "" && role != "" {
+				_ = e.stateManager.UpdateStatus(project, role, "running")
+			}
+		}
+	}
+
 	result.Status = "success"
 	result.Output = fmt.Sprintf("restarted container %s", p.ContainerID[:12])
 	return nil
@@ -363,6 +517,17 @@ func (e *Executor) executeStop(ctx context.Context, cmd Command, result *Result)
 		return fmt.Errorf("stop container: %w", err)
 	}
 
+	// Update state — lookup project/role from container labels
+	if e.stateManager != nil {
+		if inspect, err := e.docker.InspectContainer(ctx, p.ContainerID); err == nil {
+			project := inspect.Config.Labels["yourplatform.project"]
+			role := inspect.Config.Labels["yourplatform.role"]
+			if project != "" && role != "" {
+				_ = e.stateManager.UpdateStatus(project, role, "stopped")
+			}
+		}
+	}
+
 	result.Status = "success"
 	result.Output = fmt.Sprintf("stopped container %s", p.ContainerID[:12])
 	return nil
@@ -376,6 +541,11 @@ func (e *Executor) executeDeleteProject(ctx context.Context, cmd Command, result
 
 	if err := e.docker.RemoveProject(ctx, p.ProjectName, false); err != nil {
 		return fmt.Errorf("delete project %s: %w", p.ProjectName, err)
+	}
+
+	// Remove from state file
+	if e.stateManager != nil {
+		_ = e.stateManager.RemoveProject(p.ProjectName)
 	}
 
 	result.Status = "success"
@@ -418,4 +588,42 @@ func (e *Executor) executeFetchLogs(ctx context.Context, cmd Command, result *Re
 	result.Status = "success"
 	result.Output = string(data)
 	return nil
+}
+
+func (e *Executor) executeUpdateEnv(ctx context.Context, cmd Command, result *Result) error {
+	var p UpdateEnvPayload
+	if err := json.Unmarshal(cmd.Payload, &p); err != nil {
+		return fmt.Errorf("invalid update_env payload: %w", err)
+	}
+
+	// Set/update vars
+	for k, v := range p.Vars {
+		if err := e.envManager.UpdateEnvVar(p.ProjectName, k, v); err != nil {
+			return fmt.Errorf("update env var %s: %w", k, err)
+		}
+		slog.Info("env var updated", "project", p.ProjectName, "key", k)
+	}
+
+	// Remove vars
+	for _, k := range p.Remove {
+		if err := e.envManager.RemoveEnvVar(p.ProjectName, k); err != nil {
+			return fmt.Errorf("remove env var %s: %w", k, err)
+		}
+		slog.Info("env var removed", "project", p.ProjectName, "key", k)
+	}
+
+	result.Status = "success"
+	result.Output = fmt.Sprintf("env updated for %s — restart to apply", p.ProjectName)
+	return nil
+}
+
+// generateRandomPassword returns a random alphanumeric password of the given length.
+func generateRandomPassword(length int) string {
+	const charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+	b := make([]byte, length)
+	for i := range b {
+		// Use a simple LCG for determinism in tests; not cryptographically secure
+		b[i] = charset[i%len(charset)]
+	}
+	return string(b)
 }

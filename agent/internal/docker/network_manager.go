@@ -9,6 +9,7 @@ import (
 
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/filters"
+	"github.com/docker/docker/api/types/network"
 )
 
 const (
@@ -31,6 +32,7 @@ var nonAlphanumeric = regexp.MustCompile(`[^a-z0-9-]`)
 func SanitizeProjectName(name string) string {
 	s := strings.ToLower(strings.TrimSpace(name))
 	s = strings.ReplaceAll(s, "_", "-")
+	s = strings.ReplaceAll(s, " ", "-")
 	s = nonAlphanumeric.ReplaceAllString(s, "")
 	s = regexp.MustCompile(`-+`).ReplaceAllString(s, "-")  // collapse multiple hyphens
 	s = strings.Trim(s, "-")
@@ -206,6 +208,10 @@ func DatabaseAliases(dbType ContainerType) []string {
 //   3. Remove the project network
 //   4. Optionally remove volumes
 func (c *Client) RemoveProject(ctx context.Context, projectName string, removeVolumes bool) error {
+	if err := c.ensureConnected(ctx); err != nil {
+		return fmt.Errorf("docker unavailable: %w", err)
+	}
+
 	projectSafe := SanitizeProjectName(projectName)
 
 	// Find the project network
@@ -294,7 +300,7 @@ func (c *Client) ConnectContainerToNetwork(ctx context.Context, containerID, pro
 		return err
 	}
 
-	if err := c.cliUnsafe().NetworkConnect(ctx, networkID, containerID); err != nil {
+	if err := c.cliUnsafe().NetworkConnect(ctx, networkID, containerID, nil); err != nil {
 		return fmt.Errorf("connect container %s to network %s: %w",
 			containerID[:12], networkID[:12], err)
 	}

@@ -16,10 +16,12 @@ import (
 
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
+	"github.com/docker/docker/api/types/filters"
 	"github.com/docker/docker/api/types/network"
 	"github.com/docker/docker/client"
 	"github.com/docker/docker/pkg/jsonmessage"
 	"github.com/docker/go-connections/nat"
+	"golang.org/x/sync/singleflight"
 )
 
 // DockerInfo holds cached information from the Docker engine info API.
@@ -40,6 +42,7 @@ type Client struct {
 	info      *DockerInfo
 	connected bool
 	mu        sync.RWMutex
+	pullGroup singleflight.Group
 }
 
 // NewClient creates a new Docker client, checks the socket, and
@@ -88,6 +91,16 @@ func NewClient(socket string) (*Client, error) {
 	return c, nil
 }
 
+// Close releases resources held by the Docker client.
+func (c *Client) Close() error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.cli != nil {
+		return c.cli.Close()
+	}
+	return nil
+}
+
 // ---------------------------------------------------------------------------
 // Socket checks
 // ---------------------------------------------------------------------------
@@ -120,6 +133,9 @@ func checkSocket(socket string) error {
 	// Check readability
 	f, err := os.Open(path)
 	if err != nil {
+		if os.IsPermission(err) {
+			return fmt.Errorf("docker socket at %s requires elevated permissions: %w\nTry: sudo usermod -aG docker $USER && newgrp docker", path, err)
+		}
 		return fmt.Errorf("docker socket at %s is not readable: %w\nTry: sudo chmod 660 %s", path, err, path)
 	}
 	f.Close()
@@ -210,48 +226,45 @@ func (c *Client) Reconnect(ctx context.Context) error {
 		}
 
 		slog.Info("attempting to reconnect to docker daemon")
+
 		if err := c.CheckSocket(); err != nil {
 			slog.Warn("docker socket not available during reconnect", "error", err)
-			goto wait
-		}
-
-		// Recreate the SDK client (handles daemon restarts that change
-		// the in-memory connection state)
-		cli, err := client.NewClientWithOpts(
-			client.FromEnv,
-			client.WithHost(c.socket),
-			client.WithAPIVersionNegotiation(),
-		)
-		if err != nil {
-			slog.Warn("failed to recreate docker client", "error", err)
-			goto wait
-		}
-
-		c.mu.Lock()
-		c.cli = cli
-		c.mu.Unlock()
-
-		// Test the new connection
-		checkCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-		info, err := c.fetchInfo(checkCtx)
-		cancel()
-
-		if err == nil {
-			c.mu.Lock()
-			c.info = info
-			c.connected = true
-			c.mu.Unlock()
-
-			slog.Info("reconnected to docker daemon",
-				"version", info.Version,
-				"api_version", info.APIVersion,
+		} else {
+			// Recreate the SDK client (handles daemon restarts that change
+			// the in-memory connection state)
+			cli, err := client.NewClientWithOpts(
+				client.FromEnv,
+				client.WithHost(c.socket),
+				client.WithAPIVersionNegotiation(),
 			)
-			return nil
+			if err != nil {
+				slog.Warn("failed to recreate docker client", "error", err)
+			} else {
+				c.mu.Lock()
+				c.cli = cli
+				c.mu.Unlock()
+
+				// Test the new connection
+				checkCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+				info, fetchErr := c.fetchInfo(checkCtx)
+				cancel()
+
+				if fetchErr == nil {
+					c.mu.Lock()
+					c.info = info
+					c.connected = true
+					c.mu.Unlock()
+
+					slog.Info("reconnected to docker daemon",
+						"version", info.Version,
+						"api_version", info.APIVersion,
+					)
+					return nil
+				}
+
+				slog.Warn("docker reconnect test failed", "error", fetchErr)
+			}
 		}
-
-		slog.Warn("docker reconnect test failed", "error", err)
-
-	wait:
 		c.mu.Lock()
 		c.connected = false
 		c.mu.Unlock()
@@ -314,6 +327,15 @@ func (c *Client) cliUnsafe() *client.Client {
 func (c *Client) PullImage(ctx context.Context, ref string, progressFn PullProgressFunc) (*ImageSummary, error) {
 	if err := c.ensureConnected(ctx); err != nil {
 		return nil, fmt.Errorf("docker unavailable: %w", err)
+	}
+
+	// Pre-pull disk check: abort early if disk is critically full
+	if pressure, msg := c.DiskPressureLevel(ctx); pressure >= 2 {
+		return nil, &PullError{
+			Err:     ErrDiskFull,
+			Message: fmt.Sprintf("Not enough disk space to pull '%s'. %s", ref, msg),
+			Cause:   nil,
+		}
 	}
 
 	slog.Info("pulling image", "image", ref)
@@ -418,6 +440,16 @@ func (c *Client) CreateContainer(ctx context.Context, opts CreateContainerOpts) 
 		AutoRemove:   false, // We manage container lifecycle explicitly
 	}
 
+	// Configure log rotation to prevent disk filling up on chatty apps.
+	// Max 10MB per file, max 3 files = 30MB total per container.
+	hostConfig.LogConfig = container.LogConfig{
+		Type: "json-file",
+		Config: map[string]string{
+			"max-size": "10m",
+			"max-file": "3",
+		},
+	}
+
 	// Apply restart policy
 	hostConfig.RestartPolicy = container.RestartPolicy{
 		Name: opts.RestartPolicy,
@@ -495,6 +527,22 @@ func (c *Client) ListContainers(ctx context.Context) ([]types.Container, error) 
 	return c.cliUnsafe().ContainerList(ctx, types.ContainerListOptions{All: true})
 }
 
+// ListManagedContainers returns all containers with the yourplatform.owner label.
+// Used by the reconciliation system on agent startup.
+func (c *Client) ListManagedContainers(ctx context.Context) ([]types.Container, error) {
+	if err := c.ensureConnected(ctx); err != nil {
+		return nil, fmt.Errorf("docker unavailable: %w", err)
+	}
+
+	filter := filters.NewArgs()
+	filter.Add("label", "yourplatform.owner=yourplatform-agent")
+
+	return c.cliUnsafe().ContainerList(ctx, types.ContainerListOptions{
+		All:     true,
+		Filters: filter,
+	})
+}
+
 func (c *Client) GetContainerLogs(ctx context.Context, id string) (io.ReadCloser, error) {
 	if err := c.ensureConnected(ctx); err != nil {
 		return nil, fmt.Errorf("docker unavailable: %w", err)
@@ -506,6 +554,43 @@ func (c *Client) GetContainerLogs(ctx context.Context, id string) (io.ReadCloser
 		Follow:     true,
 		Timestamps: true,
 	})
+}
+
+// GetContainerLogsTail returns the last N lines of container logs without following.
+// Used to fetch historical logs before starting a live stream.
+func (c *Client) GetContainerLogsTail(ctx context.Context, id string, tail int) (string, error) {
+	if err := c.ensureConnected(ctx); err != nil {
+		return "", fmt.Errorf("docker unavailable: %w", err)
+	}
+
+	reader, err := c.cliUnsafe().ContainerLogs(ctx, id, types.ContainerLogsOptions{
+		ShowStdout: true,
+		ShowStderr: true,
+		Tail:       fmt.Sprintf("%d", tail),
+	})
+	if err != nil {
+		return "", err
+	}
+	defer reader.Close()
+
+	data, err := io.ReadAll(reader)
+	if err != nil {
+		return "", err
+	}
+
+	// Strip Docker log headers (8-byte per line in stream format)
+	raw := string(data)
+	if len(raw) > 8 {
+		lines := strings.Split(raw, "\n")
+		for i, line := range lines {
+			if len(line) > 8 {
+				lines[i] = line[8:]
+			}
+		}
+		raw = strings.Join(lines, "\n")
+	}
+
+	return strings.TrimSpace(raw), nil
 }
 
 // ---------------------------------------------------------------------------
@@ -555,7 +640,7 @@ type CreateContainerOpts struct {
 	Labels       map[string]string       // Container labels (project, role, managed-by, etc.)
 	ResourceLimits *ResourceLimits       // Memory and CPU limits (nil = no limits)
 	HealthCheck    *HealthCheckConfig    // Docker health check (nil = none)
-	RestartPolicy  container.RestartPolicyMode // "always" (default), "unless-stopped", "no"
+	RestartPolicy  string // "always" (default), "unless-stopped", "no"
 }
 
 // ---------------------------------------------------------------------------

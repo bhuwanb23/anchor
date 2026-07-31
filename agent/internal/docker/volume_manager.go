@@ -66,7 +66,7 @@ func (c *Client) EnsureVolume(ctx context.Context, projectName, purpose string) 
 
 	// Create the volume with labels
 	projectSafe := SanitizeProjectName(projectName)
-	resp, err := c.cliUnsafe().VolumeCreate(ctx, volume.CreateOptions{
+	resp, err := c.cliUnsafe().VolumeCreate(ctx, volume.VolumeCreateBody{
 		Driver: "local",
 		Labels: VolumeLabels(projectName, purpose),
 		Name:   volName,
@@ -172,6 +172,10 @@ func (c *Client) PrepareVolumeForBackup(ctx context.Context, info BackupInfo) er
 		return nil
 	}
 
+	if err := c.ensureConnected(ctx); err != nil {
+		return fmt.Errorf("docker unavailable: %w", err)
+	}
+
 	// Find the container that has this volume mounted
 	containerID, err := c.findContainerByVolume(ctx, info.VolumeName)
 	if err != nil {
@@ -201,6 +205,10 @@ func (c *Client) PrepareVolumeForBackup(ctx context.Context, info BackupInfo) er
 func (c *Client) FinishVolumeBackup(ctx context.Context, info BackupInfo) error {
 	if info.DBType != ContainerTypeMySQL {
 		return nil // Postgres CHECKPOINT and Redis BGSAVE don't need unlock
+	}
+
+	if err := c.ensureConnected(ctx); err != nil {
+		return fmt.Errorf("docker unavailable: %w", err)
 	}
 
 	containerID, err := c.findContainerByVolume(ctx, info.VolumeName)
@@ -354,6 +362,38 @@ func (c *Client) RemoveVolume(ctx context.Context, name string) error {
 
 	slog.Info("removed volume", "volume", name)
 	return nil
+}
+
+// CleanupOrphanedVolumes removes yourplatform volumes that are not mounted
+// by any container (running or stopped). Volumes still in use are skipped.
+// Returns the count of removed volumes.
+func (c *Client) CleanupOrphanedVolumes(ctx context.Context) (int, error) {
+	if err := c.ensureConnected(ctx); err != nil {
+		return 0, fmt.Errorf("docker unavailable: %w", err)
+	}
+
+	unmounted, err := c.ListUnmountedVolumes(ctx)
+	if err != nil {
+		return 0, err
+	}
+
+	removed := 0
+	for _, v := range unmounted {
+		slog.Info("removing orphaned volume", "volume", v.Name)
+		if err := c.cliUnsafe().VolumeRemove(ctx, v.Name, true); err != nil {
+			slog.Warn("failed to remove orphaned volume", "volume", v.Name, "error", err)
+			continue
+		}
+		removed++
+	}
+
+	if removed > 0 {
+		slog.Info("cleaned up orphaned volumes", "count", removed)
+	} else {
+		slog.Debug("no orphaned volumes to remove")
+	}
+
+	return removed, nil
 }
 
 // ListProjectVolumes returns all volumes for a specific project.

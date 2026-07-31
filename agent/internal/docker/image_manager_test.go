@@ -351,7 +351,7 @@ func TestPullImageIfNeeded_NoDocker(t *testing.T) {
 		socket:    "unix:///var/run/docker.sock",
 		connected: false,
 	}
-	_, pulled, err := client.PullImageIfNeeded(context.Background(), "nginx:latest", nil)
+	_, pulled, err := client.PullImageIfNeeded(context.Background(), "nginx:latest", nil, nil)
 	if err == nil {
 		t.Skip("expected error without real Docker socket")
 	}
@@ -365,7 +365,7 @@ func TestPullImageIfNeeded_CallsEnsureConnected(t *testing.T) {
 		socket:    "unix:///var/run/docker.sock",
 		connected: false,
 	}
-	_, _, err := client.PullImageIfNeeded(context.Background(), "nonexistent:test", nil)
+	_, _, err := client.PullImageIfNeeded(context.Background(), "nonexistent:test", nil, nil)
 	if err == nil {
 		t.Skip("expected error — no Docker socket")
 	}

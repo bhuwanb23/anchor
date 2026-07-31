@@ -14,11 +14,14 @@ export class WSClient {
   private handlers: MessageHandler[] = [];
   private reconnectSec: number;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private serverId: string;
 
   constructor(
-    url: string = process.env.NEXT_PUBLIC_WS_URL || "ws://localhost:8080/ws/agent",
+    serverId: string,
+    url: string = process.env.NEXT_PUBLIC_WS_URL || "ws://localhost:8080/ws/browser",
     reconnectSec: number = 5
   ) {
+    this.serverId = serverId;
     this.url = url;
     this.reconnectSec = reconnectSec;
   }
@@ -27,13 +30,12 @@ export class WSClient {
     const token = getToken();
     if (!token) return;
 
-    this.ws = new WebSocket(this.url);
+    // Connect with JWT token and server_id as query parameters
+    const wsUrl = `${this.url}?token=${encodeURIComponent(token)}&server_id=${encodeURIComponent(this.serverId)}`;
+    this.ws = new WebSocket(wsUrl);
 
     this.ws.onopen = () => {
-      console.log("WebSocket connected");
-      this.ws?.send(
-        JSON.stringify({ type: "auth", payload: { token } })
-      );
+      console.log("WebSocket connected to server", this.serverId);
     };
 
     this.ws.onmessage = (event) => {

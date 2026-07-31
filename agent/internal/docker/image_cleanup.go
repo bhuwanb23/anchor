@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/docker/docker/api/types"
-	"golang.org/x/sys/unix"
 )
 
 // ---------------------------------------------------------------------------
@@ -97,11 +96,22 @@ func (c *Client) runningImageRefs(ctx context.Context) (map[string]bool, error) 
 //   - 0: normal (below 70%)
 //   - 1: elevated (70%–85%) — run standard cleanup
 //   - 2: critical (85%+) — run aggressive cleanup
-func (c *Client) DiskPressureLevel(ctx context.Context) (int, error) {
+//
+// The second return value is a descriptive message (empty when normal).
+func (c *Client) DiskPressureLevel(ctx context.Context) (int, string) {
+	c.mu.RLock()
+	connected := c.connected
+	c.mu.RUnlock()
+
+	if !connected {
+		slog.Warn("docker unavailable for disk pressure check")
+		return 0, ""
+	}
+
 	info, err := c.cliUnsafe().Info(ctx)
 	if err != nil {
 		slog.Warn("failed to get docker info for disk pressure check", "error", err)
-		return 0, nil // assume normal if we can't check
+		return 0, "" // assume normal if we can't check
 	}
 
 	dir := info.DockerRootDir
@@ -112,40 +122,9 @@ func (c *Client) DiskPressureLevel(ctx context.Context) (int, error) {
 	return checkDiskPressure(dir)
 }
 
-// checkDiskPressure performs a real disk usage check on the given directory
-// using unix.Statfs. Returns pressure level (0, 1, or 2) and a human message.
-func checkDiskPressure(dir string) (int, string) {
-	var stat unix.Statfs_t
-	if err := unix.Statfs(dir, &stat); err != nil {
-		slog.Warn("failed to statfs for disk pressure check", "dir", dir, "error", err)
-		return 0, ""
-	}
-
-	total := stat.Blocks * uint64(stat.Bsize)
-	free := stat.Bavail * uint64(stat.Bsize)
-
-	if total == 0 {
-		return 0, ""
-	}
-
-	usedPercent := 100.0 - (float64(free)/float64(total))*100.0
-
-	slog.Debug("disk pressure check",
-		"dir", dir,
-		"total_gb", total/(1024*1024*1024),
-		"free_gb", free/(1024*1024*1024),
-		"used_percent", fmt.Sprintf("%.1f%%", usedPercent),
-	)
-
-	if usedPercent >= 85.0 {
-		return 2, fmt.Sprintf("Disk is %.0f%% full on %s — critical", usedPercent, dir)
-	}
-	if usedPercent >= 70.0 {
-		return 1, fmt.Sprintf("Disk is %.0f%% full on %s — elevated", usedPercent, dir)
-	}
-
-	return 0, ""
-}
+// checkDiskPressure performs a real disk usage check on the given directory.
+// Returns pressure level (0, 1, or 2) and a human-readable message.
+// Platform implementations: disk_linux.go (unix.Statfs), disk_windows.go (stub).
 
 // ---------------------------------------------------------------------------
 // Image cleanup planner
@@ -317,12 +296,9 @@ func (c *Client) RunCleanupIfNeeded(ctx context.Context, policy *CleanupPolicy) 
 	}
 
 	// Check disk pressure via Docker system info
-	pressure, err := c.DiskPressureLevel(ctx)
-	if err != nil {
-		// If we can't check disk, still run a gentle cleanup
-		slog.Warn("failed to check disk pressure, running standard cleanup anyway", "error", err)
-		report, runErr := c.RunCleanup(ctx, policy)
-		return report, true, runErr
+	pressure, msg := c.DiskPressureLevel(ctx)
+	if msg != "" {
+		slog.Warn("disk pressure detected", "message", msg)
 	}
 
 	switch {
@@ -399,10 +375,9 @@ func (c *Client) runCleanupCycle(ctx context.Context, policy *CleanupPolicy, rea
 	}
 
 	// Then check if disk pressure requires aggressive cleanup
-	pressure, checkErr := c.DiskPressureLevel(ctx)
-	if checkErr != nil {
-		slog.Warn("failed to check disk pressure after cleanup", "error", checkErr)
-		return
+	pressure, msg := c.DiskPressureLevel(ctx)
+	if msg != "" {
+		slog.Warn("disk pressure after cleanup", "message", msg)
 	}
 
 	if pressure >= 2 {

@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/docker/docker/api/types"
-	"github.com/docker/docker/api/types/container"
 )
 
 // ---------------------------------------------------------------------------
@@ -90,7 +89,7 @@ func (c *Client) DeployContainer(ctx context.Context, opts CreateContainerOpts) 
 
 	// Step 2: Set defaults for fields not explicitly configured
 	if opts.RestartPolicy == "" {
-		opts.RestartPolicy = container.RestartPolicyMode("always")
+		opts.RestartPolicy = "always"
 	}
 
 	// Step 3: Create the container
@@ -104,9 +103,21 @@ func (c *Client) DeployContainer(ctx context.Context, opts CreateContainerOpts) 
 		"id", id[:12],
 	)
 
+	// Extract the assigned host port from the port bindings
+	var hostPort int
+	if opts.PortBindings != nil {
+		for _, bindings := range opts.PortBindings {
+			if len(bindings) > 0 {
+				fmt.Sscanf(bindings[0].HostPort, "%d", &hostPort)
+				break
+			}
+		}
+	}
+
 	return &CreateContainerResult{
 		ContainerID: id,
 		Name:        opts.Name,
+		HostPort:    hostPort,
 	}, nil
 }
 
@@ -279,6 +290,32 @@ func (c *Client) RestartContainer(ctx context.Context, id string) error {
 // ---------------------------------------------------------------------------
 // 5C — Removal
 // ---------------------------------------------------------------------------
+
+// ReplaceExistingContainer stops and removes a container with the given name
+// if it exists. This enables re-deployment by replacing the old container.
+// Returns the old container ID if one was removed, empty string otherwise.
+func (c *Client) ReplaceExistingContainer(ctx context.Context, name string) (string, error) {
+	containers, err := c.ListContainers(ctx)
+	if err != nil {
+		return "", fmt.Errorf("list containers: %w", err)
+	}
+
+	for _, cont := range containers {
+		for _, n := range cont.Names {
+			// Docker prefixes names with "/"
+			if n == "/"+name || n == name {
+				slog.Info("removing existing container for re-deploy",
+					"name", name, "id", cont.ID[:12])
+				if err := c.RemoveContainerSafe(ctx, cont.ID); err != nil {
+					return "", fmt.Errorf("remove existing container %s: %w", cont.ID[:12], err)
+				}
+				return cont.ID, nil
+			}
+		}
+	}
+
+	return "", nil
+}
 
 // RemoveContainerSafe stops the container if running, then removes it.
 // Does NOT remove volumes or networks.
