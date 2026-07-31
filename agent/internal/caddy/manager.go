@@ -97,9 +97,9 @@ func (m *Manager) DeleteRoute(domain string) error {
 	return m.putRoutes(filtered)
 }
 
-// GetRoutes returns all current routes from Caddy.
+// GetRoutes returns all current routes from the "main" HTTPS server.
 func (m *Manager) GetRoutes() ([]caddyRoute, error) {
-	resp, err := http.Get(m.adminURL + "/config/apps/http/servers/srv0/routes")
+	resp, err := http.Get(m.adminURL + "/config/apps/http/servers/main/routes")
 	if err != nil {
 		return nil, fmt.Errorf("get routes: %w", err)
 	}
@@ -166,15 +166,19 @@ func (m *Manager) Reload() error {
 	return nil
 }
 
-// putRoutes replaces all routes with the given set.
+// putRoutes replaces routes on the "main" server while preserving
+// the "redirect" server (HTTP→HTTPS on :80).
 func (m *Manager) putRoutes(routes []caddyRoute) error {
 	config := map[string]interface{}{
 		"apps": map[string]interface{}{
 			"http": map[string]interface{}{
 				"servers": map[string]interface{}{
-					"srv0": map[string]interface{}{
-						"listen": []string{":80"},
+					"main": map[string]interface{}{
+						"listen": []string{":443"},
 						"routes": routes,
+						"tls_connection_policies": []interface{}{
+							map[string]interface{}{},
+						},
 					},
 				},
 			},
