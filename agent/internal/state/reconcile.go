@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/docker/docker/api/types"
+	"github.com/yourname/yourplatform/agent/internal/caddy"
 )
 
 const (
@@ -220,4 +221,64 @@ func attemptRestart(ctx context.Context, dockerClient DockerClient, mgr *Manager
 	}
 
 	return false
+}
+
+// ReconcileCaddy synchronizes routes between state.json and Caddy.
+// It re-registers all state routes with Caddy and removes orphaned routes.
+func ReconcileCaddy(ctx context.Context, stateMgr *Manager, caddyMgr *caddy.Manager) (restored int, orphaned int, err error) {
+	slog.Info("reconciling caddy routes")
+
+	stateRoutes := stateMgr.GetRoutes()
+
+	// Step 1: Re-register all state routes with Caddy
+	for routeID, rs := range stateRoutes {
+		select {
+		case <-ctx.Done():
+			return restored, orphaned, ctx.Err()
+		default:
+		}
+
+		if err := caddyMgr.SetRouteByID(routeID, rs.Domains, rs.Upstream); err != nil {
+			slog.Warn("failed to restore route", "route_id", routeID, "error", err)
+			continue
+		}
+		restored++
+		slog.Info("restored route", "route_id", routeID, "domains", rs.Domains, "upstream", rs.Upstream)
+	}
+
+	// Step 2: Get current routes from Caddy, remove orphans not in state
+	caddyRoutes, err := caddyMgr.GetRoutes()
+	if err != nil {
+		return restored, orphaned, fmt.Errorf("get caddy routes: %w", err)
+	}
+
+	routeIDs := make(map[string]bool, len(stateRoutes))
+	for id := range stateRoutes {
+		routeIDs[id] = true
+	}
+
+	for _, cr := range caddyRoutes {
+		select {
+		case <-ctx.Done():
+			return restored, orphaned, ctx.Err()
+		default:
+		}
+
+		// Only clean up routes with our prefix
+		if cr.ID == "" || len(cr.ID) < 15 || cr.ID[:15] != "yourplatform-" {
+			continue
+		}
+
+		if !routeIDs[cr.ID] {
+			slog.Info("removing orphaned caddy route", "route_id", cr.ID)
+			if err := caddyMgr.DeleteRouteByID(cr.ID); err != nil {
+				slog.Warn("failed to remove orphaned route", "route_id", cr.ID, "error", err)
+				continue
+			}
+			orphaned++
+		}
+	}
+
+	slog.Info("caddy reconciliation complete", "restored", restored, "orphaned_removed", orphaned)
+	return restored, orphaned, nil
 }
