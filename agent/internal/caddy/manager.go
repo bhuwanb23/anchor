@@ -10,6 +10,11 @@ import (
 	"time"
 )
 
+// RouteID returns a stable, predictable route ID for a project.
+func RouteID(project string) string {
+	return "yourplatform-" + project
+}
+
 // Manager manages Caddy routes via the admin API.
 type Manager struct {
 	adminURL string
@@ -22,79 +27,118 @@ func NewManager(caddyAdminURL string) *Manager {
 	}
 }
 
-// SetRoute adds or updates a route for a domain. It preserves existing routes.
-func (m *Manager) SetRoute(domain string, appPort int) error {
-	slog.Info("setting caddy route", "domain", domain, "app_port", appPort)
+// SetRouteByID creates or updates a route by its ID.
+// This is idempotent — calling with the same routeID replaces the route.
+func (m *Manager) SetRouteByID(routeID string, domains []string, upstream string) error {
+	slog.Info("setting caddy route", "id", routeID, "domains", domains, "upstream", upstream)
 
-	existing, err := m.GetRoutes()
+	if len(domains) == 0 {
+		return fmt.Errorf("at least one domain is required")
+	}
+
+	route := caddyRoute{
+		ID: routeID,
+		Match: []caddyMatch{
+			{Host: domains},
+		},
+		Handle: []caddyHandler{
+			{
+				Handler:   "reverse_proxy",
+				Upstreams: []caddyUpstream{{Dial: upstream}},
+				Headers: &caddyHeaders{
+					Set: map[string][]string{
+						"X-Real-IP":        {"{http.request.remote.host}"},
+						"X-Forwarded-Proto": {"https"},
+						"X-Forwarded-Host":  {"{http.request.host}"},
+					},
+				},
+			},
+		},
+	}
+
+	data, err := json.Marshal(route)
 	if err != nil {
-		slog.Warn("failed to get existing routes, starting fresh", "error", err)
-		existing = []caddyRoute{}
+		return fmt.Errorf("marshal route: %w", err)
 	}
 
-	// Remove existing route for this domain (replace or add)
-	var merged []caddyRoute
-	for _, r := range existing {
-		hasDomain := false
-		for _, h := range r.Match {
-			for _, d := range h.Host {
-				if d == domain {
-					hasDomain = true
-					break
-				}
-			}
-		}
-		if !hasDomain {
-			merged = append(merged, r)
-		}
+	url := fmt.Sprintf("%s/config/apps/http/servers/main/routes/%s", m.adminURL, routeID)
+	req, err := http.NewRequest(http.MethodPut, url, bytes.NewReader(data))
+	if err != nil {
+		return fmt.Errorf("create request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("put route %s: %w", routeID, err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("caddy put route %s rejected (%d): %s", routeID, resp.StatusCode, string(body))
 	}
 
-	// Add new route
-	merged = append(merged, caddyRoute{
-		Match: []caddyMatch{{Host: []string{domain}}},
-		Handle: []caddyHandler{{
-			Handler:    "reverse_proxy",
-			Upstreams:  []caddyUpstream{{Dial: fmt.Sprintf("localhost:%d", appPort)}},
-		}},
-	})
+	// Verify route was accepted
+	if err := m.verifyRoute(routeID); err != nil {
+		return fmt.Errorf("verify route %s: %w", routeID, err)
+	}
 
-	return m.putRoutes(merged)
+	return nil
 }
 
-// DeleteRoute removes a route for a specific domain.
-func (m *Manager) DeleteRoute(domain string) error {
-	slog.Info("deleting caddy route", "domain", domain)
-
-	existing, err := m.GetRoutes()
+// GetRouteByID returns a single route by its ID.
+func (m *Manager) GetRouteByID(routeID string) (*caddyRoute, error) {
+	url := fmt.Sprintf("%s/config/apps/http/servers/main/routes/%s", m.adminURL, routeID)
+	resp, err := http.Get(url)
 	if err != nil {
-		return fmt.Errorf("get routes: %w", err)
+		return nil, fmt.Errorf("get route %s: %w", routeID, err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == 404 {
+		return nil, nil
+	}
+	if resp.StatusCode >= 400 {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("caddy get route %s rejected (%d): %s", routeID, resp.StatusCode, string(body))
 	}
 
-	var filtered []caddyRoute
-	removed := false
-	for _, r := range existing {
-		hasDomain := false
-		for _, h := range r.Match {
-			for _, d := range h.Host {
-				if d == domain {
-					hasDomain = true
-					break
-				}
-			}
-		}
-		if hasDomain {
-			removed = true
-			continue
-		}
-		filtered = append(filtered, r)
+	var route caddyRoute
+	if err := json.NewDecoder(resp.Body).Decode(&route); err != nil {
+		return nil, fmt.Errorf("decode route %s: %w", routeID, err)
 	}
 
-	if !removed {
-		slog.Debug("route not found for domain", "domain", domain)
+	return &route, nil
+}
+
+// DeleteRouteByID removes a single route by its ID.
+// Returns nil if the route doesn't exist (idempotent).
+func (m *Manager) DeleteRouteByID(routeID string) error {
+	slog.Info("deleting caddy route", "id", routeID)
+
+	url := fmt.Sprintf("%s/config/apps/http/servers/main/routes/%s", m.adminURL, routeID)
+	req, err := http.NewRequest(http.MethodDelete, url, nil)
+	if err != nil {
+		return fmt.Errorf("create delete request: %w", err)
+	}
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("delete route %s: %w", routeID, err)
+	}
+	defer resp.Body.Close()
+
+	// 404 means already gone — idempotent
+	if resp.StatusCode == 404 {
 		return nil
 	}
+	if resp.StatusCode >= 400 {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("caddy delete route %s rejected (%d): %s", routeID, resp.StatusCode, string(body))
+	}
 
-	return m.putRoutes(filtered)
+	return nil
 }
 
 // GetRoutes returns all current routes from the "main" HTTPS server.
@@ -129,8 +173,14 @@ func (m *Manager) RestoreRoutes(routes []Route) error {
 	slog.Info("restoring caddy routes", "count", len(routes))
 
 	for _, r := range routes {
-		if err := m.SetRoute(r.Domain, r.Port); err != nil {
-			slog.Warn("failed to restore route", "domain", r.Domain, "error", err)
+		routeID := RouteID(r.Project)
+		upstream := fmt.Sprintf("127.0.0.1:%d", r.Port)
+		domains := r.Domains
+		if len(domains) == 0 && r.Domain != "" {
+			domains = []string{r.Domain}
+		}
+		if err := m.SetRouteByID(routeID, domains, upstream); err != nil {
+			slog.Warn("failed to restore route", "id", routeID, "error", err)
 			continue
 		}
 	}
@@ -166,53 +216,24 @@ func (m *Manager) Reload() error {
 	return nil
 }
 
-// putRoutes replaces routes on the "main" server while preserving
-// the "redirect" server (HTTP→HTTPS on :80).
-func (m *Manager) putRoutes(routes []caddyRoute) error {
-	config := map[string]interface{}{
-		"apps": map[string]interface{}{
-			"http": map[string]interface{}{
-				"servers": map[string]interface{}{
-					"main": map[string]interface{}{
-						"listen": []string{":443"},
-						"routes": routes,
-						"tls_connection_policies": []interface{}{
-							map[string]interface{}{},
-						},
-					},
-				},
-			},
-		},
-	}
-
-	data, err := json.Marshal(config)
+// verifyRoute confirms a route exists after PUT.
+func (m *Manager) verifyRoute(routeID string) error {
+	route, err := m.GetRouteByID(routeID)
 	if err != nil {
-		return fmt.Errorf("marshal caddy config: %w", err)
+		return err
 	}
-
-	resp, err := http.Post(
-		m.adminURL+"/config",
-		"application/json",
-		bytes.NewReader(data),
-	)
-	if err != nil {
-		return fmt.Errorf("post caddy config: %w", err)
+	if route == nil {
+		return fmt.Errorf("route %s not found after PUT", routeID)
 	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode >= 400 {
-		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("caddy config rejected (%d): %s", resp.StatusCode, string(body))
-	}
-
 	return nil
 }
 
 // Caddy JSON config types for route management.
 
 type caddyRoute struct {
-	Match  []caddyMatch  `json:"match"`
-	Handle []caddyHandler `json:"handle"`
+	ID      string          `json:"@id"`
+	Match   []caddyMatch    `json:"match"`
+	Handle  []caddyHandler  `json:"handle"`
 }
 
 type caddyMatch struct {
@@ -221,9 +242,14 @@ type caddyMatch struct {
 
 type caddyHandler struct {
 	Handler   string           `json:"handler"`
-	Upstreams []caddyUpstream `json:"upstreams,omitempty"`
+	Upstreams []caddyUpstream  `json:"upstreams,omitempty"`
+	Headers   *caddyHeaders    `json:"headers,omitempty"`
 }
 
 type caddyUpstream struct {
 	Dial string `json:"dial"`
+}
+
+type caddyHeaders struct {
+	Set map[string][]string `json:"set,omitempty"`
 }
