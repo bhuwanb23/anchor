@@ -105,7 +105,16 @@ func run(configPath string) {
 		imageCache = nil
 	}
 
-	caddyManager := caddy.NewManager("http://localhost:2019")
+	caddyAdminURL := fmt.Sprintf("http://localhost:%d", cfg.CaddyAdminPort)
+	caddyManager := caddy.NewManager(caddyAdminURL)
+	caddyProcess := caddy.NewProcessManager(caddy.ProcessConfig{
+		BinaryPath: cfg.CaddyBinaryPath,
+		DataDir:    cfg.CaddyDataDir,
+		AdminURL:   caddyAdminURL,
+		ACMEmail:   cfg.CaddyACMEmail,
+		UseStaging: cfg.CaddyUseStaging,
+		CertDir:    cfg.CaddyCertDir,
+	}, caddyManager)
 	backupManager := backup.NewManager(cfg.BackupDest)
 
 	// Create state manager for persistence across restarts
@@ -113,6 +122,24 @@ func run(configPath string) {
 
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
+
+	// Start Caddy reverse proxy
+	if err := caddyProcess.Start(ctx); err != nil {
+		slog.Warn("failed to start caddy, continuing without reverse proxy", "error", err)
+	} else {
+		// Reconcile routes from state into Caddy after startup
+		if _, _, err := state.ReconcileCaddy(ctx, stateManager, caddyManager); err != nil {
+			slog.Warn("caddy route reconciliation failed", "error", err)
+		}
+
+		caddyProcess.Monitor(ctx, func() {
+			slog.Error("caddy crashed — restarting and restoring routes")
+			// Routes are restored by Monitor → Start → ReconcileCaddy on next tick
+			if _, _, err := state.ReconcileCaddy(ctx, stateManager, caddyManager); err != nil {
+				slog.Warn("failed to restore routes after caddy restart", "error", err)
+			}
+		})
+	}
 
 	wsURL := cfg.ControlPlaneURL + "/ws/agent"
 	wsClient := ws.NewClient(wsURL, cfg.AgentID, cfg.AgentSecret, cfg.WSReconnectSec)
@@ -182,6 +209,7 @@ func run(configPath string) {
 		select {
 		case <-ctx.Done():
 			slog.Info("shutting down agent")
+			caddyProcess.Stop()
 			logStreamer.StopAll()
 			if connected {
 				os.Remove(connectedFile)

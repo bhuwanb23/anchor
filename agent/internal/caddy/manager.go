@@ -7,100 +7,198 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"time"
 )
 
+// RouteID returns a stable, predictable route ID for a project.
+func RouteID(project string) string {
+	return "yourplatform-" + project
+}
+
+// Manager manages Caddy routes via the admin API.
 type Manager struct {
 	adminURL string
 }
 
+// NewManager creates a new Caddy route manager.
 func NewManager(caddyAdminURL string) *Manager {
 	return &Manager{
 		adminURL: caddyAdminURL,
 	}
 }
 
-func (m *Manager) SetRoute(domain string, appPort int) error {
-	slog.Info("setting caddy route", "domain", domain, "app_port", appPort)
+// SetRouteByID creates or updates a route by its ID.
+// This is idempotent — calling with the same routeID replaces the route.
+func (m *Manager) SetRouteByID(routeID string, domains []string, upstream string) error {
+	slog.Info("setting caddy route", "id", routeID, "domains", domains, "upstream", upstream)
 
-	config := map[string]interface{}{
-		"apps": map[string]interface{}{
-			"http": map[string]interface{}{
-				"servers": map[string]interface{}{
-					"srv0": map[string]interface{}{
-						"listen": []string{":80"},
-						"routes": []interface{}{
-							map[string]interface{}{
-								"match": []map[string]interface{}{
-									{
-										"host": []string{domain},
-									},
-								},
-								"handle": []map[string]interface{}{
-									{
-										"handler": "reverse_proxy",
-										"upstreams": []map[string]interface{}{
-											{
-												"destination": fmt.Sprintf("localhost:%d", appPort),
-											},
-										},
-									},
-								},
-							},
-						},
+	if len(domains) == 0 {
+		return fmt.Errorf("at least one domain is required")
+	}
+
+	route := CaddyRoute{
+		ID: routeID,
+		Match: []CaddyMatch{
+			{Host: domains},
+		},
+		Handle: []CaddyHandler{
+			{
+				Handler:   "reverse_proxy",
+				Upstreams: []CaddyUpstream{{Dial: upstream}},
+				Headers: &CaddyHeaders{
+					Set: map[string][]string{
+						"X-Real-IP":        {"{http.request.remote.host}"},
+						"X-Forwarded-Proto": {"https"},
+						"X-Forwarded-Host":  {"{http.request.host}"},
 					},
 				},
 			},
 		},
 	}
 
-	data, err := json.Marshal(config)
+	data, err := json.Marshal(route)
 	if err != nil {
-		return fmt.Errorf("marshal caddy config: %w", err)
+		return fmt.Errorf("marshal route: %w", err)
 	}
 
-	resp, err := http.Post(
-		m.adminURL+"/config",
-		"application/json",
-		bytes.NewReader(data),
-	)
+	url := fmt.Sprintf("%s/config/apps/http/servers/main/routes/%s", m.adminURL, routeID)
+	req, err := http.NewRequest(http.MethodPut, url, bytes.NewReader(data))
 	if err != nil {
-		return fmt.Errorf("post caddy config: %w", err)
+		return fmt.Errorf("create request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("put route %s: %w", routeID, err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode >= 400 {
 		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("caddy config rejected (%d): %s", resp.StatusCode, string(body))
+		return fmt.Errorf("caddy put route %s rejected (%d): %s", routeID, resp.StatusCode, string(body))
 	}
 
-	slog.Info("caddy route set", "domain", domain, "app_port", appPort)
+	// Verify route was accepted
+	if err := m.verifyRoute(routeID); err != nil {
+		return fmt.Errorf("verify route %s: %w", routeID, err)
+	}
+
 	return nil
 }
 
-func (m *Manager) DeleteRoute(domain string) error {
-	slog.Info("deleting caddy route", "domain", domain)
+// GetRouteByID returns a single route by its ID.
+func (m *Manager) GetRouteByID(routeID string) (*CaddyRoute, error) {
+	url := fmt.Sprintf("%s/config/apps/http/servers/main/routes/%s", m.adminURL, routeID)
+	resp, err := http.Get(url)
+	if err != nil {
+		return nil, fmt.Errorf("get route %s: %w", routeID, err)
+	}
+	defer resp.Body.Close()
 
-	resp, err := http.NewRequest(http.MethodDelete, m.adminURL+"/config/apps/http/servers/srv0/routes", nil)
+	if resp.StatusCode == 404 {
+		return nil, nil
+	}
+	if resp.StatusCode >= 400 {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("caddy get route %s rejected (%d): %s", routeID, resp.StatusCode, string(body))
+	}
+
+	var route CaddyRoute
+	if err := json.NewDecoder(resp.Body).Decode(&route); err != nil {
+		return nil, fmt.Errorf("decode route %s: %w", routeID, err)
+	}
+
+	return &route, nil
+}
+
+// DeleteRouteByID removes a single route by its ID.
+// Returns nil if the route doesn't exist (idempotent).
+func (m *Manager) DeleteRouteByID(routeID string) error {
+	slog.Info("deleting caddy route", "id", routeID)
+
+	url := fmt.Sprintf("%s/config/apps/http/servers/main/routes/%s", m.adminURL, routeID)
+	req, err := http.NewRequest(http.MethodDelete, url, nil)
 	if err != nil {
 		return fmt.Errorf("create delete request: %w", err)
 	}
 
-	client := &http.Client{}
-	httpResp, err := client.Do(resp)
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return fmt.Errorf("delete caddy route: %w", err)
+		return fmt.Errorf("delete route %s: %w", routeID, err)
 	}
-	defer httpResp.Body.Close()
+	defer resp.Body.Close()
 
-	if httpResp.StatusCode >= 400 {
-		body, _ := io.ReadAll(httpResp.Body)
-		return fmt.Errorf("caddy delete rejected (%d): %s", httpResp.StatusCode, string(body))
+	// 404 means already gone — idempotent
+	if resp.StatusCode == 404 {
+		return nil
+	}
+	if resp.StatusCode >= 400 {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("caddy delete route %s rejected (%d): %s", routeID, resp.StatusCode, string(body))
 	}
 
-	slog.Info("caddy route deleted", "domain", domain)
 	return nil
 }
 
+// GetRoutes returns all current routes from the "main" HTTPS server.
+func (m *Manager) GetRoutes() ([]CaddyRoute, error) {
+	resp, err := http.Get(m.adminURL + "/config/apps/http/servers/main/routes")
+	if err != nil {
+		return nil, fmt.Errorf("get routes: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == 404 {
+		return []CaddyRoute{}, nil
+	}
+	if resp.StatusCode >= 400 {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("caddy get routes rejected (%d): %s", resp.StatusCode, string(body))
+	}
+
+	var routes []CaddyRoute
+	if err := json.NewDecoder(resp.Body).Decode(&routes); err != nil {
+		return nil, fmt.Errorf("decode routes: %w", err)
+	}
+
+	return routes, nil
+}
+
+// RestoreRoutes re-applies all routes after a Caddy restart.
+func (m *Manager) RestoreRoutes(routes []Route) error {
+	if len(routes) == 0 {
+		return nil
+	}
+	slog.Info("restoring caddy routes", "count", len(routes))
+
+	for _, r := range routes {
+		routeID := RouteID(r.Project)
+		upstream := fmt.Sprintf("127.0.0.1:%d", r.Port)
+		domains := r.Domains
+		if len(domains) == 0 && r.Domain != "" {
+			domains = []string{r.Domain}
+		}
+		if err := m.SetRouteByID(routeID, domains, upstream); err != nil {
+			slog.Warn("failed to restore route", "id", routeID, "error", err)
+			continue
+		}
+	}
+	return nil
+}
+
+// IsAlive checks if the Caddy admin API is responsive.
+func (m *Manager) IsAlive() bool {
+	client := &http.Client{Timeout: 2 * time.Second}
+	resp, err := client.Get(m.adminURL + "/")
+	if err != nil {
+		return false
+	}
+	resp.Body.Close()
+	return resp.StatusCode < 500
+}
+
+// Reload triggers a Caddy config reload.
 func (m *Manager) Reload() error {
 	slog.Info("reloading caddy configuration")
 
@@ -116,4 +214,45 @@ func (m *Manager) Reload() error {
 	}
 
 	return nil
+}
+
+// verifyRoute confirms a route exists after PUT.
+func (m *Manager) verifyRoute(routeID string) error {
+	route, err := m.GetRouteByID(routeID)
+	if err != nil {
+		return err
+	}
+	if route == nil {
+		return fmt.Errorf("route %s not found after PUT", routeID)
+	}
+	return nil
+}
+
+// CaddyRoute is a Caddy route configuration for the admin API.
+type CaddyRoute struct {
+	ID      string          `json:"@id"`
+	Match   []CaddyMatch    `json:"match"`
+	Handle  []CaddyHandler  `json:"handle"`
+}
+
+// CaddyMatch defines the match criteria for a route.
+type CaddyMatch struct {
+	Host []string `json:"host"`
+}
+
+// CaddyHandler defines what happens to matched requests.
+type CaddyHandler struct {
+	Handler   string           `json:"handler"`
+	Upstreams []CaddyUpstream  `json:"upstreams,omitempty"`
+	Headers   *CaddyHeaders    `json:"headers,omitempty"`
+}
+
+// CaddyUpstream is a backend address to proxy to.
+type CaddyUpstream struct {
+	Dial string `json:"dial"`
+}
+
+// CaddyHeaders defines header manipulation rules.
+type CaddyHeaders struct {
+	Set map[string][]string `json:"set,omitempty"`
 }
