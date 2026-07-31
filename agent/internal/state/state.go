@@ -43,6 +43,7 @@ type ContainerState struct {
 	ContainerID   string `json:"container_id"`
 	Image         string `json:"image"`
 	Status        string `json:"status"` // "running", "stopped", "exited", "failed"
+	Domain        string `json:"domain,omitempty"`
 	HostPort      int    `json:"host_port,omitempty"`
 	RestartPolicy string `json:"restart_policy,omitempty"` // "always", "unless-stopped", "no"
 	CreatedAt     string `json:"created_at"`
