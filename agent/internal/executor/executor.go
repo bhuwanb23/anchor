@@ -397,8 +397,15 @@ func (e *Executor) executeDeploy(ctx context.Context, cmd Command, result *Resul
 
 	// --- Caddy route ---
 	if p.Domain != "" && p.Port > 0 {
-		if err := e.caddy.SetRoute(p.Domain, p.Port); err != nil {
-			slog.Warn("failed to set caddy route", "error", err)
+		routeID := caddy.RouteID(p.AppName)
+		upstream := fmt.Sprintf("127.0.0.1:%d", p.Port)
+		domains := []string{p.Domain}
+		if err := e.caddy.SetRouteByID(routeID, domains, upstream); err != nil {
+			return fmt.Errorf("set caddy route: %w", err)
+		}
+		// Store route in state
+		if e.stateManager != nil {
+			_ = e.stateManager.SetRoute(routeID, p.AppName, domains, upstream)
 		}
 	}
 
@@ -475,6 +482,26 @@ func (e *Executor) executeRollback(ctx context.Context, cmd Command, result *Res
 			})
 		}
 
+		// Update Caddy route to point to rollback container
+		// The rollback container gets a new port, so we need to inspect it
+		if p.AppName != "" {
+			if inspect, err := e.docker.InspectContainer(ctx, id); err == nil {
+				// Find the mapped port for the app
+				if ports, ok := inspect.NetworkSettings.Ports["3000/tcp"]; ok && len(ports) > 0 {
+					routeID := caddy.RouteID(p.AppName)
+					// Look up existing domains from state
+					routes := e.stateManager.GetRoutes()
+					if existing, ok := routes[routeID]; ok {
+						upstream := fmt.Sprintf("127.0.0.1:%s", ports[0].HostPort)
+						if err := e.caddy.SetRouteByID(routeID, existing.Domains, upstream); err != nil {
+							slog.Warn("failed to update caddy route for rollback", "error", err)
+						}
+						_ = e.stateManager.SetRoute(routeID, p.AppName, existing.Domains, upstream)
+					}
+				}
+			}
+		}
+
 		result.Output = fmt.Sprintf("rolled back to %s (container %s)", p.PreviousImage, id[:12])
 	}
 
@@ -514,19 +541,31 @@ func (e *Executor) executeStop(ctx context.Context, cmd Command, result *Result)
 		return fmt.Errorf("invalid stop payload: %w", err)
 	}
 
+	// Look up project/role from container labels before stopping
+	var project, role string
+	if inspect, err := e.docker.InspectContainer(ctx, p.ContainerID); err == nil {
+		project = inspect.Config.Labels["yourplatform.project"]
+		role = inspect.Config.Labels["yourplatform.role"]
+	}
+
 	if err := e.docker.StopContainerGraceful(ctx, p.ContainerID); err != nil {
 		return fmt.Errorf("stop container: %w", err)
 	}
 
-	// Update state — lookup project/role from container labels
-	if e.stateManager != nil {
-		if inspect, err := e.docker.InspectContainer(ctx, p.ContainerID); err == nil {
-			project := inspect.Config.Labels["yourplatform.project"]
-			role := inspect.Config.Labels["yourplatform.role"]
-			if project != "" && role != "" {
-				_ = e.stateManager.UpdateStatus(project, role, "stopped")
-			}
+	// Remove Caddy route so domain returns 404 instead of 502
+	if project != "" {
+		routeID := caddy.RouteID(project)
+		if err := e.caddy.DeleteRouteByID(routeID); err != nil {
+			slog.Warn("failed to remove caddy route on stop", "route_id", routeID, "error", err)
 		}
+		if e.stateManager != nil {
+			_ = e.stateManager.RemoveRoute(routeID)
+		}
+	}
+
+	// Update state
+	if e.stateManager != nil && project != "" && role != "" {
+		_ = e.stateManager.UpdateStatus(project, role, "stopped")
 	}
 
 	result.Status = "success"
@@ -540,16 +579,15 @@ func (e *Executor) executeDeleteProject(ctx context.Context, cmd Command, result
 		return fmt.Errorf("invalid delete_project payload: %w", err)
 	}
 
-	// Remove Caddy routes for this project before removing containers
+	// Remove Caddy routes for this project
 	if e.stateManager != nil {
-		state := e.stateManager.GetState()
-		if proj, ok := state.Projects[p.ProjectName]; ok {
-			for _, cs := range proj.Containers {
-				if cs.Domain != "" {
-					if err := e.caddy.DeleteRoute(cs.Domain); err != nil {
-						slog.Warn("failed to remove caddy route", "domain", cs.Domain, "error", err)
-					}
+		routes := e.stateManager.GetRoutes()
+		for id, r := range routes {
+			if r.Project == p.ProjectName {
+				if err := e.caddy.DeleteRouteByID(id); err != nil {
+					slog.Warn("failed to remove caddy route", "route_id", id, "error", err)
 				}
+				_ = e.stateManager.RemoveRoute(id)
 			}
 		}
 	}
@@ -558,7 +596,7 @@ func (e *Executor) executeDeleteProject(ctx context.Context, cmd Command, result
 		return fmt.Errorf("delete project %s: %w", p.ProjectName, err)
 	}
 
-	// Remove from state file
+	// Remove from state file (also cleans up remaining routes for this project)
 	if e.stateManager != nil {
 		_ = e.stateManager.RemoveProject(p.ProjectName)
 	}
