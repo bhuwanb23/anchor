@@ -1,7 +1,8 @@
 "use client";
 
-import { use } from "react";
+import { use, useState } from "react";
 import { useServer } from "@/hooks/use-server";
+import { useLogStream } from "@/hooks/use-log-stream";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { StatusBadge } from "@/components/ui/badge";
 import { LogViewer } from "@/components/dashboard/log-viewer";
@@ -15,6 +16,20 @@ export default function ServerDetailPage({
 }) {
   const { id } = use(params);
   const { server, isLoading, error } = useServer(id);
+  const [projectName, setProjectName] = useState("");
+  const [showLogs, setShowLogs] = useState(false);
+
+  const {
+    logs,
+    isConnected: logConnected,
+    startStreaming,
+    stopStreaming,
+    clearLogs,
+  } = useLogStream({
+    serverId: id,
+    projectName,
+    enabled: showLogs && !!projectName,
+  });
 
   if (isLoading) {
     return (
@@ -170,10 +185,48 @@ export default function ServerDetailPage({
 
       <Card>
         <CardHeader>
-          <CardTitle>Logs</CardTitle>
+          <div className="flex items-center justify-between">
+            <CardTitle>Logs</CardTitle>
+            <div className="flex items-center gap-2">
+              <input
+                type="text"
+                placeholder="Project name"
+                value={projectName}
+                onChange={(e) => setProjectName(e.target.value)}
+                className="rounded border border-gray-300 px-2 py-1 text-sm dark:border-gray-600 dark:bg-gray-800"
+              />
+              {showLogs ? (
+                <button
+                  onClick={() => {
+                    stopStreaming();
+                    setShowLogs(false);
+                    clearLogs();
+                  }}
+                  className="rounded bg-red-600 px-3 py-1 text-sm text-white hover:bg-red-700"
+                >
+                  Stop
+                </button>
+              ) : (
+                <button
+                  onClick={() => {
+                    if (projectName) {
+                      setShowLogs(true);
+                    }
+                  }}
+                  disabled={!projectName}
+                  className="rounded bg-blue-600 px-3 py-1 text-sm text-white hover:bg-blue-700 disabled:opacity-50"
+                >
+                  View Logs
+                </button>
+              )}
+              {logConnected && (
+                <span className="text-xs text-green-500">Streaming</span>
+              )}
+            </div>
+          </div>
         </CardHeader>
         <CardContent>
-          <LogViewer logs={[]} />
+          <LogViewer logs={logs} showContainerPrefix />
         </CardContent>
       </Card>
     </div>
