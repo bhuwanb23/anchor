@@ -14,6 +14,7 @@ import (
 	"github.com/yourname/yourplatform/agent/internal/docker"
 	"github.com/yourname/yourplatform/agent/internal/env"
 	"github.com/yourname/yourplatform/agent/internal/logstream"
+	"github.com/yourname/yourplatform/agent/internal/state"
 )
 
 type Command struct {
@@ -75,13 +76,14 @@ type DeleteProjectPayload struct {
 }
 
 type Executor struct {
-	docker      *docker.Client
-	caddy       *caddy.Manager
-	backup      *backup.BackupManager
-	imageCache  *docker.ImageCache
-	reporter    ProgressReporter
-	envManager  *env.Manager
-	logStreamer *logstream.LogStreamer
+	docker       *docker.Client
+	caddy        *caddy.Manager
+	backup       *backup.BackupManager
+	imageCache   *docker.ImageCache
+	reporter     ProgressReporter
+	envManager   *env.Manager
+	logStreamer  *logstream.LogStreamer
+	stateManager *state.Manager
 }
 
 // ProgressReporter sends image pull progress updates to the control plane.
@@ -116,9 +118,20 @@ func (e *Executor) WithLogStreamer(ls *logstream.LogStreamer) *Executor {
 	return e
 }
 
+// WithStateManager attaches a state manager for persistence across restarts.
+func (e *Executor) WithStateManager(sm *state.Manager) *Executor {
+	e.stateManager = sm
+	return e
+}
+
 // LogStreamer returns the attached log streamer, or nil if not configured.
 func (e *Executor) LogStreamer() *logstream.LogStreamer {
 	return e.logStreamer
+}
+
+// StateManager returns the attached state manager, or nil if not configured.
+func (e *Executor) StateManager() *state.Manager {
+	return e.stateManager
 }
 
 type CommandQueue struct {

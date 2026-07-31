@@ -16,6 +16,7 @@ import (
 
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
+	"github.com/docker/docker/api/types/filters"
 	"github.com/docker/docker/api/types/network"
 	"github.com/docker/docker/client"
 	"github.com/docker/docker/pkg/jsonmessage"
@@ -524,6 +525,22 @@ func (c *Client) ListContainers(ctx context.Context) ([]types.Container, error) 
 	}
 
 	return c.cliUnsafe().ContainerList(ctx, types.ContainerListOptions{All: true})
+}
+
+// ListManagedContainers returns all containers with the yourplatform.owner label.
+// Used by the reconciliation system on agent startup.
+func (c *Client) ListManagedContainers(ctx context.Context) ([]types.Container, error) {
+	if err := c.ensureConnected(ctx); err != nil {
+		return nil, fmt.Errorf("docker unavailable: %w", err)
+	}
+
+	filter := filters.NewArgs()
+	filter.Add("label", "yourplatform.owner=yourplatform-agent")
+
+	return c.cliUnsafe().ContainerList(ctx, types.ContainerListOptions{
+		All:     true,
+		Filters: filter,
+	})
 }
 
 func (c *Client) GetContainerLogs(ctx context.Context, id string) (io.ReadCloser, error) {
