@@ -25,10 +25,12 @@ const (
 	stopTimeout       = 5 * time.Second
 )
 
-// Route represents a single Caddy reverse proxy route.
+// Route represents a single Caddy reverse proxy route for restoration.
 type Route struct {
-	Domain string `json:"domain"`
-	Port   int    `json:"port"`
+	Domain  string   `json:"domain"`            // legacy single domain
+	Domains []string `json:"domains,omitempty"` // multiple domains
+	Port    int      `json:"port"`
+	Project string   `json:"project"` // project name for route ID generation
 }
 
 // ProcessConfig holds configuration for the Caddy process manager.
