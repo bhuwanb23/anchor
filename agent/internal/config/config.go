@@ -23,7 +23,7 @@ type Config struct {
 	CaddyConfigDir  string `yaml:"caddy_config_dir"`
 	CaddyAdminPort  int    `yaml:"caddy_admin_port,omitempty"`
 	CaddyACMEmail   string `yaml:"caddy_acme_email,omitempty"`
-	CaddyUseStaging bool   `yaml:"caddy_use_staging,omitempty"`
+	CaddyUseStaging *bool  `yaml:"caddy_use_staging,omitempty"`
 	CaddyCertDir    string `yaml:"caddy_cert_dir,omitempty"`
 	BackupDest      string `yaml:"backup_dest"`
 	WSReconnectSec  int    `yaml:"ws_reconnect_sec"`
@@ -78,7 +78,10 @@ func Load(path string) (*Config, error) {
 	if cfg.CaddyCertDir == "" {
 		cfg.CaddyCertDir = "/var/lib/yourplatform/caddy/certificates"
 	}
-	// CaddyUseStaging defaults to true — must be explicitly set to false for production
+	if cfg.CaddyUseStaging == nil {
+		t := true
+		cfg.CaddyUseStaging = &t
+	}
 	if cfg.WSReconnectSec == 0 {
 		cfg.WSReconnectSec = 5
 	}
