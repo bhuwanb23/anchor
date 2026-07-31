@@ -408,6 +408,7 @@ func (e *Executor) executeDeploy(ctx context.Context, cmd Command, result *Resul
 			ContainerID:   id,
 			Image:         p.Image,
 			Status:        "running",
+			Domain:        p.Domain,
 			HostPort:      p.Port,
 			RestartPolicy: "always",
 			CreatedAt:     time.Now().UTC().Format(time.RFC3339),
@@ -537,6 +538,20 @@ func (e *Executor) executeDeleteProject(ctx context.Context, cmd Command, result
 	var p DeleteProjectPayload
 	if err := json.Unmarshal(cmd.Payload, &p); err != nil {
 		return fmt.Errorf("invalid delete_project payload: %w", err)
+	}
+
+	// Remove Caddy routes for this project before removing containers
+	if e.stateManager != nil {
+		state := e.stateManager.GetState()
+		if proj, ok := state.Projects[p.ProjectName]; ok {
+			for _, cs := range proj.Containers {
+				if cs.Domain != "" {
+					if err := e.caddy.DeleteRoute(cs.Domain); err != nil {
+						slog.Warn("failed to remove caddy route", "domain", cs.Domain, "error", err)
+					}
+				}
+			}
+		}
 	}
 
 	if err := e.docker.RemoveProject(ctx, p.ProjectName, false); err != nil {
