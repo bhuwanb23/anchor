@@ -21,6 +21,7 @@ import (
 	"github.com/yourname/yourplatform/agent/internal/executor"
 	"github.com/yourname/yourplatform/agent/internal/logstream"
 	"github.com/yourname/yourplatform/agent/internal/preflight"
+	"github.com/yourname/yourplatform/agent/internal/state"
 	"github.com/yourname/yourplatform/agent/internal/ws"
 )
 
@@ -107,15 +108,45 @@ func run(configPath string) {
 	caddyManager := caddy.NewManager("http://localhost:2019")
 	backupManager := backup.NewManager(cfg.BackupDest)
 
+	// Create state manager for persistence across restarts
+	stateManager := state.NewManager("")
+
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 
 	wsURL := cfg.ControlPlaneURL + "/ws/agent"
 	wsClient := ws.NewClient(wsURL, cfg.AgentID, cfg.AgentSecret, cfg.WSReconnectSec)
 
+	// Run reconciliation on boot — discover running containers and sync state
+	go func() {
+		reconcileResult, err := state.Reconcile(ctx, stateManager, dockerClient)
+		if err != nil {
+			slog.Error("reconciliation failed", "error", err)
+			return
+		}
+		slog.Info("reconciliation complete",
+			"running", reconcileResult.Running,
+			"restarted", reconcileResult.Restarted,
+			"failed", reconcileResult.Failed,
+			"adopted", reconcileResult.Adopted)
+		for _, msg := range reconcileResult.Messages {
+			slog.Info("reconciliation", "message", msg)
+		}
+		// Report to control plane
+		wsClient.SendJSON(map[string]interface{}{
+			"type":      "reconciliation_result",
+			"running":   reconcileResult.Running,
+			"restarted": reconcileResult.Restarted,
+			"failed":    reconcileResult.Failed,
+			"adopted":   reconcileResult.Adopted,
+			"messages":  reconcileResult.Messages,
+		})
+	}()
+
 	exec := executor.New(dockerClient, caddyManager, backupManager).
 		WithImageCache(imageCache).
-		WithProgressReporter(&wsProgressReporter{client: wsClient})
+		WithProgressReporter(&wsProgressReporter{client: wsClient}).
+		WithStateManager(stateManager)
 
 	// Create log streamer for container log streaming
 	logStreamer := logstream.NewLogStreamer(
