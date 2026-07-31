@@ -31,6 +31,7 @@ const (
 type State struct {
 	Version  int                      `json:"version"`
 	Projects map[string]*ProjectState `json:"projects"`
+	Routes   map[string]*RouteState   `json:"routes"`
 }
 
 // ProjectState tracks all containers belonging to a project.
@@ -50,6 +51,16 @@ type ContainerState struct {
 	UpdatedAt     string `json:"updated_at"`
 }
 
+// RouteState tracks a Caddy route managed by the agent.
+type RouteState struct {
+	RouteID   string   `json:"route_id"`
+	Project   string   `json:"project"`
+	Domains   []string `json:"domains"`
+	Upstream  string   `json:"upstream"`
+	CreatedAt string   `json:"created_at"`
+	UpdatedAt string   `json:"updated_at"`
+}
+
 // DefaultStatePath returns the default path for the state file.
 func DefaultStatePath() string {
 	return filepath.Join(DefaultStateDir, StateFileName)
@@ -60,6 +71,7 @@ func NewState() *State {
 	return &State{
 		Version:  StateVersion,
 		Projects: make(map[string]*ProjectState),
+		Routes:   make(map[string]*RouteState),
 	}
 }
 
@@ -141,7 +153,7 @@ func (m *Manager) RemoveContainer(project, role string) error {
 	return nil
 }
 
-// RemoveProject removes an entire project from the state.
+// RemoveProject removes an entire project and its routes from the state.
 func (m *Manager) RemoveProject(project string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -151,6 +163,16 @@ func (m *Manager) RemoveProject(project string) error {
 	}
 
 	delete(m.state.Projects, project)
+
+	// Remove all routes belonging to this project
+	if m.state.Routes != nil {
+		for id, r := range m.state.Routes {
+			if r.Project == project {
+				delete(m.state.Routes, id)
+			}
+		}
+	}
+
 	return m.save()
 }
 
@@ -171,6 +193,72 @@ func (m *Manager) UpdateStatus(project, role, status string) error {
 		}
 	}
 	return nil
+}
+
+// SetRoute adds or updates a route in the state.
+func (m *Manager) SetRoute(routeID, project string, domains []string, upstream string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if m.state == nil {
+		m.state = LoadState(filepath.Join(m.stateDir, StateFileName))
+	}
+
+	if m.state.Routes == nil {
+		m.state.Routes = make(map[string]*RouteState)
+	}
+
+	now := time.Now().UTC().Format(time.RFC3339)
+	existing := m.state.Routes[routeID]
+	if existing != nil {
+		existing.Domains = domains
+		existing.Upstream = upstream
+		existing.UpdatedAt = now
+	} else {
+		m.state.Routes[routeID] = &RouteState{
+			RouteID:   routeID,
+			Project:   project,
+			Domains:   domains,
+			Upstream:  upstream,
+			CreatedAt: now,
+			UpdatedAt: now,
+		}
+	}
+
+	return m.save()
+}
+
+// RemoveRoute removes a route from the state.
+func (m *Manager) RemoveRoute(routeID string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if m.state == nil || m.state.Routes == nil {
+		return nil
+	}
+
+	delete(m.state.Routes, routeID)
+	return m.save()
+}
+
+// GetRoutes returns all routes from the state.
+func (m *Manager) GetRoutes() map[string]*RouteState {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if m.state == nil {
+		m.state = LoadState(filepath.Join(m.stateDir, StateFileName))
+	}
+
+	if m.state.Routes == nil {
+		return make(map[string]*RouteState)
+	}
+
+	out := make(map[string]*RouteState, len(m.state.Routes))
+	for k, v := range m.state.Routes {
+		out[k] = v
+	}
+	return out
 }
 
 // save writes the state to disk atomically.
@@ -206,10 +294,14 @@ func LoadState(path string) *State {
 	if state.Projects == nil {
 		state.Projects = make(map[string]*ProjectState)
 	}
+	if state.Routes == nil {
+		state.Routes = make(map[string]*RouteState)
+	}
 
 	slog.Info("loaded state file",
 		"path", path,
-		"projects", len(state.Projects))
+		"projects", len(state.Projects),
+		"routes", len(state.Routes))
 	return &state
 }
 
