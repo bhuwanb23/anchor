@@ -278,9 +278,15 @@ func (m *Manager) SetAskRoute(authorizer *DomainAuthorizer) error {
 		},
 	}
 	data, _ := json.Marshal(updateReq)
-	resp, err := http.MethodPatch(m.adminURL+"/config/", bytes.NewReader(data))
-	if err != nil {
-		slog.Warn("could not update on_demand.ask in caddy config, using initial config", "error", err)
+	req, err := http.NewRequest(http.MethodPatch, m.adminURL+"/config/", bytes.NewReader(data))
+	if err == nil {
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			slog.Warn("could not update on_demand.ask in caddy config, using initial config", "error", err)
+		} else {
+			resp.Body.Close()
+		}
 	}
 
 	// Start the ask endpoint server
@@ -295,7 +301,6 @@ func (m *Manager) SetAskRoute(authorizer *DomainAuthorizer) error {
 
 	// Wait for server to start
 	time.Sleep(100 * time.Millisecond)
-	_ = resp
 	slog.Info("on-demand TLS ask endpoint configured", "url", askURL)
 	return nil
 }

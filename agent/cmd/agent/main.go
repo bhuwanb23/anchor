@@ -127,6 +127,11 @@ func run(configPath string) {
 	if err := caddyProcess.Start(ctx); err != nil {
 		slog.Warn("failed to start caddy, continuing without reverse proxy", "error", err)
 	} else {
+		// Set up on-demand TLS ask endpoint
+		if err := caddyManager.SetAskRoute(caddyProcess.Authorizer()); err != nil {
+			slog.Warn("failed to set up ask endpoint", "error", err)
+		}
+
 		// Reconcile routes from state into Caddy after startup
 		if _, _, err := state.ReconcileCaddy(ctx, stateManager, caddyManager); err != nil {
 			slog.Warn("caddy route reconciliation failed", "error", err)
