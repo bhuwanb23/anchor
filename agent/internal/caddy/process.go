@@ -83,18 +83,25 @@ func (pc *ProcessConfig) configFile() string {
 
 // ProcessManager manages a Caddy child process.
 type ProcessManager struct {
-	cfg     ProcessConfig
-	cmd     *exec.Cmd
-	manager *Manager
+	cfg        ProcessConfig
+	cmd        *exec.Cmd
+	manager    *Manager
+	authorizer *DomainAuthorizer
 }
 
 // NewProcessManager creates a new Caddy process manager.
 func NewProcessManager(cfg ProcessConfig, manager *Manager) *ProcessManager {
 	cfg.defaults()
 	return &ProcessManager{
-		cfg:     cfg,
-		manager: manager,
+		cfg:        cfg,
+		manager:    manager,
+		authorizer: NewDomainAuthorizer(),
 	}
+}
+
+// Authorizer returns the domain authorizer for on-demand TLS.
+func (pm *ProcessManager) Authorizer() *DomainAuthorizer {
+	return pm.authorizer
 }
 
 // Start starts the Caddy process.
@@ -378,6 +385,9 @@ func (pm *ProcessManager) ensureConfig() error {
 						"routes": []interface{}{},
 						"tls_connection_policies": []interface{}{
 							map[string]interface{}{},
+						},
+						"on_demand": map[string]interface{}{
+							"ask": "http://localhost:2019/__yourplatform_ask",
 						},
 					},
 					"redirect": map[string]interface{}{
