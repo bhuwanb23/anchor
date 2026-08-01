@@ -2,6 +2,7 @@ package caddy
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -39,7 +40,14 @@ func (m *Manager) SetRetryConfig(cfg RetryConfig) {
 
 // SetRouteByID creates or updates a route by its ID.
 // This is idempotent — calling with the same routeID replaces the route.
+// Retries with exponential backoff if the admin API is temporarily unavailable.
 func (m *Manager) SetRouteByID(routeID string, domains []string, upstream string) error {
+	return retryWithBackoff(context.Background(), m.retryConfig, func() error {
+		return m.setRouteByIDInternal(routeID, domains, upstream)
+	})
+}
+
+func (m *Manager) setRouteByIDInternal(routeID string, domains []string, upstream string) error {
 	slog.Info("setting caddy route", "id", routeID, "domains", domains, "upstream", upstream)
 
 	if len(domains) == 0 {
@@ -57,7 +65,7 @@ func (m *Manager) SetRouteByID(routeID string, domains []string, upstream string
 				Upstreams: []CaddyUpstream{{Dial: upstream}},
 				Headers: &CaddyHeaders{
 					Set: map[string][]string{
-						"X-Real-IP":        {"{http.request.remote.host}"},
+						"X-Real-IP":         {"{http.request.remote.host}"},
 						"X-Forwarded-Proto": {"https"},
 						"X-Forwarded-Host":  {"{http.request.host}"},
 					},
