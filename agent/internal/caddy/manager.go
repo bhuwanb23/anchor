@@ -17,14 +17,24 @@ func RouteID(project string) string {
 
 // Manager manages Caddy routes via the admin API.
 type Manager struct {
-	adminURL string
+	adminURL    string
+	retryConfig RetryConfig
 }
 
 // NewManager creates a new Caddy route manager.
 func NewManager(caddyAdminURL string) *Manager {
 	return &Manager{
 		adminURL: caddyAdminURL,
+		retryConfig: RetryConfig{
+			MaxAttempts: defaultMaxAttempts,
+			BaseDelay:   defaultBaseDelay,
+		},
 	}
+}
+
+// SetRetryConfig sets the retry configuration for admin API calls.
+func (m *Manager) SetRetryConfig(cfg RetryConfig) {
+	m.retryConfig = cfg
 }
 
 // SetRouteByID creates or updates a route by its ID.
