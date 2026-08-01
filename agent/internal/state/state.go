@@ -272,6 +272,64 @@ func (m *Manager) GetRoutes() map[string]*RouteState {
 	return out
 }
 
+// SetCertificate adds or updates a certificate entry in the state.
+func (m *Manager) SetCertificate(domain, expiry, issuer, status string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if m.state == nil {
+		m.state = LoadState(filepath.Join(m.stateDir, StateFileName))
+	}
+
+	if m.state.Certificates == nil {
+		m.state.Certificates = make(map[string]*CertState)
+	}
+
+	now := time.Now().UTC().Format(time.RFC3339)
+	m.state.Certificates[domain] = &CertState{
+		Domain:    domain,
+		Expiry:    expiry,
+		Issuer:    issuer,
+		Status:    status,
+		CheckedAt: now,
+	}
+
+	return m.save()
+}
+
+// RemoveCertificate removes a certificate entry from the state.
+func (m *Manager) RemoveCertificate(domain string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if m.state == nil || m.state.Certificates == nil {
+		return nil
+	}
+
+	delete(m.state.Certificates, domain)
+	return m.save()
+}
+
+// GetCertificates returns all certificate entries from the state.
+func (m *Manager) GetCertificates() map[string]*CertState {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if m.state == nil {
+		m.state = LoadState(filepath.Join(m.stateDir, StateFileName))
+	}
+
+	if m.state.Certificates == nil {
+		return make(map[string]*CertState)
+	}
+
+	out := make(map[string]*CertState, len(m.state.Certificates))
+	for k, v := range m.state.Certificates {
+		out[k] = v
+	}
+	return out
+}
+
 // save writes the state to disk atomically.
 func (m *Manager) save() error {
 	return SaveState(filepath.Join(m.stateDir, StateFileName), m.state)
