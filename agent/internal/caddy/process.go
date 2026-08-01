@@ -87,6 +87,7 @@ type ProcessManager struct {
 	cmd        *exec.Cmd
 	manager    *Manager
 	authorizer *DomainAuthorizer
+	logMonitor *LogMonitor
 }
 
 // NewProcessManager creates a new Caddy process manager.
@@ -97,6 +98,11 @@ func NewProcessManager(cfg ProcessConfig, manager *Manager) *ProcessManager {
 		manager:    manager,
 		authorizer: NewDomainAuthorizer(),
 	}
+}
+
+// SetLogMonitor sets the log monitor for Caddy stderr parsing.
+func (pm *ProcessManager) SetLogMonitor(monitor *LogMonitor) {
+	pm.logMonitor = monitor
 }
 
 // Authorizer returns the domain authorizer for on-demand TLS.
@@ -141,7 +147,11 @@ func (pm *ProcessManager) Start(ctx context.Context) error {
 	go func() {
 		scanner := bufio.NewScanner(stderr)
 		for scanner.Scan() {
-			slog.Warn("caddy", "output", scanner.Text())
+			line := scanner.Text()
+			slog.Warn("caddy", "output", line)
+			if pm.logMonitor != nil {
+				pm.logMonitor.ProcessLine(line)
+			}
 		}
 	}()
 
