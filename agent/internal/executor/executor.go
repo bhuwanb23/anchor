@@ -75,6 +75,11 @@ type DeleteProjectPayload struct {
 	ProjectName string `json:"project_name"`
 }
 
+type UpdateDomainsPayload struct {
+	AppName string   `json:"app_name"`
+	Domains []string `json:"domains"`
+}
+
 type Executor struct {
 	docker       *docker.Client
 	caddy        *caddy.Manager
@@ -84,6 +89,7 @@ type Executor struct {
 	envManager   *env.Manager
 	logStreamer  *logstream.LogStreamer
 	stateManager *state.Manager
+	authorizer   *caddy.DomainAuthorizer
 }
 
 // ProgressReporter sends image pull progress updates to the control plane.
@@ -121,6 +127,12 @@ func (e *Executor) WithLogStreamer(ls *logstream.LogStreamer) *Executor {
 // WithStateManager attaches a state manager for persistence across restarts.
 func (e *Executor) WithStateManager(sm *state.Manager) *Executor {
 	e.stateManager = sm
+	return e
+}
+
+// WithAuthorizer attaches a domain authorizer for on-demand TLS.
+func (e *Executor) WithAuthorizer(a *caddy.DomainAuthorizer) *Executor {
+	e.authorizer = a
 	return e
 }
 
@@ -196,6 +208,8 @@ func (e *Executor) Execute(ctx context.Context, cmd Command) Result {
 		err = e.executeDeleteProject(ctx, cmd, &result)
 	case "update_env":
 		err = e.executeUpdateEnv(ctx, cmd, &result)
+	case "update_domains":
+		err = e.executeUpdateDomains(ctx, cmd, &result)
 	default:
 		result.Status = "error"
 		result.Error = fmt.Sprintf("unknown command type: %s", cmd.Type)
@@ -667,6 +681,56 @@ func (e *Executor) executeUpdateEnv(ctx context.Context, cmd Command, result *Re
 
 	result.Status = "success"
 	result.Output = fmt.Sprintf("env updated for %s — restart to apply", p.ProjectName)
+	return nil
+}
+
+func (e *Executor) executeUpdateDomains(ctx context.Context, cmd Command, result *Result) error {
+	var p UpdateDomainsPayload
+	if err := json.Unmarshal(cmd.Payload, &p); err != nil {
+		return fmt.Errorf("invalid update_domains payload: %w", err)
+	}
+
+	if p.AppName == "" {
+		return fmt.Errorf("app_name is required")
+	}
+
+	if len(p.Domains) == 0 {
+		return fmt.Errorf("at least one domain is required")
+	}
+
+	// Update Caddy route with new domain list
+	routeID := caddy.RouteID(p.AppName)
+
+	// Get existing route to preserve upstream
+	existing, err := e.caddy.GetRouteByID(routeID)
+	if err != nil {
+		return fmt.Errorf("get existing route: %w", err)
+	}
+
+	var upstream string
+	if existing != nil && len(existing.Handle) > 0 && len(existing.Handle[0].Upstreams) > 0 {
+		upstream = existing.Handle[0].Upstreams[0].Dial
+	} else {
+		return fmt.Errorf("no existing route found for %s", p.AppName)
+	}
+
+	if err := e.caddy.SetRouteByID(routeID, p.Domains, upstream); err != nil {
+		return fmt.Errorf("set caddy route: %w", err)
+	}
+
+	// Update state
+	if e.stateManager != nil {
+		_ = e.stateManager.SetRoute(routeID, p.AppName, p.Domains, upstream)
+	}
+
+	// Update domain authorizer for on-demand TLS
+	if e.authorizer != nil {
+		e.authorizer.SetDomains(p.Domains)
+	}
+
+	slog.Info("domains updated", "app", p.AppName, "domains", p.Domains)
+	result.Status = "success"
+	result.Output = fmt.Sprintf("domains updated for %s: %v", p.AppName, p.Domains)
 	return nil
 }
 

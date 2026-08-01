@@ -178,7 +178,8 @@ func run(configPath string) {
 	exec := executor.New(dockerClient, caddyManager, backupManager).
 		WithImageCache(imageCache).
 		WithProgressReporter(&wsProgressReporter{client: wsClient}).
-		WithStateManager(stateManager)
+		WithStateManager(stateManager).
+		WithAuthorizer(caddyProcess.Authorizer())
 
 	// Create log streamer for container log streaming
 	logStreamer := logstream.NewLogStreamer(
