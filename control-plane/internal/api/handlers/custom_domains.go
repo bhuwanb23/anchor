@@ -56,7 +56,7 @@ func (h *CustomDomain) AddDomain(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Check if domain is already claimed by any deployment
-	_, existingDeploymentID, _, err := queries.GetCustomDomainByDomain(h.DB, req.Domain)
+	_, _, _, err = queries.GetCustomDomainByDomain(h.DB, req.Domain)
 	if err == nil {
 		// Domain exists — reject regardless of which deployment owns it
 		http.Error(w, "domain is already in use", http.StatusConflict)
