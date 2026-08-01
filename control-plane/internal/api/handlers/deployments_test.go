@@ -58,6 +58,17 @@ func setupTestDB(t *testing.T) *sql.DB {
 			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 		);
+		CREATE TABLE custom_domains (
+			id TEXT PRIMARY KEY,
+			deployment_id TEXT NOT NULL,
+			domain TEXT NOT NULL,
+			status TEXT NOT NULL DEFAULT 'pending',
+			verified_at TEXT,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			FOREIGN KEY (deployment_id) REFERENCES deployments(id) ON DELETE CASCADE
+		);
+		CREATE UNIQUE INDEX idx_custom_domains_domain ON custom_domains(domain);
 	`)
 	if err != nil {
 		t.Fatalf("create tables: %v", err)
