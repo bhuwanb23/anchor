@@ -41,11 +41,12 @@ type ContainerChecker interface {
 
 // LogMonitor parses Caddy stderr and detects error patterns.
 type LogMonitor struct {
-	window    time.Duration
-	threshold int
-	reporter  ErrorAlerter
-	mu        sync.Mutex
-	recent502 []time.Time
+	window         time.Duration
+	threshold      int
+	reporter       ErrorAlerter
+	rateLimitTrack *RateLimitTracker
+	mu             sync.Mutex
+	recent502      []time.Time
 }
 
 // NewLogMonitor creates a new log monitor.
@@ -61,6 +62,13 @@ func NewLogMonitor(cfg LogMonitorConfig, reporter ErrorAlerter) *LogMonitor {
 		threshold: cfg.Threshold,
 		reporter:  reporter,
 	}
+}
+
+// SetRateLimitTracker sets the rate limit tracker for prevention.
+func (m *LogMonitor) SetRateLimitTracker(tracker *RateLimitTracker) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.rateLimitTrack = tracker
 }
 
 // ProcessLine parses a single line of Caddy stderr output.
@@ -130,7 +138,22 @@ func (m *LogMonitor) handleRateLimit(entry caddyLogEntry) {
 		return
 	}
 
+	m.mu.Lock()
+	tracker := m.rateLimitTrack
+	m.mu.Unlock()
+
+	// Check if already rate-limited (prevent duplicate alerts)
+	if tracker != nil && tracker.IsRateLimited(domain) {
+		slog.Debug("domain already rate-limited, skipping alert", "domain", domain)
+		return
+	}
+
 	slog.Warn("ACME rate limit detected", "domain", domain, "error", entry.Error)
+
+	// Mark as rate-limited
+	if tracker != nil {
+		tracker.MarkRateLimited(domain)
+	}
 
 	if m.reporter != nil {
 		resetDate := time.Now().Add(rateLimitCooldown)

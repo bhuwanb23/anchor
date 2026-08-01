@@ -120,8 +120,15 @@ func run(configPath string) {
 	// Create state manager for persistence across restarts
 	stateManager := state.NewManager("")
 
+	// Error handling components
+	rateLimitTracker := caddy.NewRateLimitTracker(cfg.CaddyDataDir)
+	routeQueue := caddy.NewRouteQueue(cfg.CaddyDataDir, caddyManager)
+
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
+
+	// Create log monitor (wired to stderr after Caddy starts)
+	var logMonitor *caddy.LogMonitor
 
 	// Start Caddy reverse proxy
 	if err := caddyProcess.Start(ctx); err != nil {
@@ -137,11 +144,25 @@ func run(configPath string) {
 			slog.Warn("caddy route reconciliation failed", "error", err)
 		}
 
+		// Check for port mismatches after reconciliation
+		if _, err := state.CheckPortMismatches(ctx, stateManager, caddyManager); err != nil {
+			slog.Warn("port mismatch check failed", "error", err)
+		}
+
+		// Apply any queued routes that were deferred
+		if applied := routeQueue.ApplyPending(ctx); applied > 0 {
+			slog.Info("applied queued routes after caddy start", "count", applied)
+		}
+
 		caddyProcess.Monitor(ctx, func() {
 			slog.Error("caddy crashed — restarting and restoring routes")
 			// Routes are restored by Monitor → Start → ReconcileCaddy on next tick
 			if _, _, err := state.ReconcileCaddy(ctx, stateManager, caddyManager); err != nil {
 				slog.Warn("failed to restore routes after caddy restart", "error", err)
+			}
+			// Apply queued routes after recovery
+			if applied := routeQueue.ApplyPending(ctx); applied > 0 {
+				slog.Info("applied queued routes after caddy recovery", "count", applied)
 			}
 		})
 	}
@@ -157,6 +178,11 @@ func run(configPath string) {
 	}
 	certMonitor := caddy.NewCertMonitor(cfg.CaddyDataDir, stateManager, alertReporter)
 	go certMonitor.Run(ctx)
+
+	// Set up log monitor for 502/rate-limit detection
+	logMonitor = caddy.NewLogMonitor(caddy.LogMonitorConfig{}, alertReporter)
+	logMonitor.SetRateLimitTracker(rateLimitTracker)
+	caddyProcess.SetLogMonitor(logMonitor)
 
 	// Run reconciliation on boot — discover running containers and sync state
 	go func() {
