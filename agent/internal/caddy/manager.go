@@ -257,26 +257,45 @@ type CaddyHeaders struct {
 	Set map[string][]string `json:"set,omitempty"`
 }
 
-// SetAskRoute creates the on-demand TLS ask endpoint route.
-// This route is called by Caddy to verify if a domain is authorized
-// before requesting a TLS certificate.
+// SetAskRoute creates the on-demand TLS ask endpoint.
+// This starts a local HTTP server that Caddy calls to verify domain authorization.
 func (m *Manager) SetAskRoute(authorizer *DomainAuthorizer) error {
-	// Start a local HTTP server for the ask endpoint
+	const askAddr = "localhost:2020"
+
+	// Update the Caddy config to point ask to the correct port
+	askURL := "http://" + askAddr + "/__yourplatform_ask"
+	updateReq := map[string]interface{}{
+		"apps": map[string]interface{}{
+			"http": map[string]interface{}{
+				"servers": map[string]interface{}{
+					"main": map[string]interface{}{
+						"on_demand": map[string]interface{}{
+							"ask": askURL,
+						},
+					},
+				},
+			},
+		},
+	}
+	data, _ := json.Marshal(updateReq)
+	resp, err := http.MethodPatch(m.adminURL+"/config/", bytes.NewReader(data))
+	if err != nil {
+		slog.Warn("could not update on_demand.ask in caddy config, using initial config", "error", err)
+	}
+
+	// Start the ask endpoint server
 	go func() {
 		mux := http.NewServeMux()
 		mux.HandleFunc("/__yourplatform_ask", authorizer.HandleAsk)
-		slog.Info("starting ask endpoint server", "addr", "localhost:2019")
-		if err := http.ListenAndServe("localhost:2019", mux); err != nil {
+		slog.Info("starting ask endpoint server", "addr", askAddr)
+		if err := http.ListenAndServe(askAddr, mux); err != nil {
 			slog.Error("ask endpoint server failed", "error", err)
 		}
 	}()
 
-	// Wait a moment for the server to start
+	// Wait for server to start
 	time.Sleep(100 * time.Millisecond)
-
-	// The ask route is already configured in the initial Caddy config
-	// via on_demand.ask pointing to localhost:2019/__yourplatform_ask
-	// No need to add it via admin API since the server handles it directly.
-	slog.Info("on-demand TLS ask endpoint configured")
+	_ = resp
+	slog.Info("on-demand TLS ask endpoint configured", "url", askURL)
 	return nil
 }
