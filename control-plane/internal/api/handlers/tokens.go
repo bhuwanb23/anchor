@@ -53,7 +53,7 @@ func (t *Token) CreateRegistrationToken(w http.ResponseWriter, r *http.Request) 
 		scheme = "https://"
 	}
 	baseURL := scheme + r.Host
-	installCommand := fmt.Sprintf("curl -fsSL %%s/install.sh | sudo sh -s -- --token=%%s --base-url=%%s", baseURL, rawToken, baseURL)
+	installCommand := fmt.Sprintf("curl -fsSL %s/install.sh | sudo sh -s -- --token=%s --base-url=%s", baseURL, rawToken, baseURL)
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
