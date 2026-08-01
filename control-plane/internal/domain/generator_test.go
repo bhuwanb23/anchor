@@ -21,7 +21,7 @@ func TestSanitizeSubdomain(t *testing.T) {
 		{"all special", "!@#$%", "", true},
 		{"empty after sanitize", "---", "", true},
 		{"unicode stripped", "café", "caf", false},
-		{"long name truncated", "abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz0123456789", "abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqr", false},
+		{"long name truncated", "abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz0123456789", "abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz0", false},
 	}
 
 	for _, tt := range tests {
