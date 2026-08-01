@@ -29,7 +29,7 @@ func NewRouter(database *sql.DB, cfg *config.Config, hub *ws.Hub) http.Handler {
 		http.ServeFile(w, r, "./scripts/install.sh")
 	})
 
-	r.Get("/ws/agent", ws.HandleAgentWS(hub, database))
+	r.Get("/ws/agent", ws.HandleAgentWS(hub, database, cfg.BaseDomain))
 	r.Get("/ws/browser", ws.HandleBrowserWS(hub, database, cfg.JWTSecret))
 
 	releaseDir := filepath.Join(".", "release")

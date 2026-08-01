@@ -67,7 +67,7 @@ func handlePreflightResult(db *sql.DB, serverID string, payload json.RawMessage)
 	slog.Info("preflight result processed", "server_id", serverID, "passed", result.Passed, "warnings", len(result.Warnings))
 }
 
-func HandleAgentWS(hub *Hub, db *sql.DB) http.HandlerFunc {
+func HandleAgentWS(hub *Hub, db *sql.DB, baseDomain string) http.HandlerFunc {
 	upgrader := websocket.Upgrader{
 		ReadBufferSize:  1024,
 		WriteBufferSize: 1024,
@@ -120,10 +120,12 @@ func HandleAgentWS(hub *Hub, db *sql.DB) http.HandlerFunc {
 		hub.RegisterAgent(serverID, agentID, conn)
 		slog.Info("agent connected", "agent_id", agentID, "server_id", serverID, "status", status)
 
-		_ = conn.WriteJSON(map[string]string{
-			"type":      "register_ack",
-			"server_id": serverID,
-		})
+		ack := map[string]string{
+			"type":        "register_ack",
+			"server_id":   serverID,
+			"base_domain": baseDomain,
+		}
+		_ = conn.WriteJSON(ack)
 
 		if status != "connected" {
 			_ = queries.UpdateServerConnection(db, serverID, "connected")
