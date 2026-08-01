@@ -132,3 +132,26 @@ func (b *BackupManager) Prune(ctx context.Context) error {
 	slog.Info("backup pruning completed")
 	return nil
 }
+
+// BackupConfig holds paths for default backup sources.
+type BackupConfig struct {
+	DataDir    string // agent data directory (state.json, config)
+	CertDir    string // certificate storage directory
+	ProjectsDir string // project data directory
+}
+
+// DefaultBackupPaths returns the default directories to back up,
+// including certificates, state, and project data.
+func DefaultBackupPaths(cfg BackupConfig) []string {
+	var paths []string
+	if cfg.DataDir != "" {
+		paths = append(paths, cfg.DataDir)
+	}
+	if cfg.CertDir != "" {
+		paths = append(paths, cfg.CertDir)
+	}
+	if cfg.ProjectsDir != "" {
+		paths = append(paths, cfg.ProjectsDir)
+	}
+	return paths
+}
