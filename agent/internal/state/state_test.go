@@ -539,3 +539,112 @@ func TestReconcileCaddy_PartialFailure(t *testing.T) {
 		t.Errorf("expected 0 restored (all failed), got %d", restored)
 	}
 }
+
+func newTestManager(t *testing.T) *Manager {
+	t.Helper()
+	return NewManager(t.TempDir())
+}
+
+func newTestManagerWithDir(t *testing.T, path string) *Manager {
+	t.Helper()
+	return NewManager(filepath.Dir(path))
+}
+
+// --- Certificate State Tests ---
+
+func TestSetCertificate(t *testing.T) {
+	stateMgr := newTestManager(t)
+
+	err := stateMgr.SetCertificate("example.com", "2026-09-01T00:00:00Z", "Let's Encrypt", "valid")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	cert := stateMgr.GetCertificate("example.com")
+	if cert == nil {
+		t.Fatal("expected certificate to be set")
+	}
+	if cert.Domain != "example.com" {
+		t.Errorf("expected domain example.com, got %s", cert.Domain)
+	}
+	if cert.Expiry != "2026-09-01T00:00:00Z" {
+		t.Errorf("expected expiry 2026-09-01T00:00:00Z, got %s", cert.Expiry)
+	}
+	if cert.Issuer != "Let's Encrypt" {
+		t.Errorf("expected issuer Let's Encrypt, got %s", cert.Issuer)
+	}
+	if cert.Status != "valid" {
+		t.Errorf("expected status valid, got %s", cert.Status)
+	}
+}
+
+func TestSetCertificate_Update(t *testing.T) {
+	stateMgr := newTestManager(t)
+
+	stateMgr.SetCertificate("example.com", "2026-09-01T00:00:00Z", "Let's Encrypt", "valid")
+	stateMgr.SetCertificate("example.com", "2026-12-01T00:00:00Z", "Let's Encrypt", "expiring_soon")
+
+	cert := stateMgr.GetCertificate("example.com")
+	if cert == nil {
+		t.Fatal("expected certificate to exist")
+	}
+	if cert.Expiry != "2026-12-01T00:00:00Z" {
+		t.Errorf("expected updated expiry, got %s", cert.Expiry)
+	}
+	if cert.Status != "expiring_soon" {
+		t.Errorf("expected updated status, got %s", cert.Status)
+	}
+}
+
+func TestRemoveCertificate(t *testing.T) {
+	stateMgr := newTestManager(t)
+
+	stateMgr.SetCertificate("example.com", "2026-09-01T00:00:00Z", "Let's Encrypt", "valid")
+	stateMgr.RemoveCertificate("example.com")
+
+	cert := stateMgr.GetCertificate("example.com")
+	if cert != nil {
+		t.Errorf("expected certificate to be removed, got %+v", cert)
+	}
+}
+
+func TestRemoveCertificate_Nonexistent(t *testing.T) {
+	stateMgr := newTestManager(t)
+	stateMgr.RemoveCertificate("nonexistent.com") // should not panic
+}
+
+func TestGetCertificates_Multiple(t *testing.T) {
+	stateMgr := newTestManager(t)
+
+	stateMgr.SetCertificate("a.com", "2026-09-01T00:00:00Z", "Let's Encrypt", "valid")
+	stateMgr.SetCertificate("b.com", "2026-10-01T00:00:00Z", "Let's Encrypt", "valid")
+
+	certs := stateMgr.GetCertificates()
+	if len(certs) != 2 {
+		t.Fatalf("expected 2 certificates, got %d", len(certs))
+	}
+	if _, ok := certs["a.com"]; !ok {
+		t.Error("expected a.com in certificates")
+	}
+	if _, ok := certs["b.com"]; !ok {
+		t.Error("expected b.com in certificates")
+	}
+}
+
+func TestCertState_Persistence(t *testing.T) {
+	dir := t.TempDir()
+
+	// Create state, add a cert
+	stateMgr1 := NewManager(dir)
+	stateMgr1.SetCertificate("persist.com", "2026-09-01T00:00:00Z", "Let's Encrypt", "valid")
+
+	// Create new manager pointing at same directory — should reload from disk
+	stateMgr2 := NewManager(dir)
+	cert := stateMgr2.GetCertificate("persist.com")
+	if cert == nil {
+		t.Fatal("expected certificate to persist across manager instances")
+	}
+	if cert.Domain != "persist.com" {
+		t.Errorf("expected domain persist.com, got %s", cert.Domain)
+	}
+}
