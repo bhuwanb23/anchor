@@ -12,7 +12,7 @@ import (
 	"github.com/yourname/yourplatform/control-plane/internal/ws"
 )
 
-func setupCustomDomainTest(t *testing.T) (*handlers.CustomDomain, *chi.Mux) {
+func setupCustomDomainTest(t *testing.T) (*sql.DB, *chi.Mux) {
 	t.Helper()
 	db := setupTestDB(t)
 
@@ -42,7 +42,7 @@ func setupCustomDomainTest(t *testing.T) (*handlers.CustomDomain, *chi.Mux) {
 	r.Post("/servers/{serverID}/deployments/{deploymentID}/domains/{domainID}/verify", handler.VerifyDomain)
 	r.Delete("/servers/{serverID}/deployments/{deploymentID}/domains/{domainID}", handler.RemoveDomain)
 
-	return handler, r
+	return db, r
 }
 
 func TestAddDomain_Success(t *testing.T) {
