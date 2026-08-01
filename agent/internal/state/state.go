@@ -29,9 +29,10 @@ const (
 
 // State represents the full agent state persisted to disk.
 type State struct {
-	Version  int                      `json:"version"`
-	Projects map[string]*ProjectState `json:"projects"`
-	Routes   map[string]*RouteState   `json:"routes"`
+	Version      int                      `json:"version"`
+	Projects     map[string]*ProjectState `json:"projects"`
+	Routes       map[string]*RouteState   `json:"routes"`
+	Certificates map[string]*CertState    `json:"certificates,omitempty"`
 }
 
 // ProjectState tracks all containers belonging to a project.
@@ -61,6 +62,15 @@ type RouteState struct {
 	UpdatedAt string   `json:"updated_at"`
 }
 
+// CertState tracks an HTTPS certificate's status.
+type CertState struct {
+	Domain    string `json:"domain"`
+	Expiry    string `json:"expiry"`     // RFC3339
+	Issuer    string `json:"issuer"`
+	Status    string `json:"status"`     // "valid", "expiring_soon", "expired", "unknown"
+	CheckedAt string `json:"checked_at"` // last monitoring check
+}
+
 // DefaultStatePath returns the default path for the state file.
 func DefaultStatePath() string {
 	return filepath.Join(DefaultStateDir, StateFileName)
@@ -69,9 +79,10 @@ func DefaultStatePath() string {
 // NewState creates a new empty state.
 func NewState() *State {
 	return &State{
-		Version:  StateVersion,
-		Projects: make(map[string]*ProjectState),
-		Routes:   make(map[string]*RouteState),
+		Version:      StateVersion,
+		Projects:     make(map[string]*ProjectState),
+		Routes:       make(map[string]*RouteState),
+		Certificates: make(map[string]*CertState),
 	}
 }
 
