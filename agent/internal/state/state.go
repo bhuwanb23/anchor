@@ -330,6 +330,22 @@ func (m *Manager) GetCertificates() map[string]*CertState {
 	return out
 }
 
+// GetCertificate returns a single certificate entry for a domain.
+func (m *Manager) GetCertificate(domain string) *CertState {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if m.state == nil {
+		m.state = LoadState(filepath.Join(m.stateDir, StateFileName))
+	}
+
+	if m.state == nil || m.state.Certificates == nil {
+		return nil
+	}
+
+	return m.state.Certificates[domain]
+}
+
 // save writes the state to disk atomically.
 func (m *Manager) save() error {
 	return SaveState(filepath.Join(m.stateDir, StateFileName), m.state)
