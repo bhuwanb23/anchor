@@ -149,6 +149,15 @@ func run(configPath string) {
 	wsURL := cfg.ControlPlaneURL + "/ws/agent"
 	wsClient := ws.NewClient(wsURL, cfg.AgentID, cfg.AgentSecret, cfg.WSReconnectSec)
 
+	// Start certificate monitor — checks daily for expiry, sends alerts via WS
+	alertReporter := &caddy.WsAlertReporter{
+		SendFunc: func(v interface{}) error {
+			return wsClient.SendJSON(v)
+		},
+	}
+	certMonitor := caddy.NewCertMonitor(cfg.CaddyDataDir, stateManager, alertReporter)
+	go certMonitor.Run(ctx)
+
 	// Run reconciliation on boot — discover running containers and sync state
 	go func() {
 		reconcileResult, err := state.Reconcile(ctx, stateManager, dockerClient)
