@@ -216,6 +216,93 @@ func (m *Manager) Reload() error {
 	return nil
 }
 
+const (
+	letsEncryptProd   = "https://acme-v02.api.letsencrypt.org/directory"
+	letsEncryptStaging = "https://acme-staging-v02.api.letsencrypt.org/directory"
+)
+
+// SwitchCA changes the ACME CA between staging and production and reloads Caddy.
+func (m *Manager) SwitchCA(useProduction bool) error {
+	targetCA := letsEncryptStaging
+	if useProduction {
+		targetCA = letsEncryptProd
+	}
+
+	slog.Info("switching ACME CA", "target", targetCA, "production", useProduction)
+
+	// Read current config
+	resp, err := http.Get(m.adminURL + "/config/")
+	if err != nil {
+		return fmt.Errorf("read caddy config: %w", err)
+	}
+	defer resp.Body.Close()
+
+	var config map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&config); err != nil {
+		return fmt.Errorf("decode caddy config: %w", err)
+	}
+
+	// Navigate to apps.tls.automation.policies[0].issuers[0].ca
+	apps, ok := config["apps"].(map[string]interface{})
+	if !ok {
+		return fmt.Errorf("missing apps in caddy config")
+	}
+
+	tls, ok := apps["tls"].(map[string]interface{})
+	if !ok {
+		return fmt.Errorf("missing tls in caddy config")
+	}
+
+	automation, ok := tls["automation"].(map[string]interface{})
+	if !ok {
+		return fmt.Errorf("missing automation in caddy config")
+	}
+
+	policies, ok := automation["policies"].([]interface{})
+	if !ok || len(policies) == 0 {
+		return fmt.Errorf("missing or empty policies in caddy config")
+	}
+
+	policy, ok := policies[0].(map[string]interface{})
+	if !ok {
+		return fmt.Errorf("invalid policy format")
+	}
+
+	issuers, ok := policy["issuers"].([]interface{})
+	if !ok || len(issuers) == 0 {
+		return fmt.Errorf("missing or empty issuers in caddy config")
+	}
+
+	issuer, ok := issuers[0].(map[string]interface{})
+	if !ok {
+		return fmt.Errorf("invalid issuer format")
+	}
+
+	issuer["ca"] = targetCA
+
+	// Update config via PUT
+	data, _ := json.Marshal(config)
+	updateReq, err := http.NewRequest(http.MethodPut, m.adminURL+"/load", bytes.NewReader(data))
+	if err != nil {
+		return fmt.Errorf("create update request: %w", err)
+	}
+	updateReq.Header.Set("Content-Type", "application/json")
+
+	updateResp, err := http.DefaultClient.Do(updateReq)
+	if err != nil {
+		return fmt.Errorf("update caddy config: %w", err)
+	}
+	defer updateResp.Body.Close()
+
+	if updateResp.StatusCode >= 400 {
+		body, _ := io.ReadAll(updateResp.Body)
+		return fmt.Errorf("caddy config update rejected (%d): %s", updateResp.StatusCode, string(body))
+	}
+
+	slog.Info("ACME CA switched successfully", "ca", targetCA)
+	return nil
+}
+
 // verifyRoute confirms a route exists after PUT.
 func (m *Manager) verifyRoute(routeID string) error {
 	route, err := m.GetRouteByID(routeID)
