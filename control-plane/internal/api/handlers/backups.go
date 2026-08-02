@@ -71,7 +71,7 @@ func (h *Backup) UpdateBackupConfig(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Ensure config exists
-	config, err := queries.GetBackupConfigByServer(h.DB, serverID)
+	_, err := queries.GetBackupConfigByServer(h.DB, serverID)
 	if err == sql.ErrNoRows {
 		configID := uuid.New().String()
 		if err := queries.InsertBackupConfig(h.DB, configID, serverID); err != nil {
