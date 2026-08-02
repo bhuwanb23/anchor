@@ -136,7 +136,7 @@ func (m *LogMonitor) processEntry(entry caddyLogEntry) {
 		m.handleCertSuccess(entry)
 	case entry.Logger == "tls" && entry.Level == "error" && strings.Contains(entry.Msg, "renewal"):
 		m.handleCertRenewalFail(entry)
-	case entry.Level == "error" && strings.Contains(entry.Error, "acme_"):
+	case entry.Level == "error" && strings.Contains(entry.Error, "acme"):
 		m.handleCertError(entry)
 	case entry.Level == "error" && strings.Contains(entry.Error, "dns") && strings.Contains(entry.Error, "challenge"):
 		m.handleACMEDNSError(entry)
