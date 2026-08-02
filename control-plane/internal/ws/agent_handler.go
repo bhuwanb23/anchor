@@ -169,6 +169,10 @@ func HandleAgentWS(hub *Hub, db *sql.DB, baseDomain string) http.HandlerFunc {
 				// Forward error alerts (502, rate limit, cert failures) to browsers
 				hub.ForwardToBrowsers(serverID, data)
 				slog.Warn("error alert", "server_id", serverID, "payload", string(msg.Payload))
+			case "server_event":
+				// Forward server events (cert issued/renewed/failed) to browsers
+				hub.ForwardToBrowsers(serverID, data)
+				slog.Info("server event", "server_id", serverID, "payload", string(msg.Payload))
 			case "log_line", "log_history", "pull_progress", "docker_status", "reconciliation_result":
 				// Forward streaming messages to all browsers watching this server
 				hub.ForwardToBrowsers(serverID, data)
