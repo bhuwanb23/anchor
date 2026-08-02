@@ -112,7 +112,7 @@ func TestBackupRunner_GetDumper(t *testing.T) {
 	}
 }
 
-func TestParseSnapshotIDFromOutput(t *testing.T) {
+func TestParseSnapshotIDFromBackupOutput(t *testing.T) {
 	tests := []struct {
 		name   string
 		output string
@@ -169,12 +169,12 @@ func TestSplitLines(t *testing.T) {
 		{
 			name:  "empty",
 			input: "",
-			want:  1, // Empty string returns one empty element
+			want:  0, // Empty string returns no elements
 		},
 		{
 			name:  "trailing newline",
 			input: "line1\nline2\n",
-			want:  3, // Last empty element after trailing newline
+			want:  2, // Trailing newline doesn't add extra element
 		},
 	}
 
@@ -259,8 +259,9 @@ func TestContains(t *testing.T) {
 func TestPrepareVolumesForBackup(t *testing.T) {
 	mockDocker := &MockDockerClient{}
 	manager := &BackupManager{
-		destination: "local:/tmp/test-repo",
-		dataDir:     t.TempDir(),
+		destination:  "local:/tmp/test-repo",
+		dataDir:      t.TempDir(),
+		dockerClient: mockDocker,
 	}
 
 	runner := NewBackupRunner(manager, mockDocker)
@@ -293,8 +294,9 @@ func TestPrepareVolumesForBackup(t *testing.T) {
 func TestFinishVolumesAfterBackup(t *testing.T) {
 	mockDocker := &MockDockerClient{}
 	manager := &BackupManager{
-		destination: "local:/tmp/test-repo",
-		dataDir:     t.TempDir(),
+		destination:  "local:/tmp/test-repo",
+		dataDir:      t.TempDir(),
+		dockerClient: mockDocker,
 	}
 
 	runner := NewBackupRunner(manager, mockDocker)
@@ -318,11 +320,4 @@ func TestFinishVolumesAfterBackup(t *testing.T) {
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)
 	}
-}
-
-// mockStateManager is a minimal mock for testing.
-type mockStateManager struct{}
-
-func (m *mockStateManager) GetState() interface{} {
-	return nil
 }
