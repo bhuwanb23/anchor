@@ -71,6 +71,7 @@ type LogMonitor struct {
 	threshold      int
 	reporter       ErrorAlerter
 	rateLimitTrack *RateLimitTracker
+	eventRecorder  *EventRecorder
 	mu             sync.Mutex
 	recent502      []time.Time
 }
@@ -95,6 +96,13 @@ func (m *LogMonitor) SetRateLimitTracker(tracker *RateLimitTracker) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.rateLimitTrack = tracker
+}
+
+// SetEventRecorder sets the event recorder for server events.
+func (m *LogMonitor) SetEventRecorder(recorder *EventRecorder) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.eventRecorder = recorder
 }
 
 // ProcessLine parses a single line of Caddy stderr output.
@@ -217,6 +225,18 @@ func (m *LogMonitor) handleCertError(entry caddyLogEntry) {
 
 	slog.Warn("certificate issuance failed", "domain", domain, "reason", reason)
 
+	// Record event
+	m.mu.Lock()
+	recorder := m.eventRecorder
+	m.mu.Unlock()
+	if recorder != nil {
+		recorder.Record(ServerEvent{
+			Type:    "cert_failed",
+			Domain:  domain,
+			Message: reason,
+		})
+	}
+
 	if m.reporter != nil {
 		alert := AlertCertFailed(domain, reason)
 		if err := m.reporter.SendErrorAlert(alert); err != nil {
@@ -233,10 +253,25 @@ func (m *LogMonitor) handleCertSuccess(entry caddyLogEntry) {
 
 	slog.Info("certificate event", "domain", domain, "msg", entry.Msg)
 
-	// Clear rate limit on successful issuance
+	// Record event
 	m.mu.Lock()
+	recorder := m.eventRecorder
 	tracker := m.rateLimitTrack
 	m.mu.Unlock()
+
+	if recorder != nil {
+		eventType := "cert_issued"
+		if strings.Contains(entry.Msg, "renewed") {
+			eventType = "cert_renewed"
+		}
+		recorder.Record(ServerEvent{
+			Type:    eventType,
+			Domain:  domain,
+			Message: entry.Msg,
+		})
+	}
+
+	// Clear rate limit on successful issuance
 	if tracker != nil {
 		tracker.ClearRateLimit(domain)
 	}
@@ -254,6 +289,18 @@ func (m *LogMonitor) handleCertRenewalFail(entry caddyLogEntry) {
 	}
 
 	slog.Warn("certificate renewal failed", "domain", domain, "reason", reason)
+
+	// Record event
+	m.mu.Lock()
+	recorder := m.eventRecorder
+	m.mu.Unlock()
+	if recorder != nil {
+		recorder.Record(ServerEvent{
+			Type:    "cert_renewal_failed",
+			Domain:  domain,
+			Message: reason,
+		})
+	}
 
 	if m.reporter != nil {
 		alert := AlertCertRenewalFailed(domain, reason)
