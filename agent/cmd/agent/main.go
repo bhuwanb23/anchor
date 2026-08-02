@@ -221,11 +221,31 @@ func run(configPath string) {
 		})
 	}()
 
+	// Create backup alert sender for scheduler
+	backupAlertSender := &wsBackupAlertSender{client: wsClient}
+
+	// Create backup scheduler
+	backupScheduler := backup.NewBackupScheduler(
+		backupManager,
+		"/var/lib/yourplatform",
+		cfg.ServerID,
+		backupAlertSender,
+	)
+	backupScheduler.UpdateConfig(backup.SchedulerConfig{
+		Schedule:         cfg.BackupSchedule,
+		RetentionDaily:   cfg.BackupRetentionDaily,
+		RetentionWeekly:  cfg.BackupRetentionWeekly,
+		RetentionMonthly: cfg.BackupRetentionMonthly,
+		Enabled:          true,
+	})
+
 	exec := executor.New(dockerClient, caddyManager, backupManager).
 		WithImageCache(imageCache).
 		WithProgressReporter(&wsProgressReporter{client: wsClient}).
 		WithStateManager(stateManager).
-		WithAuthorizer(caddyProcess.Authorizer())
+		WithAuthorizer(caddyProcess.Authorizer()).
+		WithScheduler(backupScheduler).
+		WithServerID(cfg.ServerID)
 
 	// Create log streamer for container log streaming
 	logStreamer := logstream.NewLogStreamer(
@@ -252,6 +272,9 @@ func run(configPath string) {
 			slog.Info("orphan network cleanup completed")
 		}
 	}()
+
+	// Start backup scheduler
+	go backupScheduler.Start(ctx)
 
 	go wsClient.Run(ctx)
 
@@ -596,4 +619,18 @@ func handleStreamLogs(ctx context.Context, ls *logstream.LogStreamer, dockerClie
 
 		ls.StartStream(ctx, containerID, payload.ProjectName, role, payload.Tail)
 	}
+}
+
+// wsBackupAlertSender sends backup alerts via WebSocket.
+type wsBackupAlertSender struct {
+	client *ws.Client
+}
+
+// SendBackupAlert sends a backup alert to the control plane.
+func (s *wsBackupAlertSender) SendBackupAlert(alert backup.BackupAlert) error {
+	msg := map[string]interface{}{
+		"type":    "backup_alert",
+		"payload": alert,
+	}
+	return s.client.SendJSON(msg)
 }
