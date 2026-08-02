@@ -123,6 +123,7 @@ func run(configPath string) {
 	// Error handling components
 	rateLimitTracker := caddy.NewRateLimitTracker(cfg.CaddyDataDir)
 	routeQueue := caddy.NewRouteQueue(cfg.CaddyDataDir, caddyManager)
+	eventRecorder := caddy.NewEventRecorder(cfg.CaddyDataDir)
 
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
@@ -182,6 +183,7 @@ func run(configPath string) {
 	// Set up log monitor for 502/rate-limit detection
 	logMonitor = caddy.NewLogMonitor(caddy.LogMonitorConfig{}, alertReporter)
 	logMonitor.SetRateLimitTracker(rateLimitTracker)
+	logMonitor.SetEventRecorder(eventRecorder)
 	caddyProcess.SetLogMonitor(logMonitor)
 
 	// Run reconciliation on boot — discover running containers and sync state
