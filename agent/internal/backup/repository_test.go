@@ -55,9 +55,11 @@ func TestSaveConfig(t *testing.T) {
 		t.Fatalf("stat config file: %v", err)
 	}
 
-	// Verify permissions are 600
-	if info.Mode().Perm() != 0600 {
-		t.Errorf("config file permissions = %o, want 0600", info.Mode().Perm())
+	// Verify permissions are 600 (skip on Windows)
+	if runtime.GOOS != "windows" {
+		if info.Mode().Perm() != 0600 {
+			t.Errorf("config file permissions = %o, want 0600", info.Mode().Perm())
+		}
 	}
 }
 
