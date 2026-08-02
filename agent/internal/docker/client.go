@@ -610,6 +610,43 @@ func (c *Client) InspectContainer(ctx context.Context, id string) (types.Contain
 	return resp, nil
 }
 
+// ExecInContainer runs a command inside a running container and returns the output.
+func (c *Client) ExecInContainer(ctx context.Context, containerID string, cmd []string) (string, error) {
+	if err := c.ensureConnected(ctx); err != nil {
+		return "", fmt.Errorf("docker unavailable: %w", err)
+	}
+
+	cli := c.cliUnsafe()
+
+	// Create exec configuration
+	execConfig := types.ExecConfig{
+		Cmd:          cmd,
+		AttachStdout: true,
+		AttachStderr: true,
+	}
+
+	// Create the exec instance
+	execID, err := cli.ContainerExecCreate(ctx, containerID, execConfig)
+	if err != nil {
+		return "", fmt.Errorf("create exec: %w", err)
+	}
+
+	// Attach to the exec instance
+	resp, err := cli.ContainerExecAttach(ctx, execID.ID, types.ExecStartCheck{})
+	if err != nil {
+		return "", fmt.Errorf("attach exec: %w", err)
+	}
+	defer resp.Close()
+
+	// Read output
+	output, err := io.ReadAll(resp.Reader)
+	if err != nil {
+		return "", fmt.Errorf("read exec output: %w", err)
+	}
+
+	return string(output), nil
+}
+
 // ---------------------------------------------------------------------------
 // Options
 // ---------------------------------------------------------------------------
