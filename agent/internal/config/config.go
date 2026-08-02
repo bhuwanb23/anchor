@@ -37,8 +37,11 @@ type Config struct {
 	BackupS3Endpoint     string `yaml:"backup_s3_endpoint,omitempty"`
 	BackupS3AccessKey    string `yaml:"backup_s3_access_key,omitempty"`
 	BackupS3SecretKey    string `yaml:"backup_s3_secret_key,omitempty"`
-	BackupS3Bucket       string `yaml:"backup_s3_bucket,omitempty"`
-	BackupS3Region       string `yaml:"backup_s3_region,omitempty"`
+	BackupS3Bucket       string   `yaml:"backup_s3_bucket,omitempty"`
+	BackupS3Region       string   `yaml:"backup_s3_region,omitempty"`
+	BackupIncludePaths   []string `yaml:"backup_include_paths,omitempty"`
+	BackupExcludePaths   []string `yaml:"backup_exclude_paths,omitempty"`
+	BackupDumpDir        string   `yaml:"backup_dump_dir,omitempty"`
 }
 
 func Load(path string) (*Config, error) {
@@ -110,6 +113,9 @@ func Load(path string) (*Config, error) {
 	}
 	if cfg.BackupRetentionMonthly == 0 {
 		cfg.BackupRetentionMonthly = 12
+	}
+	if cfg.BackupDumpDir == "" {
+		cfg.BackupDumpDir = "/tmp/yourplatform/backups"
 	}
 
 	return &cfg, nil
