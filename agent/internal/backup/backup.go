@@ -18,8 +18,18 @@ type BackupManager struct {
 	dataDir      string
 	serverID     string
 	config       *RepositoryConfig
-	stateMgr     interface{} // state.Manager (imported as interface to avoid cycle)
+	stateMgr     StateManager // StateManager interface for manifest-based backups
 	dockerClient DockerClient // DockerClient interface for container operations
+}
+
+// StateManager interface for state operations.
+type StateManager interface {
+	GetState() *StateData
+}
+
+// StateData holds project state for backup manifest building.
+type StateData struct {
+	Projects map[string]interface{}
 }
 
 type Snapshot struct {
@@ -296,7 +306,7 @@ func DefaultBackupPaths(cfg BackupConfig) []string {
 }
 
 // WithStateManager sets the state manager for manifest-based backups.
-func (b *BackupManager) WithStateManager(stateMgr interface{}) *BackupManager {
+func (b *BackupManager) WithStateManager(stateMgr StateManager) *BackupManager {
 	b.stateMgr = stateMgr
 	return b
 }
