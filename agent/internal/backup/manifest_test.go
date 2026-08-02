@@ -2,6 +2,7 @@ package backup
 
 import (
 	"context"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -327,8 +328,8 @@ func TestCollectBackupPaths_WithDumpDirOverride(t *testing.T) {
 		t.Fatalf("expected 1 path, got %d", len(paths))
 	}
 
-	// Path should use the override dump dir
-	expected := "/custom/dump/dir/myshop/postgres.dump"
+	// Path should use the override dump dir (check both separators for cross-platform)
+	expected := filepath.Join("/custom/dump/dir", "myshop", "postgres.dump")
 	if paths[0] != expected {
 		t.Errorf("path = %q, want %q", paths[0], expected)
 	}

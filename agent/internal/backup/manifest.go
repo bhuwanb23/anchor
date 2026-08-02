@@ -258,12 +258,12 @@ func (b *BackupManifestBuilder) inferDatabaseName(ctx context.Context, container
 	// Check environment variables for database name
 	for _, env := range info.Config.Env {
 		switch {
-		case dbType == "postgres" && len(env) > 14 && env[:14] == "POSTGRES_DB=":
-			return env[14:]
+		case dbType == "postgres" && len(env) > 12 && env[:12] == "POSTGRES_DB=":
+			return env[12:]
 		case dbType == "mysql" && len(env) > 9 && env[:9] == "MYSQL_DB=":
 			return env[9:]
-		case dbType == "mysql" && len(env) > 14 && env[:14] == "MYSQL_DATABASE=":
-			return env[14:]
+		case dbType == "mysql" && len(env) > 15 && env[:15] == "MYSQL_DATABASE=":
+			return env[15:]
 		}
 	}
 
