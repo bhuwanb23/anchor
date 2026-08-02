@@ -372,6 +372,28 @@ func (pm *ProcessManager) ensureConfig() error {
 			"module": "file_system",
 			"root":   pm.cfg.CertDir,
 		},
+		"logging": map[string]interface{}{
+			"logs": map[string]interface{}{
+				"default": map[string]interface{}{
+					"level": "INFO",
+					"encoder": map[string]interface{}{
+						"format": "json",
+					},
+				},
+				"tls": map[string]interface{}{
+					"level": "INFO",
+					"encoder": map[string]interface{}{
+						"format": "json",
+					},
+				},
+				"http.log.access": map[string]interface{}{
+					"level": "INFO",
+					"encoder": map[string]interface{}{
+						"format": "json",
+					},
+				},
+			},
+		},
 		"apps": map[string]interface{}{
 			"tls": map[string]interface{}{
 				"automation": map[string]interface{}{
