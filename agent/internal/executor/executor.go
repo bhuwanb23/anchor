@@ -721,11 +721,39 @@ func (e *Executor) executeBackupTrigger(ctx context.Context, cmd Command, result
 	var p struct {
 		SourcePath string   `json:"source_path"`
 		Tags       []string `json:"tags,omitempty"`
+		Manifest   bool     `json:"manifest,omitempty"` // Use manifest-based backup
 	}
 	if err := json.Unmarshal(cmd.Payload, &p); err != nil {
 		return fmt.Errorf("invalid backup_trigger payload: %w", err)
 	}
 
+	// Try manifest-based backup if requested and dependencies available
+	if p.Manifest || (e.stateManager != nil && e.docker != nil) {
+		// Wire state and docker into backup manager
+		e.backup.WithStateManager(e.stateManager)
+		e.backup.WithDockerClient(e.docker)
+
+		// Run manifest backup
+		runResult, err := e.backup.RunManifestBackup(ctx, e.serverID)
+		if err != nil {
+			// Fall back to legacy backup if manifest fails
+			slog.Warn("manifest backup failed, falling back to legacy",
+				"error", err)
+			if err := e.backup.RunBackup(ctx, p.SourcePath); err != nil {
+				return fmt.Errorf("trigger backup: %w", err)
+			}
+			result.Status = "success"
+			result.Output = fmt.Sprintf("legacy backup triggered for %s", p.SourcePath)
+			return nil
+		}
+
+		result.Status = "success"
+		result.Output = fmt.Sprintf("manifest backup completed, snapshot: %s, duration: %v",
+			runResult.SnapshotID, runResult.Duration)
+		return nil
+	}
+
+	// Legacy backup path
 	if err := e.backup.RunBackup(ctx, p.SourcePath); err != nil {
 		return fmt.Errorf("trigger backup: %w", err)
 	}
