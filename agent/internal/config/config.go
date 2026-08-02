@@ -28,6 +28,17 @@ type Config struct {
 	BackupDest      string `yaml:"backup_dest"`
 	WSReconnectSec  int    `yaml:"ws_reconnect_sec"`
 	LogLevel        string `yaml:"log_level"`
+
+	// Backup configuration
+	BackupSchedule       string `yaml:"backup_schedule,omitempty"`
+	BackupRetentionDaily int    `yaml:"backup_retention_daily,omitempty"`
+	BackupRetentionWeekly int   `yaml:"backup_retention_weekly,omitempty"`
+	BackupRetentionMonthly int  `yaml:"backup_retention_monthly,omitempty"`
+	BackupS3Endpoint     string `yaml:"backup_s3_endpoint,omitempty"`
+	BackupS3AccessKey    string `yaml:"backup_s3_access_key,omitempty"`
+	BackupS3SecretKey    string `yaml:"backup_s3_secret_key,omitempty"`
+	BackupS3Bucket       string `yaml:"backup_s3_bucket,omitempty"`
+	BackupS3Region       string `yaml:"backup_s3_region,omitempty"`
 }
 
 func Load(path string) (*Config, error) {
@@ -87,6 +98,18 @@ func Load(path string) (*Config, error) {
 	}
 	if cfg.LogLevel == "" {
 		cfg.LogLevel = "info"
+	}
+	if cfg.BackupSchedule == "" {
+		cfg.BackupSchedule = "0 2 * * *" // Default: 2am daily
+	}
+	if cfg.BackupRetentionDaily == 0 {
+		cfg.BackupRetentionDaily = 7
+	}
+	if cfg.BackupRetentionWeekly == 0 {
+		cfg.BackupRetentionWeekly = 4
+	}
+	if cfg.BackupRetentionMonthly == 0 {
+		cfg.BackupRetentionMonthly = 12
 	}
 
 	return &cfg, nil
