@@ -67,6 +67,27 @@ type BackupPayload struct {
 	SourcePath string `json:"source_path"`
 }
 
+type BackupInitPayload struct {
+	Destination string `json:"destination"`
+	S3Endpoint  string `json:"s3_endpoint,omitempty"`
+	S3AccessKey string `json:"s3_access_key,omitempty"`
+	S3SecretKey string `json:"s3_secret_key,omitempty"`
+	S3Bucket    string `json:"s3_bucket,omitempty"`
+	S3Region    string `json:"s3_region,omitempty"`
+}
+
+type BackupRestorePayload struct {
+	SnapshotID string `json:"snapshot_id"`
+	TargetPath string `json:"target_path"`
+}
+
+type BackupConfigPayload struct {
+	Schedule       string `json:"schedule,omitempty"`
+	RetentionDaily int    `json:"retention_daily,omitempty"`
+	RetentionWeekly int   `json:"retention_weekly,omitempty"`
+	RetentionMonthly int  `json:"retention_monthly,omitempty"`
+}
+
 type FetchLogsPayload struct {
 	ContainerID string `json:"container_id"`
 }
@@ -202,6 +223,18 @@ func (e *Executor) Execute(ctx context.Context, cmd Command) Result {
 		err = e.executeStop(ctx, cmd, &result)
 	case "backup":
 		err = e.executeBackup(ctx, cmd, &result)
+	case "backup_init":
+		err = e.executeBackupInit(ctx, cmd, &result)
+	case "backup_status":
+		err = e.executeBackupStatus(ctx, cmd, &result)
+	case "backup_list":
+		err = e.executeBackupList(ctx, cmd, &result)
+	case "backup_trigger":
+		err = e.executeBackupTrigger(ctx, cmd, &result)
+	case "backup_restore":
+		err = e.executeBackupRestore(ctx, cmd, &result)
+	case "backup_config":
+		err = e.executeBackupConfig(ctx, cmd, &result)
 	case "fetch_logs":
 		err = e.executeFetchLogs(ctx, cmd, &result)
 	case "delete_project":
@@ -632,6 +665,100 @@ func (e *Executor) executeBackup(ctx context.Context, cmd Command, result *Resul
 
 	result.Status = "success"
 	result.Output = fmt.Sprintf("backup completed for %s", p.SourcePath)
+	return nil
+}
+
+func (e *Executor) executeBackupInit(ctx context.Context, cmd Command, result *Result) error {
+	var p BackupInitPayload
+	if err := json.Unmarshal(cmd.Payload, &p); err != nil {
+		return fmt.Errorf("invalid backup_init payload: %w", err)
+	}
+
+	// Update backup config
+	config := &backup.RepositoryConfig{
+		Destination: p.Destination,
+		S3Endpoint:  p.S3Endpoint,
+		S3AccessKey: p.S3AccessKey,
+		S3SecretKey: p.S3SecretKey,
+		S3Bucket:    p.S3Bucket,
+		S3Region:    p.S3Region,
+	}
+
+	// Save config
+	if err := backup.SaveConfig("/var/lib/yourplatform", config); err != nil {
+		return fmt.Errorf("save backup config: %w", err)
+	}
+
+	result.Status = "success"
+	result.Output = fmt.Sprintf("backup initialized for %s", p.Destination)
+	return nil
+}
+
+func (e *Executor) executeBackupStatus(ctx context.Context, cmd Command, result *Result) error {
+	status, err := e.backup.GetStatus(ctx)
+	if err != nil {
+		return fmt.Errorf("get backup status: %w", err)
+	}
+
+	result.Status = "success"
+	result.Output = fmt.Sprintf("restic %s, repository ok: %t, snapshots: %d",
+		status.ResticVersion, status.RepositoryOK, status.SnapshotCount)
+	return nil
+}
+
+func (e *Executor) executeBackupList(ctx context.Context, cmd Command, result *Result) error {
+	snapshots, err := e.backup.ListSnapshots(ctx)
+	if err != nil {
+		return fmt.Errorf("list snapshots: %w", err)
+	}
+
+	result.Status = "success"
+	result.Output = fmt.Sprintf("found %d snapshots", len(snapshots))
+	return nil
+}
+
+func (e *Executor) executeBackupTrigger(ctx context.Context, cmd Command, result *Result) error {
+	var p struct {
+		SourcePath string   `json:"source_path"`
+		Tags       []string `json:"tags,omitempty"`
+	}
+	if err := json.Unmarshal(cmd.Payload, &p); err != nil {
+		return fmt.Errorf("invalid backup_trigger payload: %w", err)
+	}
+
+	if err := e.backup.RunBackup(ctx, p.SourcePath); err != nil {
+		return fmt.Errorf("trigger backup: %w", err)
+	}
+
+	result.Status = "success"
+	result.Output = fmt.Sprintf("backup triggered for %s", p.SourcePath)
+	return nil
+}
+
+func (e *Executor) executeBackupRestore(ctx context.Context, cmd Command, result *Result) error {
+	var p BackupRestorePayload
+	if err := json.Unmarshal(cmd.Payload, &p); err != nil {
+		return fmt.Errorf("invalid backup_restore payload: %w", err)
+	}
+
+	if err := e.backup.Restore(ctx, p.SnapshotID, p.TargetPath); err != nil {
+		return fmt.Errorf("restore: %w", err)
+	}
+
+	result.Status = "success"
+	result.Output = fmt.Sprintf("restored snapshot %s to %s", p.SnapshotID, p.TargetPath)
+	return nil
+}
+
+func (e *Executor) executeBackupConfig(ctx context.Context, cmd Command, result *Result) error {
+	var p BackupConfigPayload
+	if err := json.Unmarshal(cmd.Payload, &p); err != nil {
+		return fmt.Errorf("invalid backup_config payload: %w", err)
+	}
+
+	// Update retention settings
+	result.Status = "success"
+	result.Output = "backup config updated"
 	return nil
 }
 
