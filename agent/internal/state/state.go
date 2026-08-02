@@ -33,6 +33,7 @@ type State struct {
 	Projects     map[string]*ProjectState `json:"projects"`
 	Routes       map[string]*RouteState   `json:"routes"`
 	Certificates map[string]*CertState    `json:"certificates,omitempty"`
+	Backup       *BackupState             `json:"backup,omitempty"`
 }
 
 // ProjectState tracks all containers belonging to a project.
@@ -69,6 +70,14 @@ type CertState struct {
 	Issuer    string `json:"issuer"`
 	Status    string `json:"status"`     // "valid", "expiring_soon", "expired", "unknown"
 	CheckedAt string `json:"checked_at"` // last monitoring check
+}
+
+// BackupState tracks the last backup execution for missed-backup detection.
+type BackupState struct {
+	LastBackupAt   string `json:"last_backup_at,omitempty"`    // RFC3339 timestamp
+	LastSnapshotID string `json:"last_snapshot_id,omitempty"`  // restic snapshot ID
+	LastDurationMs int64  `json:"last_duration_ms,omitempty"`  // backup duration in milliseconds
+	LastTotalBytes int64  `json:"last_total_bytes,omitempty"`  // total bytes backed up
 }
 
 // DefaultStatePath returns the default path for the state file.
@@ -344,6 +353,49 @@ func (m *Manager) GetCertificate(domain string) *CertState {
 	}
 
 	return m.state.Certificates[domain]
+}
+
+// GetLastBackupTime returns the time of the last successful backup.
+// If no backup has been recorded, returns zero time.
+func (m *Manager) GetLastBackupTime() time.Time {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if m.state == nil {
+		m.state = LoadState(filepath.Join(m.stateDir, StateFileName))
+	}
+
+	if m.state == nil || m.state.Backup == nil || m.state.Backup.LastBackupAt == "" {
+		return time.Time{}
+	}
+
+	t, err := time.Parse(time.RFC3339, m.state.Backup.LastBackupAt)
+	if err != nil {
+		slog.Warn("failed to parse last backup time", "error", err)
+		return time.Time{}
+	}
+	return t
+}
+
+// RecordBackupCompletion saves the backup result to state for missed-backup detection.
+func (m *Manager) RecordBackupCompletion(snapshotID string, duration time.Duration, totalBytes int64) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if m.state == nil {
+		m.state = LoadState(filepath.Join(m.stateDir, StateFileName))
+	}
+
+	if m.state.Backup == nil {
+		m.state.Backup = &BackupState{}
+	}
+
+	m.state.Backup.LastBackupAt = time.Now().UTC().Format(time.RFC3339)
+	m.state.Backup.LastSnapshotID = snapshotID
+	m.state.Backup.LastDurationMs = duration.Milliseconds()
+	m.state.Backup.LastTotalBytes = totalBytes
+
+	return m.save()
 }
 
 // save writes the state to disk atomically.
