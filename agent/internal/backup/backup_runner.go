@@ -171,6 +171,225 @@ func (r *BackupRunner) RunManifestBackup(ctx context.Context, serverID string) (
 	return result, nil
 }
 
+// RunManifestBackupWithProgress executes a full manifest-driven backup with
+// real-time progress reporting, snapshot verification, and configurable retention.
+func (r *BackupRunner) RunManifestBackupWithProgress(ctx context.Context, serverID string, reporter ProgressReporter) (*BackupRunResult, error) {
+	startTime := time.Now()
+	result := &BackupRunResult{}
+
+	// Report initial status
+	if reporter != nil {
+		reporter.ReportProgress(BackupProgress{
+			Phase:   "dumping",
+			Message: "Building backup manifest...",
+		})
+	}
+
+	// Build manifest
+	slog.Info("building backup manifest", "server_id", serverID)
+	manifest, err := r.manifestBuilder.BuildManifest(ctx, serverID)
+	if err != nil {
+		result.Error = fmt.Sprintf("build manifest: %v", err)
+		if reporter != nil {
+			reporter.ReportError("", result.Error)
+		}
+		return result, fmt.Errorf("build manifest: %w", err)
+	}
+	result.Manifest = manifest
+
+	// Create temp dump directory
+	if err := os.MkdirAll(r.dumpDir, 0700); err != nil {
+		result.Error = fmt.Sprintf("create dump dir: %v", err)
+		if reporter != nil {
+			reporter.ReportError("", result.Error)
+		}
+		return result, fmt.Errorf("create dump dir: %w", err)
+	}
+
+	// Ensure cleanup happens
+	defer func() {
+		slog.Info("cleaning up dump files")
+		r.dumper.CleanupAllDumps()
+	}()
+
+	// Dump databases for each project
+	for _, project := range manifest.Projects {
+		for _, comp := range project.Components {
+			var dumpResult *DumpResult
+
+			// Report dumping progress
+			if reporter != nil {
+				reporter.ReportProgress(BackupProgress{
+					Phase:   "dumping",
+					Project: project.Name,
+					Message: fmt.Sprintf("Dumping %s database for %s...", comp.Type, project.Name),
+				})
+			}
+
+			switch comp.Type {
+			case ComponentTypePostgresDump:
+				dumpResult, err = r.dumper.DumpPostgres(ctx, comp.Container, project.Name, comp.Database)
+				if err != nil {
+					slog.Warn("postgres dump failed", "project", project.Name, "error", err)
+				}
+
+			case ComponentTypeMysqlDump:
+				dumpResult, err = r.dumper.DumpMySQL(ctx, comp.Container, project.Name, comp.Database)
+				if err != nil {
+					slog.Warn("mysql dump failed", "project", project.Name, "error", err)
+				}
+
+			case ComponentTypeRedisDump:
+				dumpResult, err = r.dumper.DumpRedis(ctx, comp.Container, project.Name)
+				if err != nil {
+					slog.Warn("redis dump failed", "project", project.Name, "error", err)
+				}
+			}
+
+			if dumpResult != nil {
+				result.DumpResults = append(result.DumpResults, dumpResult)
+				result.TotalBytes += dumpResult.SizeBytes
+			}
+		}
+	}
+
+	// Collect all paths to back up
+	backupPaths := r.manifestBuilder.CollectBackupPaths(manifest, r.dumpDir)
+
+	// Filter out paths that don't exist
+	var validPaths []string
+	for _, path := range backupPaths {
+		if _, err := os.Stat(path); err == nil {
+			validPaths = append(validPaths, path)
+		}
+	}
+
+	if len(validPaths) == 0 {
+		result.Error = "no valid backup paths found"
+		if reporter != nil {
+			reporter.ReportError("", result.Error)
+		}
+		return result, fmt.Errorf("no valid backup paths found")
+	}
+
+	// Report backing up phase
+	if reporter != nil {
+		reporter.ReportProgress(BackupProgress{
+			Phase:   "backing_up",
+			Message: fmt.Sprintf("Backing up %d paths...", len(validPaths)),
+		})
+	}
+
+	// Run restic backup with JSON progress
+	snapshotID, err := r.executeResticBackupJSON(ctx, validPaths, reporter, serverID)
+	if err != nil {
+		result.Error = fmt.Sprintf("restic backup failed: %v", err)
+		if reporter != nil {
+			reporter.ReportError("", result.Error)
+		}
+		return result, fmt.Errorf("restic backup: %w", err)
+	}
+	result.SnapshotID = snapshotID
+
+	// Report verification phase
+	if reporter != nil {
+		reporter.ReportProgress(BackupProgress{
+			Phase:   "verifying",
+			Message: "Verifying backup integrity...",
+		})
+	}
+
+	// Verify the snapshot
+	if err := r.VerifySnapshot(ctx); err != nil {
+		slog.Warn("snapshot verification failed", "error", err)
+		// Non-fatal: backup succeeded, verification is a check
+	}
+
+	// Apply retention policy
+	if reporter != nil {
+		reporter.ReportProgress(BackupProgress{
+			Phase:   "pruning",
+			Message: "Cleaning up old snapshots...",
+		})
+	}
+
+	// Get retention config from backup manager
+	keepDaily := 7
+	keepWeekly := 4
+	keepMonthly := 12
+	if r.manager.config != nil {
+		if r.manager.config.RetentionDaily > 0 {
+			keepDaily = r.manager.config.RetentionDaily
+		}
+		if r.manager.config.RetentionWeekly > 0 {
+			keepWeekly = r.manager.config.RetentionWeekly
+		}
+		if r.manager.config.RetentionMonthly > 0 {
+			keepMonthly = r.manager.config.RetentionMonthly
+		}
+	}
+
+	if err := r.manager.repository.PruneWithConfig(ctx, keepDaily, keepWeekly, keepMonthly); err != nil {
+		slog.Warn("backup prune failed", "error", err)
+	}
+
+	result.Duration = time.Since(startTime)
+
+	// Report completion
+	if reporter != nil {
+		reporter.ReportComplete(*result)
+	}
+
+	slog.Info("manifest backup completed",
+		"snapshot", result.SnapshotID,
+		"duration", result.Duration,
+		"total_bytes", result.TotalBytes,
+		"dumps", len(result.DumpResults))
+
+	return result, nil
+}
+
+// executeResticBackupJSON runs restic with JSON output for progress reporting.
+func (r *BackupRunner) executeResticBackupJSON(ctx context.Context, paths []string, reporter ProgressReporter, serverID string) (string, error) {
+	if r.manager.repository == nil {
+		r.manager.repository = NewRepositoryManager(
+			*r.manager.config,
+			r.manager.restic.BinaryPath(),
+			r.manager.dataDir,
+		)
+	}
+
+	// Run backup for all paths combined
+	var allPaths string
+	for i, path := range paths {
+		if i > 0 {
+			allPaths += " "
+		}
+		allPaths += path
+	}
+
+	// Use BackupJSON for progress reporting
+	var lastSnapshotID string
+	for _, path := range paths {
+		progressFn := func(line []byte) {
+			if reporter != nil {
+				progress := ParseResticProgress(string(line), "backing_up", "")
+				if progress != nil {
+					reporter.ReportProgress(*progress)
+				}
+			}
+		}
+
+		snapshotID, err := r.manager.repository.BackupJSON(ctx, path, []string{"manifest", "server-" + serverID}, progressFn)
+		if err != nil {
+			return "", fmt.Errorf("backup %s: %w", path, err)
+		}
+		lastSnapshotID = snapshotID
+	}
+
+	return lastSnapshotID, nil
+}
+
 // executeResticBackup runs the restic backup command and extracts the snapshot ID.
 func (r *BackupRunner) executeResticBackup(ctx context.Context, args []string) (string, error) {
 	// Ensure repository manager exists
