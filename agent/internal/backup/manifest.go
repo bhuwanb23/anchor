@@ -11,7 +11,6 @@ import (
 
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/filters"
-	"github.com/yourname/yourplatform/agent/internal/state"
 )
 
 const (
@@ -96,7 +95,7 @@ type DockerBackupInfo struct {
 
 // BackupManifestBuilder discovers projects and builds backup manifests.
 type BackupManifestBuilder struct {
-	stateMgr    *state.Manager
+	stateMgr    StateManager
 	dockerClient DockerClient
 	dataDir     string
 	envDir      string
@@ -106,7 +105,7 @@ type BackupManifestBuilder struct {
 }
 
 // NewBackupManifestBuilder creates a new manifest builder.
-func NewBackupManifestBuilder(stateMgr *state.Manager, dockerClient DockerClient) *BackupManifestBuilder {
+func NewBackupManifestBuilder(stateMgr StateManager, dockerClient DockerClient) *BackupManifestBuilder {
 	return &BackupManifestBuilder{
 		stateMgr:    stateMgr,
 		dockerClient: dockerClient,
