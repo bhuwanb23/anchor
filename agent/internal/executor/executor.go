@@ -105,12 +105,14 @@ type Executor struct {
 	docker       *docker.Client
 	caddy        *caddy.Manager
 	backup       *backup.BackupManager
+	scheduler    *backup.BackupScheduler
 	imageCache   *docker.ImageCache
 	reporter     ProgressReporter
 	envManager   *env.Manager
 	logStreamer  *logstream.LogStreamer
 	stateManager *state.Manager
 	authorizer   *caddy.DomainAuthorizer
+	serverID     string
 }
 
 // ProgressReporter sends image pull progress updates to the control plane.
@@ -154,6 +156,18 @@ func (e *Executor) WithStateManager(sm *state.Manager) *Executor {
 // WithAuthorizer attaches a domain authorizer for on-demand TLS.
 func (e *Executor) WithAuthorizer(a *caddy.DomainAuthorizer) *Executor {
 	e.authorizer = a
+	return e
+}
+
+// WithScheduler attaches a backup scheduler for scheduled backups.
+func (e *Executor) WithScheduler(s *backup.BackupScheduler) *Executor {
+	e.scheduler = s
+	return e
+}
+
+// WithServerID sets the server ID for backup operations.
+func (e *Executor) WithServerID(id string) *Executor {
+	e.serverID = id
 	return e
 }
 
@@ -784,7 +798,30 @@ func (e *Executor) executeBackupConfig(ctx context.Context, cmd Command, result 
 		return fmt.Errorf("invalid backup_config payload: %w", err)
 	}
 
-	// Update retention settings
+	// Update scheduler configuration if scheduler is attached
+	if e.scheduler != nil {
+		cfg := backup.SchedulerConfig{
+			Schedule:         p.Schedule,
+			RetentionDaily:   p.RetentionDaily,
+			RetentionWeekly:  p.RetentionWeekly,
+			RetentionMonthly: p.RetentionMonthly,
+			Enabled:          true,
+		}
+		if cfg.Schedule == "" {
+			cfg.Schedule = "02:00"
+		}
+		if cfg.RetentionDaily == 0 {
+			cfg.RetentionDaily = 7
+		}
+		if cfg.RetentionWeekly == 0 {
+			cfg.RetentionWeekly = 4
+		}
+		if cfg.RetentionMonthly == 0 {
+			cfg.RetentionMonthly = 12
+		}
+		e.scheduler.UpdateConfig(cfg)
+	}
+
 	result.Status = "success"
 	result.Output = "backup config updated"
 	return nil
