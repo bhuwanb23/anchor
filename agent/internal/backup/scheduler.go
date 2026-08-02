@@ -215,10 +215,15 @@ func (s *BackupScheduler) runBackup(ctx context.Context) {
 }
 
 // calculateNextRun computes the next backup time from the schedule.
+// Caller must NOT hold s.mu.
 func (s *BackupScheduler) calculateNextRun() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.calculateNextRunLocked()
+}
 
+// calculateNextRunLocked computes the next backup time. Caller must hold s.mu.
+func (s *BackupScheduler) calculateNextRunLocked() {
 	// Parse simple HH:MM schedule format
 	var hour, minute int
 	n, _ := fmt.Sscanf(s.config.Schedule, "%d:%d", &hour, &minute)
