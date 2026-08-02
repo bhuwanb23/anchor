@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/yourname/yourplatform/agent/internal/caddy"
 )
@@ -646,5 +647,110 @@ func TestCertState_Persistence(t *testing.T) {
 	}
 	if cert.Domain != "persist.com" {
 		t.Errorf("expected domain persist.com, got %s", cert.Domain)
+	}
+}
+
+// --- Backup State Tests ---
+
+func TestRecordBackupCompletion(t *testing.T) {
+	stateMgr := newTestManager(t)
+
+	err := stateMgr.RecordBackupCompletion("abc123", 5*time.Second, 1024*1024)
+	if err != nil {
+		t.Fatalf("RecordBackupCompletion failed: %v", err)
+	}
+
+	lastBackup := stateMgr.GetLastBackupTime()
+	if lastBackup.IsZero() {
+		t.Fatal("expected non-zero last backup time")
+	}
+
+	// Should be very recent (within last few seconds)
+	if time.Since(lastBackup) > 5*time.Second {
+		t.Errorf("last backup time is too old: %v", lastBackup)
+	}
+
+	// Verify state is persisted
+	backup := stateMgr.GetState().Backup
+	if backup.LastSnapshotID != "abc123" {
+		t.Errorf("expected snapshot ID abc123, got %q", backup.LastSnapshotID)
+	}
+	if backup.LastDurationMs != 5000 {
+		t.Errorf("expected duration 5000ms, got %d", backup.LastDurationMs)
+	}
+	if backup.LastTotalBytes != 1024*1024 {
+		t.Errorf("expected total bytes %d, got %d", 1024*1024, backup.LastTotalBytes)
+	}
+}
+
+func TestGetLastBackupTime_NoBackup(t *testing.T) {
+	stateMgr := newTestManager(t)
+
+	lastBackup := stateMgr.GetLastBackupTime()
+	if !lastBackup.IsZero() {
+		t.Errorf("expected zero time for no backup, got %v", lastBackup)
+	}
+}
+
+func TestBackupState_Persistence(t *testing.T) {
+	dir := t.TempDir()
+
+	// Record backup with first manager
+	stateMgr1 := NewManager(dir)
+	stateMgr1.RecordBackupCompletion("snap123", 10*time.Second, 2048)
+
+	// Create new manager — should reload from disk
+	stateMgr2 := NewManager(dir)
+	lastBackup := stateMgr2.GetLastBackupTime()
+	if lastBackup.IsZero() {
+		t.Fatal("expected backup time to persist across manager instances")
+	}
+
+	backup := stateMgr2.GetState().Backup
+	if backup.LastSnapshotID != "snap123" {
+		t.Errorf("expected snapshot ID snap123, got %q", backup.LastSnapshotID)
+	}
+}
+
+func TestBackupState_UpdateOverwritesPrevious(t *testing.T) {
+	stateMgr := newTestManager(t)
+
+	// First backup
+	stateMgr.RecordBackupCompletion("snap1", 5*time.Second, 1024)
+	time.Sleep(10 * time.Millisecond)
+
+	// Second backup
+	stateMgr.RecordBackupCompletion("snap2", 10*time.Second, 2048)
+
+	backup := stateMgr.GetState().Backup
+	if backup.LastSnapshotID != "snap2" {
+		t.Errorf("expected snapshot ID snap2, got %q", backup.LastSnapshotID)
+	}
+	if backup.LastDurationMs != 10000 {
+		t.Errorf("expected duration 10000ms, got %d", backup.LastDurationMs)
+	}
+}
+
+func TestBackupState_BackwardCompat(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "state.json")
+
+	// Write state without backup field (old format)
+	data := []byte(`{"version":1,"projects":{},"routes":{}}`)
+	os.WriteFile(path, data, 0600)
+
+	s := LoadState(path)
+	if s == nil {
+		t.Fatal("expected non-nil state")
+	}
+	if s.Backup != nil {
+		t.Error("expected nil backup state for backward compat")
+	}
+
+	// GetLastBackupTime should return zero
+	stateMgr := NewManager(dir)
+	lastBackup := stateMgr.GetLastBackupTime()
+	if !lastBackup.IsZero() {
+		t.Error("expected zero time for backward compat")
 	}
 }
