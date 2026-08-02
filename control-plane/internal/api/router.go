@@ -46,6 +46,7 @@ func NewRouter(database *sql.DB, cfg *config.Config, hub *ws.Hub) http.Handler {
 	tokenHandler := &handlers.Token{DB: database}
 	agentHandler := &handlers.Agent{DB: database, DNS: dnsClient, Config: cfg}
 	customDomainHandler := &handlers.CustomDomain{DB: database, Hub: hub}
+	backupHandler := &handlers.Backup{DB: database, Hub: hub}
 
 	r.Route("/api/v1", func(r chi.Router) {
 		r.Post("/auth/register", authHandler.Register)
@@ -66,6 +67,13 @@ func NewRouter(database *sql.DB, cfg *config.Config, hub *ws.Hub) http.Handler {
 			r.Post("/servers/{serverID}/deployments/{deploymentID}/domains", customDomainHandler.AddDomain)
 			r.Post("/servers/{serverID}/deployments/{deploymentID}/domains/{domainID}/verify", customDomainHandler.VerifyDomain)
 			r.Delete("/servers/{serverID}/deployments/{deploymentID}/domains/{domainID}", customDomainHandler.RemoveDomain)
+
+			// Backup management routes
+			r.Get("/servers/{serverID}/backup/config", backupHandler.GetBackupConfig)
+			r.Put("/servers/{serverID}/backup/config", backupHandler.UpdateBackupConfig)
+			r.Get("/servers/{serverID}/backup/snapshots", backupHandler.GetBackupSnapshots)
+			r.Get("/servers/{serverID}/backup/jobs", backupHandler.GetBackupJobs)
+			r.Post("/servers/{serverID}/backup/trigger", backupHandler.TriggerBackup)
 		})
 	})
 
