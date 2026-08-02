@@ -104,10 +104,9 @@ func TestFormatProgressMessage(t *testing.T) {
 }
 
 func TestWsProgressReporter_ReportProgress(t *testing.T) {
-	var sent []byte
+	var sentMsg interface{}
 	sendFunc := func(v interface{}) error {
-		data, _ := json.Marshal(v)
-		sent = data
+		sentMsg = v
 		return nil
 	}
 
@@ -119,12 +118,14 @@ func TestWsProgressReporter_ReportProgress(t *testing.T) {
 		Message: "Backing up myshop... 50%",
 	})
 
-	if sent == nil {
+	if sentMsg == nil {
 		t.Fatal("expected message to be sent")
 	}
 
+	// Marshal to JSON and back to map for assertion
+	data, _ := json.Marshal(sentMsg)
 	var msg map[string]interface{}
-	if err := json.Unmarshal(sent, &msg); err != nil {
+	if err := json.Unmarshal(data, &msg); err != nil {
 		t.Fatalf("failed to parse sent message: %v", err)
 	}
 
@@ -134,22 +135,22 @@ func TestWsProgressReporter_ReportProgress(t *testing.T) {
 }
 
 func TestWsProgressReporter_ReportError(t *testing.T) {
-	var sent []byte
+	var sentMsg interface{}
 	sendFunc := func(v interface{}) error {
-		data, _ := json.Marshal(v)
-		sent = data
+		sentMsg = v
 		return nil
 	}
 
 	reporter := NewWsProgressReporter(sendFunc)
 	reporter.ReportError("myshop", "dump failed")
 
-	if sent == nil {
+	if sentMsg == nil {
 		t.Fatal("expected message to be sent")
 	}
 
+	data, _ := json.Marshal(sentMsg)
 	var msg map[string]interface{}
-	if err := json.Unmarshal(sent, &msg); err != nil {
+	if err := json.Unmarshal(data, &msg); err != nil {
 		t.Fatalf("failed to parse sent message: %v", err)
 	}
 
