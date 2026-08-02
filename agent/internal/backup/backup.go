@@ -11,13 +11,15 @@ import (
 )
 
 type BackupManager struct {
-	destination string
-	password    string
-	restic      *ResticManager
-	repository  *RepositoryManager
-	dataDir     string
-	serverID    string
-	config      *RepositoryConfig
+	destination  string
+	password     string
+	restic       *ResticManager
+	repository   *RepositoryManager
+	dataDir      string
+	serverID     string
+	config       *RepositoryConfig
+	stateMgr     interface{} // state.Manager (imported as interface to avoid cycle)
+	dockerClient DockerClient // DockerClient interface for container operations
 }
 
 type Snapshot struct {
@@ -291,4 +293,27 @@ func DefaultBackupPaths(cfg BackupConfig) []string {
 		paths = append(paths, cfg.ProjectsDir)
 	}
 	return paths
+}
+
+// WithStateManager sets the state manager for manifest-based backups.
+func (b *BackupManager) WithStateManager(stateMgr interface{}) *BackupManager {
+	b.stateMgr = stateMgr
+	return b
+}
+
+// WithDockerClient sets the Docker client for manifest-based backups.
+func (b *BackupManager) WithDockerClient(client DockerClient) *BackupManager {
+	b.dockerClient = client
+	return b
+}
+
+// RunManifestBackup executes a manifest-driven backup if state and Docker are available.
+// Falls back to legacy RunBackup if dependencies are not set.
+func (b *BackupManager) RunManifestBackup(ctx context.Context, serverID string) (*BackupRunResult, error) {
+	if b.stateMgr == nil || b.dockerClient == nil {
+		return nil, fmt.Errorf("state manager and docker client required for manifest backup")
+	}
+
+	runner := NewBackupRunner(b, b.dockerClient)
+	return runner.RunManifestBackup(ctx, serverID)
 }
