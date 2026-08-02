@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
-	"path/filepath"
 	"time"
 )
 
@@ -288,4 +287,21 @@ func (r *BackupRunner) GetManifestBuilder() *BackupManifestBuilder {
 // GetDumper returns the database dumper.
 func (r *BackupRunner) GetDumper() *Dumper {
 	return r.dumper
+}
+
+// parseSnapshotIDFromOutput extracts the snapshot ID from restic backup output.
+func parseSnapshotIDFromOutput(output string) string {
+	// Look for line: "snapshot abc123 saved!"
+	lines := splitLines(output)
+	for _, line := range lines {
+		if contains(line, "snapshot") && contains(line, "saved") {
+			words := splitWords(line)
+			for i, word := range words {
+				if word == "snapshot" && i+1 < len(words) {
+					return words[i+1]
+				}
+			}
+		}
+	}
+	return ""
 }
