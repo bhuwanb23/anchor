@@ -107,3 +107,51 @@ func AlertPortMismatch(domain string, oldPort, newPort int) ErrorAlert {
 		),
 	}
 }
+
+// AlertCertRenewalFailed creates an alert when certificate renewal fails.
+func AlertCertRenewalFailed(domain, reason string) ErrorAlert {
+	return ErrorAlert{
+		Level:  "critical",
+		Type:   "cert_renewal_failed",
+		Domain: domain,
+		Message: fmt.Sprintf(
+			"HTTPS certificate renewal for %s failed. Reason: %s. "+
+				"This means your site will show certificate errors when the current certificate expires. "+
+				"Common causes: domain no longer points to this server, port 80 is blocked. "+
+				"Check your DNS settings and ensure port 80 is accessible.",
+			domain, reason,
+		),
+	}
+}
+
+// AlertACMEDNSError creates an alert when ACME DNS challenge fails.
+func AlertACMEDNSError(domain, reason string) ErrorAlert {
+	return ErrorAlert{
+		Level:  "critical",
+		Type:   "acme_dns_error",
+		Domain: domain,
+		Message: fmt.Sprintf(
+			"HTTPS certificate for %s failed DNS verification. Reason: %s. "+
+				"This usually means the DNS record for this domain is not pointing to this server. "+
+				"Verify that your domain's A or AAAA record points to this server's IP address. "+
+				"DNS changes can take up to 48 hours to propagate.",
+			domain, reason,
+		),
+	}
+}
+
+// AlertACMETimeout creates an alert when connection to Let's Encrypt times out.
+func AlertACMETimeout(domain string) ErrorAlert {
+	return ErrorAlert{
+		Level:  "warning",
+		Type:   "acme_timeout",
+		Domain: domain,
+		Message: fmt.Sprintf(
+			"Connection to Let's Encrypt timed out while requesting certificate for %s. "+
+				"This may be a temporary network issue. "+
+				"The agent will automatically retry. "+
+				"If this persists, check that outbound connections to port 443 are allowed.",
+			domain,
+		),
+	}
+}
