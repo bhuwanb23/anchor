@@ -104,9 +104,12 @@ func TestFormatProgressMessage(t *testing.T) {
 }
 
 func TestWsProgressReporter_ReportProgress(t *testing.T) {
-	var sentMsg interface{}
+	var sentBytes []byte
 	sendFunc := func(v interface{}) error {
-		sentMsg = v
+		// sendFunc receives []byte (marshaled JSON)
+		if data, ok := v.([]byte); ok {
+			sentBytes = data
+		}
 		return nil
 	}
 
@@ -118,14 +121,12 @@ func TestWsProgressReporter_ReportProgress(t *testing.T) {
 		Message: "Backing up myshop... 50%",
 	})
 
-	if sentMsg == nil {
+	if sentBytes == nil {
 		t.Fatal("expected message to be sent")
 	}
 
-	// Marshal to JSON and back to map for assertion
-	data, _ := json.Marshal(sentMsg)
 	var msg map[string]interface{}
-	if err := json.Unmarshal(data, &msg); err != nil {
+	if err := json.Unmarshal(sentBytes, &msg); err != nil {
 		t.Fatalf("failed to parse sent message: %v", err)
 	}
 
@@ -135,22 +136,23 @@ func TestWsProgressReporter_ReportProgress(t *testing.T) {
 }
 
 func TestWsProgressReporter_ReportError(t *testing.T) {
-	var sentMsg interface{}
+	var sentBytes []byte
 	sendFunc := func(v interface{}) error {
-		sentMsg = v
+		if data, ok := v.([]byte); ok {
+			sentBytes = data
+		}
 		return nil
 	}
 
 	reporter := NewWsProgressReporter(sendFunc)
 	reporter.ReportError("myshop", "dump failed")
 
-	if sentMsg == nil {
+	if sentBytes == nil {
 		t.Fatal("expected message to be sent")
 	}
 
-	data, _ := json.Marshal(sentMsg)
 	var msg map[string]interface{}
-	if err := json.Unmarshal(data, &msg); err != nil {
+	if err := json.Unmarshal(sentBytes, &msg); err != nil {
 		t.Fatalf("failed to parse sent message: %v", err)
 	}
 
@@ -160,9 +162,11 @@ func TestWsProgressReporter_ReportError(t *testing.T) {
 }
 
 func TestWsProgressReporter_ReportComplete(t *testing.T) {
-	var sentMsg interface{}
+	var sentBytes []byte
 	sendFunc := func(v interface{}) error {
-		sentMsg = v
+		if data, ok := v.([]byte); ok {
+			sentBytes = data
+		}
 		return nil
 	}
 
@@ -173,13 +177,12 @@ func TestWsProgressReporter_ReportComplete(t *testing.T) {
 		TotalBytes: 1024,
 	})
 
-	if sentMsg == nil {
+	if sentBytes == nil {
 		t.Fatal("expected message to be sent")
 	}
 
-	data, _ := json.Marshal(sentMsg)
 	var msg map[string]interface{}
-	if err := json.Unmarshal(data, &msg); err != nil {
+	if err := json.Unmarshal(sentBytes, &msg); err != nil {
 		t.Fatalf("failed to parse sent message: %v", err)
 	}
 
