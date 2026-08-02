@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/docker/docker/api/types"
 	"github.com/yourname/yourplatform/agent/internal/backup"
 	"github.com/yourname/yourplatform/agent/internal/caddy"
 	"github.com/yourname/yourplatform/agent/internal/docker"
@@ -743,9 +744,9 @@ func (e *Executor) executeBackupTrigger(ctx context.Context, cmd Command, result
 
 	// Try manifest-based backup if requested and dependencies available
 	if p.Manifest || (e.stateManager != nil && e.docker != nil) {
-		// Wire state and docker into backup manager
-		e.backup.WithStateManager(e.stateManager)
-		e.backup.WithDockerClient(e.docker)
+		// Wire state and docker into backup manager using adapters
+		e.backup.WithStateManager(&stateManagerAdapter{sm: e.stateManager})
+		e.backup.WithDockerClient(&dockerClientAdapter{dc: e.docker})
 
 		// Run manifest backup
 		runResult, err := e.backup.RunManifestBackup(ctx, e.serverID)
@@ -935,4 +936,61 @@ func generateRandomPassword(length int) string {
 		b[i] = charset[i%len(charset)]
 	}
 	return string(b)
+}
+
+// --- Adapter types to bridge type mismatches between executor and backup packages ---
+
+// stateManagerAdapter adapts *state.Manager to backup.StateManager interface.
+type stateManagerAdapter struct {
+	sm *state.Manager
+}
+
+func (a *stateManagerAdapter) GetState() *backup.StateData {
+	s := a.sm.GetState()
+	sd := &backup.StateData{
+		Projects: make(map[string]interface{}),
+	}
+	for k, v := range s.Projects {
+		sd.Projects[k] = v
+	}
+	return sd
+}
+
+// dockerClientAdapter adapts *docker.Client to backup.DockerClient interface.
+type dockerClientAdapter struct {
+	dc *docker.Client
+}
+
+func (a *dockerClientAdapter) ListManagedContainers(ctx context.Context) ([]types.Container, error) {
+	return a.dc.ListManagedContainers(ctx)
+}
+
+func (a *dockerClientAdapter) InspectContainer(ctx context.Context, id string) (types.ContainerJSON, error) {
+	return a.dc.InspectContainer(ctx, id)
+}
+
+func (a *dockerClientAdapter) ListProjectVolumes(ctx context.Context, projectName string) ([]*types.Volume, error) {
+	return a.dc.ListProjectVolumes(ctx, projectName)
+}
+
+func (a *dockerClientAdapter) PrepareVolumeForBackup(ctx context.Context, info backup.DockerBackupInfo) error {
+	return a.dc.PrepareVolumeForBackup(ctx, docker.BackupInfo{
+		VolumeName: info.VolumeName,
+		MountPath:  info.MountPath,
+		Project:    info.Project,
+		DBType:     docker.ContainerType(info.DBType),
+	})
+}
+
+func (a *dockerClientAdapter) FinishVolumeForBackup(ctx context.Context, info backup.DockerBackupInfo) error {
+	return a.dc.FinishVolumeBackup(ctx, docker.BackupInfo{
+		VolumeName: info.VolumeName,
+		MountPath:  info.MountPath,
+		Project:    info.Project,
+		DBType:     docker.ContainerType(info.DBType),
+	})
+}
+
+func (a *dockerClientAdapter) ExecInContainer(ctx context.Context, containerID string, cmd []string) (string, error) {
+	return a.dc.ExecInContainer(ctx, containerID, cmd)
 }
