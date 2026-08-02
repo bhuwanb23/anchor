@@ -34,3 +34,16 @@ func (r *WsAlertReporter) SendErrorAlert(alert ErrorAlert) error {
 	}
 	return r.SendFunc(data)
 }
+
+// SendServerEvent sends a server event to the control plane.
+func (r *WsAlertReporter) SendServerEvent(event ServerEvent) error {
+	msg := map[string]interface{}{
+		"type":    "server_event",
+		"payload": event,
+	}
+	data, err := json.Marshal(msg)
+	if err != nil {
+		return err
+	}
+	return r.SendFunc(data)
+}
