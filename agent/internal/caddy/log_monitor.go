@@ -14,13 +14,39 @@ const (
 	rateLimitCooldown = 24 * time.Hour
 )
 
+// caddyRequest represents the request field in Caddy JSON logs.
+type caddyRequest struct {
+	Method   string `json:"method"`
+	URI      string `json:"uri"`
+	Host     string `json:"host"`
+	RemoteIP string `json:"remote_ip"`
+}
+
+// caddyResp represents the response field in Caddy JSON logs.
+type caddyResp struct {
+	Status  int   `json:"status"`
+	Size    int64 `json:"size"`
+	Elapsed float64 `json:"elapsed"`
+}
+
+// caddyTLS represents TLS-specific fields in Caddy JSON logs.
+type caddyTLS struct {
+	HandshakeComplete bool   `json:"handshake_complete"`
+	Version           string `json:"version"`
+	CipherSuite       string `json:"cipher_suite"`
+	ServerName        string `json:"server_name"`
+}
+
 // caddyLogEntry represents a parsed Caddy JSON log line.
 type caddyLogEntry struct {
-	Level  string         `json:"level"`
-	Msg    string         `json:"msg"`
-	Status int            `json:"status"`
-	Request map[string]any `json:"request"`
-	Error  string         `json:"error"`
+	Level    string        `json:"level"`
+	Msg      string        `json:"msg"`
+	Logger   string        `json:"logger"`
+	Error    string        `json:"error"`
+	Request  *caddyRequest `json:"request"`
+	Resp     *caddyResp    `json:"resp"`
+	Duration float64       `json:"duration"`
+	TLS      *caddyTLS     `json:"tls"`
 }
 
 // LogMonitorConfig configures the log monitor.
@@ -87,17 +113,31 @@ func (m *LogMonitor) ProcessLine(line string) {
 }
 
 func (m *LogMonitor) processEntry(entry caddyLogEntry) {
+	// Determine HTTP status from resp or legacy status field
+	status := 0
+	if entry.Resp != nil {
+		status = entry.Resp.Status
+	}
+
 	switch {
-	case entry.Status == 502:
-		m.handle502(entry)
-	case entry.Status == 429 || strings.Contains(entry.Error, "rateLimited") || strings.Contains(entry.Error, "rate limit"):
+	case status == 502:
+		m.handle502(entry, status)
+	case entry.Level == "error" && (strings.Contains(entry.Error, "rateLimited") || strings.Contains(entry.Error, "rate limit")):
 		m.handleRateLimit(entry)
-	case entry.Level == "error" && (strings.Contains(entry.Error, "acme_") || strings.Contains(entry.Msg, "obtain") || strings.Contains(entry.Msg, "renew")):
+	case entry.Logger == "tls" && (strings.Contains(entry.Msg, "obtained") || strings.Contains(entry.Msg, "renewed")):
+		m.handleCertSuccess(entry)
+	case entry.Logger == "tls" && entry.Level == "error" && strings.Contains(entry.Msg, "renewal"):
+		m.handleCertRenewalFail(entry)
+	case entry.Level == "error" && strings.Contains(entry.Error, "acme_"):
 		m.handleCertError(entry)
+	case entry.Level == "error" && strings.Contains(entry.Error, "dns") && strings.Contains(entry.Error, "challenge"):
+		m.handleACMEDNSError(entry)
+	case entry.Level == "error" && strings.Contains(entry.Error, "timeout"):
+		m.handleACMETimeout(entry)
 	}
 }
 
-func (m *LogMonitor) handle502(entry caddyLogEntry) {
+func (m *LogMonitor) handle502(entry caddyLogEntry, status int) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -185,6 +225,70 @@ func (m *LogMonitor) handleCertError(entry caddyLogEntry) {
 	}
 }
 
+func (m *LogMonitor) handleCertSuccess(entry caddyLogEntry) {
+	domain := extractDomainFromEntry(entry)
+	if domain == "" {
+		return
+	}
+
+	slog.Info("certificate event", "domain", domain, "msg", entry.Msg)
+
+	// Clear rate limit on successful issuance
+	m.mu.Lock()
+	tracker := m.rateLimitTrack
+	m.mu.Unlock()
+	if tracker != nil {
+		tracker.ClearRateLimit(domain)
+	}
+}
+
+func (m *LogMonitor) handleCertRenewalFail(entry caddyLogEntry) {
+	domain := extractDomainFromEntry(entry)
+	if domain == "" {
+		return
+	}
+
+	reason := entry.Error
+	if reason == "" {
+		reason = entry.Msg
+	}
+
+	slog.Warn("certificate renewal failed", "domain", domain, "reason", reason)
+
+	if m.reporter != nil {
+		alert := AlertCertRenewalFailed(domain, reason)
+		if err := m.reporter.SendErrorAlert(alert); err != nil {
+			slog.Error("failed to send cert renewal alert", "error", err)
+		}
+	}
+}
+
+func (m *LogMonitor) handleACMEDNSError(entry caddyLogEntry) {
+	domain := extractDomainFromEntry(entry)
+
+	slog.Warn("ACME DNS challenge failed", "domain", domain, "error", entry.Error)
+
+	if m.reporter != nil {
+		alert := AlertACMEDNSError(domain, entry.Error)
+		if err := m.reporter.SendErrorAlert(alert); err != nil {
+			slog.Error("failed to send ACME DNS alert", "error", err)
+		}
+	}
+}
+
+func (m *LogMonitor) handleACMETimeout(entry caddyLogEntry) {
+	domain := extractDomainFromEntry(entry)
+
+	slog.Warn("ACME connection timeout", "domain", domain, "error", entry.Error)
+
+	if m.reporter != nil {
+		alert := AlertACMETimeout(domain)
+		if err := m.reporter.SendErrorAlert(alert); err != nil {
+			slog.Error("failed to send ACME timeout alert", "error", err)
+		}
+	}
+}
+
 // Recent502Count returns the number of 502 errors in the current window.
 func (m *LogMonitor) Recent502Count() int {
 	m.mu.Lock()
@@ -193,10 +297,12 @@ func (m *LogMonitor) Recent502Count() int {
 }
 
 func extractDomainFromEntry(entry caddyLogEntry) string {
-	if entry.Request != nil {
-		if host, ok := entry.Request["Host"].(string); ok && host != "" {
-			return host
-		}
+	if entry.Request != nil && entry.Request.Host != "" {
+		return entry.Request.Host
+	}
+
+	if entry.TLS != nil && entry.TLS.ServerName != "" {
+		return entry.TLS.ServerName
 	}
 
 	if entry.Error != "" {
