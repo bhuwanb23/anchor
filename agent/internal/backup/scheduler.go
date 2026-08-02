@@ -117,7 +117,7 @@ func (s *BackupScheduler) UpdateConfig(cfg SchedulerConfig) {
 	defer s.mu.Unlock()
 	s.config = cfg
 	if cfg.Enabled {
-		s.calculateNextRun()
+		s.calculateNextRunLocked()
 	}
 	slog.Info("backup scheduler config updated",
 		"schedule", cfg.Schedule,
