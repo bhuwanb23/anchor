@@ -115,7 +115,16 @@ func run(configPath string) {
 		UseStaging: cfg.CaddyUseStaging,
 		CertDir:    cfg.CaddyCertDir,
 	}, caddyManager)
-	backupManager := backup.NewManager(cfg.BackupDest)
+
+	// Create backup manager with full configuration
+	backupManager := backup.NewManagerWithConfig(backup.BackupConfig{
+		Destination:     cfg.BackupDest,
+		DataDir:         "/var/lib/yourplatform",
+		ServerID:        cfg.ServerID,
+		ControlPlaneURL: cfg.ControlPlaneURL,
+		AgentID:         cfg.AgentID,
+		AgentSecret:     cfg.AgentSecret,
+	})
 
 	// Create state manager for persistence across restarts
 	stateManager := state.NewManager("")
