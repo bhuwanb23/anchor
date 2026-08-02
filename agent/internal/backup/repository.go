@@ -28,6 +28,10 @@ type RepositoryConfig struct {
 	S3SecretKey string `json:"s3_secret_key,omitempty"`
 	S3Bucket    string `json:"s3_bucket,omitempty"`
 	S3Region    string `json:"s3_region,omitempty"`
+	// Retention policy
+	RetentionDaily   int `json:"retention_daily,omitempty"`
+	RetentionWeekly  int `json:"retention_weekly,omitempty"`
+	RetentionMonthly int `json:"retention_monthly,omitempty"`
 }
 
 // RepositoryManager handles restic repository operations.
