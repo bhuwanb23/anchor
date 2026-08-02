@@ -160,10 +160,9 @@ func TestWsProgressReporter_ReportError(t *testing.T) {
 }
 
 func TestWsProgressReporter_ReportComplete(t *testing.T) {
-	var sent []byte
+	var sentMsg interface{}
 	sendFunc := func(v interface{}) error {
-		data, _ := json.Marshal(v)
-		sent = data
+		sentMsg = v
 		return nil
 	}
 
@@ -174,12 +173,13 @@ func TestWsProgressReporter_ReportComplete(t *testing.T) {
 		TotalBytes: 1024,
 	})
 
-	if sent == nil {
+	if sentMsg == nil {
 		t.Fatal("expected message to be sent")
 	}
 
+	data, _ := json.Marshal(sentMsg)
 	var msg map[string]interface{}
-	if err := json.Unmarshal(sent, &msg); err != nil {
+	if err := json.Unmarshal(data, &msg); err != nil {
 		t.Fatalf("failed to parse sent message: %v", err)
 	}
 
