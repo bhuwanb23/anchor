@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -162,6 +163,95 @@ func (rm *RepositoryManager) Restore(ctx context.Context, snapshotID, targetPath
 
 // Prune removes old snapshots based on retention policy.
 func (rm *RepositoryManager) Prune(ctx context.Context, keepDaily, keepWeekly, keepMonthly int) error {
+	slog.Info("pruning old backups", "keep_daily", keepDaily, "keep_weekly", keepWeekly, "keep_monthly", keepMonthly)
+
+	args := rm.repoArgs()
+	args = append(args, "forget",
+		"--keep-daily", fmt.Sprintf("%d", keepDaily),
+		"--keep-weekly", fmt.Sprintf("%d", keepWeekly),
+		"--keep-monthly", fmt.Sprintf("%d", keepMonthly),
+		"--prune")
+
+	cmd := exec.CommandContext(ctx, rm.resticBin, args...)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("restic prune failed: %w\n%s", err, string(output))
+	}
+
+	slog.Info("backup pruning completed")
+	return nil
+}
+
+// BackupJSON runs a restic backup with --json flag for progress reporting.
+// Calls progressFn for each line of JSON output.
+func (rm *RepositoryManager) BackupJSON(ctx context.Context, sourcePath string, tags []string, progressFn func([]byte)) (string, error) {
+	slog.Info("starting JSON backup", "source", sourcePath, "dest", rm.config.Destination)
+
+	args := rm.repoArgs()
+	args = append(args, "backup", sourcePath, "--json")
+	for _, tag := range tags {
+		args = append(args, "--tag", tag)
+	}
+
+	cmd := exec.CommandContext(ctx, rm.resticBin, args...)
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return "", fmt.Errorf("create stdout pipe: %w", err)
+	}
+
+	if err := cmd.Start(); err != nil {
+		return "", fmt.Errorf("start restic backup: %w", err)
+	}
+
+	// Read JSON output line by line
+	buf := make([]byte, 4096)
+	var output strings.Builder
+	for {
+		n, readErr := stdout.Read(buf)
+		if n > 0 {
+			chunk := buf[:n]
+			output.Write(chunk)
+			// Parse and report each complete line
+			lines := splitLines(string(chunk))
+			for _, line := range lines {
+				if line != "" && progressFn != nil {
+					progressFn([]byte(line))
+				}
+			}
+		}
+		if readErr != nil {
+			break
+		}
+	}
+
+	if err := cmd.Wait(); err != nil {
+		return "", fmt.Errorf("restic backup failed: %w\n%s", err, output.String())
+	}
+
+	snapshotID := parseSnapshotID(output.String())
+	slog.Info("JSON backup completed", "source", sourcePath, "snapshot", snapshotID)
+	return snapshotID, nil
+}
+
+// Verify runs a quick integrity check on the repository.
+func (rm *RepositoryManager) Verify(ctx context.Context) error {
+	slog.Info("verifying repository integrity", "dest", rm.config.Destination)
+
+	args := rm.repoArgs()
+	args = append(args, "check", "--read-data-subset=1%")
+
+	cmd := exec.CommandContext(ctx, rm.resticBin, args...)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("restic check failed: %w\n%s", err, string(output))
+	}
+
+	slog.Info("repository verification passed")
+	return nil
+}
+
+// PruneWithConfig removes old snapshots based on configurable retention policy.
+func (rm *RepositoryManager) PruneWithConfig(ctx context.Context, keepDaily, keepWeekly, keepMonthly int) error {
 	slog.Info("pruning old backups", "keep_daily", keepDaily, "keep_weekly", keepWeekly, "keep_monthly", keepMonthly)
 
 	args := rm.repoArgs()
