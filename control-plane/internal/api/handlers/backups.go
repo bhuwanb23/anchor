@@ -460,3 +460,74 @@ func (h *Backup) GetRestoreHistory(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(jobs)
 }
+
+// GetBackupVerificationStatus returns verification config and status for a server.
+// GET /api/v1/servers/{serverID}/backup/verification
+func (h *Backup) GetBackupVerificationStatus(w http.ResponseWriter, r *http.Request) {
+	serverID := chi.URLParam(r, "serverID")
+
+	config, err := queries.GetVerificationConfigByServer(h.DB, serverID)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			// Create default config
+			id := fmt.Sprintf("vconf-%s", serverID)
+			if err := queries.InsertVerificationConfig(h.DB, id, serverID); err != nil {
+				slog.Error("create verification config", "error", err)
+				http.Error(w, "internal server error", http.StatusInternalServerError)
+				return
+			}
+			config, err = queries.GetVerificationConfigByServer(h.DB, serverID)
+			if err != nil {
+				slog.Error("get verification config", "error", err)
+				http.Error(w, "internal server error", http.StatusInternalServerError)
+				return
+			}
+		} else {
+			slog.Error("get verification config", "error", err)
+			http.Error(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
+	}
+
+	// Get latest backup job with verification status
+	jobs, err := queries.GetBackupJobsByServer(h.DB, serverID, 1)
+	var lastVerification struct {
+		Status string `json:"status"`
+		Error  string `json:"error,omitempty"`
+	}
+	if err == nil && len(jobs) > 0 {
+		lastVerification.Status = jobs[0].VerificationStatus.String
+		lastVerification.Error = jobs[0].VerificationError.String
+	}
+
+	response := map[string]interface{}{
+		"config": config,
+		"last_verification": lastVerification,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
+}
+
+// TriggerBackupVerification triggers a manual backup verification.
+// POST /api/v1/servers/{serverID}/backup/verification/trigger
+func (h *Backup) TriggerBackupVerification(w http.ResponseWriter, r *http.Request) {
+	serverID := chi.URLParam(r, "serverID")
+
+	// Send backup_verify command to agent
+	msg := map[string]interface{}{
+		"type": "backup_verify",
+		"payload": map[string]interface{}{
+			"server_id": serverID,
+			"subset":    "5%", // Default to post-backup verification
+		},
+	}
+
+	h.Hub.SendToAgent(serverID, msg)
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{
+		"status":  "verification_triggered",
+		"message": "Backup verification has been triggered",
+	})
+}
