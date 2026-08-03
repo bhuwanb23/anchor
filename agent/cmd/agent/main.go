@@ -1,16 +1,11 @@
 package main
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"log/slog"
-	"net/http"
 	"os"
-	"os/exec"
 	"os/signal"
-	"strings"
 	"syscall"
 	"time"
 
@@ -19,643 +14,277 @@ import (
 	"github.com/yourname/yourplatform/agent/internal/config"
 	"github.com/yourname/yourplatform/agent/internal/docker"
 	"github.com/yourname/yourplatform/agent/internal/executor"
-	"github.com/yourname/yourplatform/agent/internal/logstream"
+	"github.com/yourname/yourplatform/agent/internal/lifecycle"
 	"github.com/yourname/yourplatform/agent/internal/preflight"
 	"github.com/yourname/yourplatform/agent/internal/state"
+	"github.com/yourname/yourplatform/agent/internal/update"
+	"github.com/yourname/yourplatform/agent/internal/version"
 	"github.com/yourname/yourplatform/agent/internal/ws"
 )
 
-const Version = "0.1.0-dev"
-
-const connectedFile = "/var/lib/yourplatform/agent.connected"
-
-var agentVersion = Version // overridden at runtime
-
 func main() {
-	args := os.Args[1:]
-	configPath := ""
-
-	for i := 0; i < len(args); i++ {
-		switch {
-	case args[i] == "preflight":
-		useJSON := false
-		if i+1 < len(args) && args[i+1] == "--json" {
-			useJSON = true
-			i++
-		}
-		runPreflight(useJSON)
-		return
-		case args[i] == "--version" || args[i] == "-v":
-			fmt.Printf("yourplatform-agent %s\n", Version)
-			return
-		case args[i] == "--config" && i+1 < len(args):
-			configPath = args[i+1]
-			i++
-		case args[i] == "run":
-			// continue to run loop
-		}
+	if len(os.Args) < 2 {
+		printUsage()
+		os.Exit(2)
 	}
 
-	run(configPath)
+	switch os.Args[1] {
+	case "version", "--version", "-v":
+		fmt.Println(version.Version)
+		return
+	case "preflight":
+		os.Exit(runPreflight())
+	case "run":
+		os.Exit(runAgent(os.Args[2:]))
+	default:
+		printUsage()
+		os.Exit(2)
+	}
 }
 
-func run(configPath string) {
-	cfg, err := config.Load(configPath)
-	if err != nil {
-		slog.Error("failed to load config", "error", err)
-		os.Exit(1)
+func printUsage() {
+	fmt.Fprintf(os.Stderr, "Usage: yourplatform-agent <run|preflight|version> [flags]\n")
+	fmt.Fprintf(os.Stderr, "  run --config <path>   Start the agent\n")
+	fmt.Fprintf(os.Stderr, "  preflight             Run environment checks\n")
+	fmt.Fprintf(os.Stderr, "  version               Print agent version\n")
+}
+
+func runPreflight() int {
+	result := preflight.RunAll()
+	preflight.PreflightLog(result)
+	out, _ := result.ToJSON()
+	fmt.Println(out)
+	if !result.Passed {
+		return 1
+	}
+	return 0
+}
+
+func runAgent(args []string) int {
+	configPath := ""
+	for i := 0; i < len(args); i++ {
+		if args[i] == "--config" && i+1 < len(args) {
+			configPath = args[i+1]
+			i++
+		}
 	}
 
+	cfg, err := config.Load(configPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "config error: %v\n", err)
+		return 1
+	}
 	if err := cfg.Validate(); err != nil {
-		slog.Error("invalid config", "error", err)
-		os.Exit(1)
+		fmt.Fprintf(os.Stderr, "invalid config: %v\n", err)
+		return 1
+	}
+
+	setupLogging(cfg.LogLevel)
+	slog.Info("startup step 1 complete: config loaded")
+
+	dataDir := state.DefaultStateDir
+	stateMgr := state.NewManager(dataDir)
+	st := stateMgr.GetState()
+	unclean := stateMgr.WasUncleanShutdown()
+	if unclean {
+		slog.Warn("detected unclean shutdown, will reconcile", "shutdown_clean", st.ShutdownClean)
+	}
+	_ = stateMgr.MarkStartup(version.Version)
+	slog.Info("startup step 2 complete: logging and state loaded")
+
+	// Step 3: preflight
+	pfResult := preflight.RunAll()
+	preflight.PreflightLog(pfResult)
+	if !pfResult.Passed {
+		slog.Error("preflight failed with blocking errors")
+		return 1
+	}
+	slog.Info("startup step 3 complete: preflight passed")
+
+	resolvedConfigPath := configPath
+	if resolvedConfigPath == "" {
+		resolvedConfigPath = "/etc/yourplatform/config.yaml"
 	}
 
 	if cfg.NeedsRegistration() {
-		slog.Info("registration token detected, registering with control plane")
-		if err := registerAgent(cfg, configPath); err != nil {
-			slog.Error("registration failed", "error", err)
-			os.Exit(1)
-		}
-		cfg, err = config.Load(configPath)
+		reg, err := lifecycle.Register(cfg.ControlPlaneURL, cfg.RegistrationToken, pfResult)
 		if err != nil {
-			slog.Error("failed to reload config after registration", "error", err)
-			os.Exit(1)
+			slog.Error("registration failed", "error", err)
+			return 1
 		}
-		slog.Info("registration successful", "agent_id", cfg.AgentID, "server_id", cfg.ServerID)
+		cfg.AgentID = reg.AgentID
+		cfg.AgentSecret = reg.AgentSecret
+		cfg.ServerID = reg.ServerID
+		if err := config.SaveCredentials(resolvedConfigPath, reg.AgentID, reg.AgentSecret, reg.ServerID); err != nil {
+			slog.Warn("failed to persist credentials", "error", err)
+		}
+		slog.Info("registered with control plane", "server_id", reg.ServerID)
 	}
-
-	slog.Info("agent starting",
-		"version", Version,
-		"control_plane", cfg.ControlPlaneURL,
-		"agent_id", cfg.AgentID,
-		"server_id", cfg.ServerID,
-	)
-
-	dockerClient, err := docker.NewClient(cfg.DockerSocket)
-	if err != nil {
-		slog.Error("failed to create docker client", "error", err)
-		os.Exit(1)
-	}
-
-	// Create image cache for smart pull decisions (digest-based caching)
-	imageCache, err := docker.NewImageCache("/var/lib/yourplatform/image_cache.json")
-	if err != nil {
-		slog.Warn("failed to create image cache, continuing without cache", "error", err)
-		imageCache = nil
-	}
-
-	caddyAdminURL := fmt.Sprintf("http://localhost:%d", cfg.CaddyAdminPort)
-	caddyManager := caddy.NewManager(caddyAdminURL)
-	caddyProcess := caddy.NewProcessManager(caddy.ProcessConfig{
-		BinaryPath: cfg.CaddyBinaryPath,
-		DataDir:    cfg.CaddyDataDir,
-		AdminURL:   caddyAdminURL,
-		ACMEmail:   cfg.CaddyACMEmail,
-		UseStaging: cfg.CaddyUseStaging,
-		CertDir:    cfg.CaddyCertDir,
-	}, caddyManager)
-
-	// Create backup manager with full configuration
-	backupManager := backup.NewManagerWithConfig(backup.BackupConfig{
-		Destination:     cfg.BackupDest,
-		DataDir:         "/var/lib/yourplatform",
-		ServerID:        cfg.ServerID,
-		ControlPlaneURL: cfg.ControlPlaneURL,
-		AgentID:         cfg.AgentID,
-		AgentSecret:     cfg.AgentSecret,
-	})
-
-	// Create state manager for persistence across restarts
-	stateManager := state.NewManager("")
-
-	// Error handling components
-	rateLimitTracker := caddy.NewRateLimitTracker(cfg.CaddyDataDir)
-	routeQueue := caddy.NewRouteQueue(cfg.CaddyDataDir, caddyManager)
-	eventRecorder := caddy.NewEventRecorder(cfg.CaddyDataDir)
 
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 
-	// Create log monitor (wired to stderr after Caddy starts)
-	var logMonitor *caddy.LogMonitor
+	// Step 4: Caddy
+	adminURL := fmt.Sprintf("http://localhost:%d", cfg.CaddyAdminPort)
+	caddyMgr := caddy.NewManager(adminURL)
+	caddyProc := caddy.NewProcessManager(caddy.ProcessConfig{
+		BinaryPath: cfg.CaddyBinaryPath,
+		DataDir:    cfg.CaddyDataDir,
+		AdminURL:   adminURL,
+		ACMEmail:   cfg.CaddyACMEmail,
+		UseStaging: cfg.CaddyUseStaging,
+		CertDir:    cfg.CaddyCertDir,
+	}, caddyMgr)
+	if err := caddyProc.Start(ctx); err != nil {
+		slog.Error("caddy start failed", "error", err)
+		return 1
+	}
+	slog.Info("startup step 4 complete: caddy started")
 
-	// Start Caddy reverse proxy
-	if err := caddyProcess.Start(ctx); err != nil {
-		slog.Warn("failed to start caddy, continuing without reverse proxy", "error", err)
+	if _, err := state.ReconcileCaddy(ctx, stateMgr, caddyMgr); err != nil {
+		slog.Warn("caddy route restore failed", "error", err)
 	} else {
-		// Set up on-demand TLS ask endpoint
-		if err := caddyManager.SetAskRoute(caddyProcess.Authorizer()); err != nil {
-			slog.Warn("failed to set up ask endpoint", "error", err)
-		}
-
-		// Reconcile routes from state into Caddy after startup
-		if _, _, err := state.ReconcileCaddy(ctx, stateManager, caddyManager); err != nil {
-			slog.Warn("caddy route reconciliation failed", "error", err)
-		}
-
-		// Check for port mismatches after reconciliation
-		if _, err := state.CheckPortMismatches(ctx, stateManager, caddyManager); err != nil {
-			slog.Warn("port mismatch check failed", "error", err)
-		}
-
-		// Apply any queued routes that were deferred
-		if applied := routeQueue.ApplyPending(ctx); applied > 0 {
-			slog.Info("applied queued routes after caddy start", "count", applied)
-		}
-
-		caddyProcess.Monitor(ctx, func() {
-			slog.Error("caddy crashed — restarting and restoring routes")
-			// Routes are restored by Monitor → Start → ReconcileCaddy on next tick
-			if _, _, err := state.ReconcileCaddy(ctx, stateManager, caddyManager); err != nil {
-				slog.Warn("failed to restore routes after caddy restart", "error", err)
-			}
-			// Apply queued routes after recovery
-			if applied := routeQueue.ApplyPending(ctx); applied > 0 {
-				slog.Info("applied queued routes after caddy recovery", "count", applied)
-			}
-		})
+		slog.Info("caddy routes restored from state")
 	}
 
-	wsURL := cfg.ControlPlaneURL + "/ws/agent"
-	wsClient := ws.NewClient(wsURL, cfg.AgentID, cfg.AgentSecret, cfg.WSReconnectSec)
-
-	// Start certificate monitor — checks daily for expiry, sends alerts via WS
-	alertReporter := &caddy.WsAlertReporter{
-		SendFunc: func(v interface{}) error {
-			return wsClient.SendJSON(v)
-		},
+	// Step 5: Docker
+	dockerClient, err := docker.NewClient(cfg.DockerSocket)
+	if err != nil {
+		slog.Error("docker connect failed", "error", err)
+		return 1
 	}
-	certMonitor := caddy.NewCertMonitor(cfg.CaddyDataDir, stateManager, alertReporter)
-	go certMonitor.Run(ctx)
+	if _, err := state.Reconcile(ctx, stateMgr, dockerClient); err != nil {
+		slog.Warn("docker reconcile failed", "error", err)
+	}
+	slog.Info("startup step 5 complete: docker reconciled")
 
-	// Set up log monitor for 502/rate-limit detection
-	logMonitor = caddy.NewLogMonitor(caddy.LogMonitorConfig{}, alertReporter)
-	logMonitor.SetRateLimitTracker(rateLimitTracker)
-	logMonitor.SetEventRecorder(eventRecorder)
-	caddyProcess.SetLogMonitor(logMonitor)
-
-	// Run reconciliation on boot — discover running containers and sync state
-	go func() {
-		reconcileResult, err := state.Reconcile(ctx, stateManager, dockerClient)
-		if err != nil {
-			slog.Error("reconciliation failed", "error", err)
-			return
-		}
-		slog.Info("reconciliation complete",
-			"running", reconcileResult.Running,
-			"restarted", reconcileResult.Restarted,
-			"failed", reconcileResult.Failed,
-			"adopted", reconcileResult.Adopted)
-		for _, msg := range reconcileResult.Messages {
-			slog.Info("reconciliation", "message", msg)
-		}
-		// Report to control plane
-		wsClient.SendJSON(map[string]interface{}{
-			"type":      "reconciliation_result",
-			"running":   reconcileResult.Running,
-			"restarted": reconcileResult.Restarted,
-			"failed":    reconcileResult.Failed,
-			"adopted":   reconcileResult.Adopted,
-			"messages":  reconcileResult.Messages,
+	// Backup manager
+	var backupMgr *backup.BackupManager
+	if cfg.BackupDest != "" {
+		backupMgr = backup.NewManagerWithConfig(backup.BackupConfig{
+			Destination: cfg.BackupDest,
+			DataDir:     dataDir,
+			ServerID:    cfg.ServerID,
 		})
-	}()
+		backupMgr.WithStateManager(backupStateAdapter{stateMgr})
+		if err := backupMgr.Initialize(ctx); err != nil {
+			slog.Warn("backup init failed", "error", err)
+		}
+	} else {
+		backupMgr = backup.NewManager("")
+	}
 
-	// Create backup alert sender for scheduler
-	backupAlertSender := &wsBackupAlertSender{client: wsClient}
-
-	// Create backup scheduler
-	backupScheduler := backup.NewBackupScheduler(
-		backupManager,
-		"/var/lib/yourplatform",
-		cfg.ServerID,
-		backupAlertSender,
-	).WithStateManager(&mainStateManagerAdapter{sm: stateManager}).
-		WithReporter(backup.NewBackupReporter(wsClient))
-	backupScheduler.UpdateConfig(backup.SchedulerConfig{
-		Schedule:         cfg.BackupSchedule,
-		RetentionDaily:   cfg.BackupRetentionDaily,
-		RetentionWeekly:  cfg.BackupRetentionWeekly,
-		RetentionMonthly: cfg.BackupRetentionMonthly,
-		Enabled:          true,
-	})
-
-	exec := executor.New(dockerClient, caddyManager, backupManager).
-		WithImageCache(imageCache).
-		WithProgressReporter(&wsProgressReporter{client: wsClient}).
-		WithStateManager(stateManager).
-		WithAuthorizer(caddyProcess.Authorizer()).
-		WithScheduler(backupScheduler).
+	exec := executor.New(dockerClient, caddyMgr, backupMgr).
+		WithStateManager(stateMgr).
 		WithServerID(cfg.ServerID)
 
-	// Create log streamer for container log streaming
-	logStreamer := logstream.NewLogStreamer(
-		dockerClient.GetContainerLogs,
-		dockerClient.GetContainerLogsTail,
-		wsClient,
-	)
-	exec.WithLogStreamer(logStreamer)
+	wsURL := lifecycle.WSURLFromControlPlane(cfg.ControlPlaneURL)
+	wsClient := ws.NewClient(wsURL, cfg.AgentID, cfg.AgentSecret, cfg.WSReconnectSec)
+	backupReporter := backup.NewBackupReporter(wsClient)
+	exec.WithBackupReporter(backupReporter)
 
-	// Start background Docker health monitor
-	// This ensures the agent survives Docker daemon restarts
-	// and reconnects automatically when Docker comes back.
-	go monitorDockerHealth(ctx, dockerClient, wsClient)
-
-	// Start background image cleanup (weekly schedule + disk-pressure triggers)
-	go dockerClient.RunScheduledCleanup(ctx, nil, 0)
-
-	// Run orphan network cleanup on startup
-	// Removes any leftover networks from deleted projects
-	go func() {
-		if err := dockerClient.CleanupOrphanedNetworks(ctx); err != nil {
-			slog.Warn("orphan network cleanup failed", "error", err)
-		} else {
-			slog.Info("orphan network cleanup completed")
+	var scheduler *backup.BackupScheduler
+	if cfg.BackupDest != "" && backupMgr != nil {
+		scheduler = backup.NewBackupScheduler(backupMgr, dataDir, cfg.ServerID, nil).
+			WithStateManager(backupStateAdapter{stateMgr}).
+			WithReporter(backupReporter)
+		if repo := backupMgr.GetRepository(); repo != nil {
+			scheduler.WithMaintenance(repo)
 		}
-	}()
-
-	// Start backup scheduler
-	go backupScheduler.Start(ctx)
-
-	go wsClient.Run(ctx)
-
-	connected := false
-
-	for {
-		select {
-		case <-ctx.Done():
-			slog.Info("shutting down agent")
-			caddyProcess.Stop()
-			logStreamer.StopAll()
-			if connected {
-				os.Remove(connectedFile)
-				slog.Info("removed agent.connected file")
-			}
-			wsClient.Close()
-			return
-		case msg, ok := <-wsClient.Recv():
-			if !ok {
-				continue
-			}
-
-			switch msg.Type {
-			case "command":
-				var cmd executor.Command
-				if err := json.Unmarshal(msg.Payload, &cmd); err != nil {
-					slog.Error("failed to parse command", "error", err)
-					continue
-				}
-
-				// Streaming commands are handled outside the executor
-				// because they spawn long-lived goroutines.
-				switch cmd.Type {
-				case "stream_logs":
-					go handleStreamLogs(ctx, logStreamer, dockerClient, cmd)
-					// Send immediate acknowledgement
-					if err := wsClient.SendJSON(executor.Result{
-						CommandID: cmd.ID,
-						Status:    "success",
-						Output:    "log streaming started",
-						Timestamp: time.Now().UTC(),
-					}); err != nil {
-						slog.Error("failed to send stream_logs ack", "error", err)
-					}
-					continue
-				case "stop_stream_logs":
-					var payload struct {
-						ContainerID string `json:"container_id"`
-					}
-					if err := json.Unmarshal(cmd.Payload, &payload); err == nil && payload.ContainerID != "" {
-						logStreamer.StopStream(payload.ContainerID)
-					} else {
-						logStreamer.StopAll()
-					}
-					if err := wsClient.SendJSON(executor.Result{
-						CommandID: cmd.ID,
-						Status:    "success",
-						Output:    "log streaming stopped",
-						Timestamp: time.Now().UTC(),
-					}); err != nil {
-						slog.Error("failed to send stop_stream_logs ack", "error", err)
-					}
-					continue
-				}
-
-				result := exec.Execute(ctx, cmd)
-
-				if err := wsClient.SendJSON(result); err != nil {
-					slog.Error("failed to send result", "error", err)
-				}
-
-			case "register_ack":
-				slog.Info("registered with control plane", "server_id", cfg.ServerID)
-				if !connected {
-					if err := os.WriteFile(connectedFile, []byte(cfg.ServerID), 0644); err != nil {
-						slog.Warn("failed to write connected file", "error", err)
-					} else {
-						slog.Info("wrote agent.connected file")
-					}
-					connected = true
-
-					// Run pre-flight on startup and send results to control plane
-					go func() {
-						preflightResult := preflight.RunAll()
-						if err := wsClient.SendJSON(map[string]interface{}{
-							"type":          "preflight_result",
-							"system_info":   preflightResult.SystemInfo,
-							"passed":        preflightResult.Passed,
-							"warnings":      preflightResult.Warnings(),
-							"auto_fixed":    preflightResult.AutoFixed,
-							"checks":        preflightResult.Checks,
-						}); err != nil {
-							slog.Warn("failed to send preflight result", "error", err)
-						} else {
-							slog.Info("sent preflight results to control plane")
-						}
-					}()
-				}
-
-			case "heartbeat":
-				slog.Debug("heartbeat received")
-
-			default:
-				slog.Warn("unknown message type", "type", msg.Type)
-			}
-		}
-	}
-}
-
-func registerAgent(cfg *config.Config, configPath string) error {
-	// Run pre-flight checks and include results in registration
-	preflightResult := preflight.RunAll()
-
-	ip := detectIP()
-
-	body := map[string]interface{}{
-		"token":        cfg.RegistrationToken,
-		"system_info":  preflightResult.SystemInfo,
-		"ip_address":   ip,
-		"warnings":     preflightResult.Warnings(),
-		"auto_fixed":   preflightResult.AutoFixed,
+		exec.WithScheduler(scheduler)
+		go scheduler.Start(ctx)
+		slog.Info("startup step 7 complete: backup scheduler started")
 	}
 
-	bodyBytes, err := json.Marshal(body)
-	if err != nil {
-		return fmt.Errorf("marshal request: %w", err)
-	}
+	connMgr := lifecycle.NewManager(wsClient, exec, stateMgr, dataDir, cfg.ServerID)
+	connMgr.SetPreflightResult(pfResult)
 
-	url := cfg.ControlPlaneURL + "/api/v1/agent/register"
-	resp, err := http.Post(url, "application/json", bytes.NewReader(bodyBytes))
-	if err != nil {
-		return fmt.Errorf("POST %s: %w", url, err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusCreated {
-		var errResp struct {
-			Error string `json:"error"`
-		}
-		json.NewDecoder(resp.Body).Decode(&errResp)
-		return fmt.Errorf("registration failed (%d): %s", resp.StatusCode, errResp.Error)
-	}
-
-	var result struct {
-		AgentID     string `json:"agent_id"`
-		AgentSecret string `json:"agent_secret"`
-		ServerID    string `json:"server_id"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return fmt.Errorf("decode response: %w", err)
-	}
-
-	if err := config.SaveCredentials(configPath, result.AgentID, result.AgentSecret, result.ServerID); err != nil {
-		return fmt.Errorf("save credentials: %w", err)
-	}
-
-	return nil
-}
-
-// monitorDockerHealth periodically checks Docker connectivity and
-// attempts reconnection with backoff when the daemon is unreachable.
-// This ensures the agent survives Docker daemon restarts without crashing
-// and reports availability changes to the control plane.
-func monitorDockerHealth(ctx context.Context, dockerClient *docker.Client, wsClient *ws.Client) {
-	ticker := time.NewTicker(30 * time.Second)
-	defer ticker.Stop()
-
-	wasConnected := dockerClient.IsConnected()
-
-	// If initial connection test failed, attempt reconnect in background
-	if !wasConnected {
-		slog.Warn("docker daemon not connected on startup, will retry in background")
-		reportDockerStatus(wsClient, "unavailable", "Docker daemon was unreachable on agent startup. Retrying...")
+	// Self-update
+	updater := update.New(update.Config{
+		ControlPlaneURL: cfg.ControlPlaneURL,
+		CurrentVersion:  version.Version,
+		BinaryPath:      agentBinaryPath(),
+		WSClient:        wsClient,
+		Interval:        time.Hour,
+	})
+	connMgr.OnUpdateAvailable(func(ver string) {
 		go func() {
-			if err := dockerClient.Reconnect(ctx); err != nil {
-				slog.Error("initial docker reconnect failed", "error", err)
-			} else {
-				slog.Info("docker reconnected after initial failure")
-				reportDockerStatus(wsClient, "connected",
-					fmt.Sprintf("Docker reconnected (version %s)", dockerClient.DockerInfo().Version))
+			if err := updater.ApplyVersion(ctx, ver); err != nil {
+				slog.Warn("update from push failed", "error", err)
 			}
 		}()
+	})
+	go updater.Start(ctx)
+
+	slog.Info("startup step 6: starting connection manager")
+	go connMgr.Run(ctx)
+
+	slog.Info("startup step 8-10 complete: agent operational", "version", version.Version)
+
+	<-ctx.Done()
+	slog.Info("shutdown signal received")
+
+	connMgr.StopAccepting()
+	connMgr.WaitInFlight(60 * time.Second)
+	connMgr.NotifyShutdown()
+	lifecycle.ClearConnected(dataDir)
+	_ = stateMgr.MarkCleanShutdown()
+	wsClient.Close()
+	if scheduler != nil {
+		scheduler.Stop()
 	}
-
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			isConnected := dockerClient.IsConnected()
-
-			// State transition: connected -> disconnected
-			if wasConnected && !isConnected {
-				slog.Warn("docker daemon connection lost")
-				reportDockerStatus(wsClient, "unavailable", "Docker daemon connection lost. Reconnecting...")
-
-				// Attempt reconnect in background
-				go func() {
-					if err := dockerClient.Reconnect(ctx); err != nil {
-						slog.Error("docker reconnect failed", "error", err)
-					} else {
-						slog.Info("docker reconnected")
-						reportDockerStatus(wsClient, "connected",
-							fmt.Sprintf("Docker reconnected (version %s)", dockerClient.DockerInfo().Version))
-					}
-				}()
-			}
-
-			// State transition: disconnected -> connected
-			if !wasConnected && isConnected {
-				slog.Info("docker daemon connection restored")
-				reportDockerStatus(wsClient, "connected",
-					fmt.Sprintf("Docker connection restored (version %s)", dockerClient.DockerInfo().Version))
-			}
-
-			wasConnected = isConnected
-		}
-	}
+	// Do NOT stop Caddy or Docker containers
+	slog.Info("agent exited cleanly")
+	return 0
 }
 
-// reportDockerStatus sends a Docker availability event to the control plane.
-func reportDockerStatus(wsClient *ws.Client, status, message string) {
-	payload := map[string]interface{}{
-		"type":    "docker_status",
-		"status":  status,
-		"message": message,
+func setupLogging(level string) {
+	var lvl slog.Level
+	switch level {
+	case "debug":
+		lvl = slog.LevelDebug
+	case "warn":
+		lvl = slog.LevelWarn
+	case "error":
+		lvl = slog.LevelError
+	default:
+		lvl = slog.LevelInfo
 	}
-	if err := wsClient.SendJSON(payload); err != nil {
-		slog.Warn("failed to send docker status", "error", err)
-	}
+	h := slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: lvl})
+	slog.SetDefault(slog.New(h))
 }
 
-func detectIP() string {
-	out, err := exec.Command("hostname", "-I").Output()
+func agentBinaryPath() string {
+	p, err := os.Executable()
 	if err != nil {
-		return ""
+		return "/usr/local/bin/yourplatform-agent"
 	}
-	fields := strings.Fields(string(out))
-	if len(fields) > 0 {
-		return fields[0]
-	}
-	return ""
+	return p
 }
 
-func runPreflight(useJSON bool) {
-	result := preflight.RunAll()
-
-	if useJSON {
-		// Compact JSON for machine parsing by install.sh
-		jsonStr, err := result.ToJSONCompact()
-		if err != nil {
-			slog.Error("failed to serialize preflight result", "error", err)
-			os.Exit(1)
-		}
-		fmt.Print(jsonStr)
-	} else {
-		// Human-readable text output
-		fmt.Print(result.Text())
-	}
-
-	if result.HasBlockingFailures() {
-		os.Exit(1)
-	}
+// backupStateAdapter adapts state.Manager to backup.StateManager.
+type backupStateAdapter struct {
+	m *state.Manager
 }
 
-// wsProgressReporter sends image pull progress updates to the control plane
-// via the agent's WebSocket connection.
-type wsProgressReporter struct {
-	client *ws.Client
+func (a backupStateAdapter) GetState() *backup.StateData {
+	st := a.m.GetState()
+	projects := make(map[string]interface{}, len(st.Projects))
+	for k, v := range st.Projects {
+		projects[k] = v
+	}
+	return &backup.StateData{Projects: projects}
 }
 
-func (r *wsProgressReporter) ReportProgress(p docker.PullProgress) {
-	payload := map[string]interface{}{
-		"type":     "pull_progress",
-		"image_id": p.ID,
-		"status":   p.Status,
-		"stream":   p.Stream,
-		"current":  p.Current,
-		"total":    p.Total,
+func (a backupStateAdapter) GetLastBackupTime() time.Time {
+	st := a.m.GetState()
+	if st.Backup == nil || st.Backup.LastBackupAt == "" {
+		return time.Time{}
 	}
-	if err := r.client.SendJSON(payload); err != nil {
-		slog.Debug("failed to send pull progress", "error", err)
-	}
+	t, _ := time.Parse(time.RFC3339, st.Backup.LastBackupAt)
+	return t
 }
 
-// handleStreamLogs processes a stream_logs command.
-// It resolves container IDs from project name + roles, then starts
-// live log streaming for each container.
-func handleStreamLogs(ctx context.Context, ls *logstream.LogStreamer, dockerClient *docker.Client, cmd executor.Command) {
-	var payload logstream.StreamLogsPayload
-	if err := json.Unmarshal(cmd.Payload, &payload); err != nil {
-		slog.Error("failed to parse stream_logs payload", "error", err)
-		return
-	}
-
-	if payload.Tail <= 0 {
-		payload.Tail = 200
-	}
-
-	if len(payload.Containers) == 0 {
-		payload.Containers = []string{"app"}
-	}
-
-	for _, role := range payload.Containers {
-		containerName := docker.ContainerName(payload.ProjectName, role)
-
-		// Look up container by name
-		containers, err := dockerClient.ListContainers(ctx)
-		if err != nil {
-			slog.Error("failed to list containers for log stream",
-				"project", payload.ProjectName,
-				"role", role,
-				"error", err)
-			continue
-		}
-
-		var containerID string
-		for _, c := range containers {
-			for _, name := range c.Names {
-				if name == "/"+containerName {
-					containerID = c.ID
-					break
-				}
-			}
-			if containerID != "" {
-				break
-			}
-		}
-
-		if containerID == "" {
-			slog.Warn("container not found for log stream",
-				"project", payload.ProjectName,
-				"role", role,
-				"name", containerName)
-			continue
-		}
-
-		slog.Info("starting log stream",
-			"project", payload.ProjectName,
-			"role", role,
-			"container", containerID[:12])
-
-		ls.StartStream(ctx, containerID, payload.ProjectName, role, payload.Tail)
-	}
-}
-
-// wsBackupAlertSender sends backup alerts via WebSocket.
-type wsBackupAlertSender struct {
-	client *ws.Client
-}
-
-// SendBackupAlert sends a backup alert to the control plane.
-func (s *wsBackupAlertSender) SendBackupAlert(alert backup.BackupAlert) error {
-	msg := map[string]interface{}{
-		"type":    "backup_alert",
-		"payload": alert,
-	}
-	return s.client.SendJSON(msg)
-}
-
-// mainStateManagerAdapter adapts *state.Manager to backup.StateManager for the scheduler.
-type mainStateManagerAdapter struct {
-	sm *state.Manager
-}
-
-func (a *mainStateManagerAdapter) GetState() *backup.StateData {
-	s := a.sm.GetState()
-	sd := &backup.StateData{
-		Projects: make(map[string]interface{}),
-	}
-	for k, v := range s.Projects {
-		sd.Projects[k] = v
-	}
-	return sd
-}
-
-func (a *mainStateManagerAdapter) GetLastBackupTime() time.Time {
-	return a.sm.GetLastBackupTime()
-}
-
-func (a *mainStateManagerAdapter) RecordBackupCompletion(snapshotID string, duration time.Duration, totalBytes int64) error {
-	return a.sm.RecordBackupCompletion(snapshotID, duration, totalBytes)
+func (a backupStateAdapter) RecordBackupCompletion(snapshotID string, duration time.Duration, totalBytes int64) error {
+	return a.m.RecordBackupCompletion(snapshotID, duration, totalBytes)
 }
