@@ -36,6 +36,7 @@ type BackupScheduler struct {
 	dataDir      string
 	alertSender  AlertSender
 	stateManager StateManager
+	reporter     *BackupReporter
 	stopCh       chan struct{}
 	mu           sync.Mutex
 	nextRun      time.Time
@@ -69,6 +70,12 @@ func NewBackupScheduler(
 // WithStateManager sets the state manager for missed backup detection.
 func (s *BackupScheduler) WithStateManager(sm StateManager) *BackupScheduler {
 	s.stateManager = sm
+	return s
+}
+
+// WithReporter sets the backup reporter for status reporting.
+func (s *BackupScheduler) WithReporter(reporter *BackupReporter) *BackupScheduler {
+	s.reporter = reporter
 	return s
 }
 
@@ -188,11 +195,23 @@ func (s *BackupScheduler) runBackup(ctx context.Context) {
 
 	slog.Info("scheduled backup starting")
 
+	// Generate backup ID for tracking
+	backupID := GenerateBackupID()
+	startedAt := time.Now()
+
+	// Report running status
+	if s.reporter != nil {
+		s.reporter.ReportRunning(s.serverID, backupID)
+	}
+
 	// Acquire lock
 	acquired, err := s.lock.Acquire()
 	if err != nil {
 		slog.Error("failed to acquire backup lock", "error", err)
 		s.sendAlert(AlertBackupFailed(fmt.Sprintf("lock acquisition: %v", err)))
+		if s.reporter != nil {
+			s.reporter.ReportFailed(s.serverID, backupID, startedAt, fmt.Errorf("lock acquisition: %v", err))
+		}
 		return
 	}
 	if !acquired {
@@ -227,6 +246,9 @@ func (s *BackupScheduler) runBackup(ctx context.Context) {
 			}
 		} else {
 			s.sendAlert(AlertBackupFailed(backupErr.Error()))
+			if s.reporter != nil {
+				s.reporter.ReportFailed(s.serverID, backupID, startedAt, fmt.Errorf("backup failed after %d attempts: %v", maxRetries, backupErr))
+			}
 			return
 		}
 	}
@@ -235,6 +257,7 @@ func (s *BackupScheduler) runBackup(ctx context.Context) {
 		slog.Info("scheduled backup completed",
 			"snapshot", result.SnapshotID,
 			"duration", result.Duration)
+
 		// Record completion to state for missed backup detection
 		if s.stateManager != nil {
 			if err := s.stateManager.RecordBackupCompletion(
@@ -244,6 +267,11 @@ func (s *BackupScheduler) runBackup(ctx context.Context) {
 			); err != nil {
 				slog.Warn("failed to record backup completion", "error", err)
 			}
+		}
+
+		// Report full result to control plane
+		if s.reporter != nil {
+			s.reporter.ReportResult(s.serverID, backupID, result, true, 0)
 		}
 	}
 }
