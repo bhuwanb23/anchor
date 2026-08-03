@@ -19,9 +19,13 @@ import (
 )
 
 type Command struct {
-	ID      string          `json:"id"`
-	Type    string          `json:"type"`
-	Payload json.RawMessage `json:"payload"`
+	ID        string          `json:"id"`
+	Type      string          `json:"type"`
+	ServerID  string          `json:"server_id,omitempty"`
+	IssuedBy  string          `json:"issued_by,omitempty"`
+	IssuedAt  string          `json:"issued_at,omitempty"`
+	ExpiresAt string          `json:"expires_at,omitempty"`
+	Payload   json.RawMessage `json:"payload"`
 }
 
 type Result struct {
@@ -30,6 +34,7 @@ type Result struct {
 	Output    string    `json:"output"`
 	Error     string    `json:"error,omitempty"`
 	Timestamp time.Time `json:"timestamp"`
+	Logs      string    `json:"logs,omitempty"`
 }
 
 // VolumeSpec describes a volume to create and mount into a container.
@@ -118,6 +123,11 @@ type Executor struct {
 	authorizer     *caddy.DomainAuthorizer
 	serverID       string
 	backupReporter *backup.BackupReporter
+	slots          *SlotManager
+	idempotency    *IdempotencyCache
+	progressSender ProgressSender
+	updateFn       func(ctx context.Context, version string) error
+	preflightFn    func() (string, error)
 }
 
 // ProgressReporter sends image pull progress updates to the control plane.
@@ -127,10 +137,12 @@ type ProgressReporter interface {
 
 func New(dockerClient *docker.Client, caddyManager *caddy.Manager, backupManager *backup.BackupManager) *Executor {
 	return &Executor{
-		docker:     dockerClient,
-		caddy:      caddyManager,
-		backup:     backupManager,
-		envManager: env.NewManager(""),
+		docker:      dockerClient,
+		caddy:       caddyManager,
+		backup:      backupManager,
+		envManager:  env.NewManager(""),
+		slots:       NewSlotManager(),
+		idempotency: NewIdempotencyCache(),
 	}
 }
 
