@@ -29,11 +29,30 @@ const (
 
 // State represents the full agent state persisted to disk.
 type State struct {
-	Version      int                      `json:"version"`
-	Projects     map[string]*ProjectState `json:"projects"`
-	Routes       map[string]*RouteState   `json:"routes"`
-	Certificates map[string]*CertState    `json:"certificates,omitempty"`
-	Backup       *BackupState             `json:"backup,omitempty"`
+	Version        int                      `json:"version"`
+	AgentVersion   string                   `json:"agent_version,omitempty"`
+	LastUpdated    string                   `json:"last_updated,omitempty"`
+	ShutdownClean  bool                     `json:"shutdown_clean"`
+	Connection     *ConnectionState         `json:"connection,omitempty"`
+	Update         *UpdateState             `json:"update,omitempty"`
+	Projects       map[string]*ProjectState `json:"projects"`
+	Routes         map[string]*RouteState   `json:"routes"`
+	Certificates   map[string]*CertState    `json:"certificates,omitempty"`
+	Backup         *BackupState             `json:"backup,omitempty"`
+}
+
+// ConnectionState tracks WebSocket connection history.
+type ConnectionState struct {
+	LastConnected    string `json:"last_connected,omitempty"`
+	LastDisconnected string `json:"last_disconnected,omitempty"`
+	ReconnectAttempts int   `json:"reconnect_attempts,omitempty"`
+}
+
+// UpdateState tracks self-update status.
+type UpdateState struct {
+	CurrentVersion   string `json:"current_version,omitempty"`
+	LastCheck        string `json:"last_check,omitempty"`
+	AvailableVersion string `json:"available_version,omitempty"`
 }
 
 // ProjectState tracks all containers belonging to a project.
@@ -395,6 +414,81 @@ func (m *Manager) RecordBackupCompletion(snapshotID string, duration time.Durati
 	m.state.Backup.LastDurationMs = duration.Milliseconds()
 	m.state.Backup.LastTotalBytes = totalBytes
 
+	return m.save()
+}
+
+// WasUncleanShutdown returns true if the previous process did not shut down cleanly.
+func (m *Manager) WasUncleanShutdown() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.state == nil {
+		m.state = LoadState(filepath.Join(m.stateDir, StateFileName))
+	}
+	// Fresh state (no file) has ShutdownClean=false by default; treat as clean if never started.
+	if m.state.LastUpdated == "" && m.state.AgentVersion == "" {
+		return false
+	}
+	return !m.state.ShutdownClean
+}
+
+// MarkStartup records agent start and clears the clean-shutdown flag until exit.
+func (m *Manager) MarkStartup(agentVersion string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.state == nil {
+		m.state = LoadState(filepath.Join(m.stateDir, StateFileName))
+	}
+	m.state.AgentVersion = agentVersion
+	m.state.LastUpdated = time.Now().UTC().Format(time.RFC3339)
+	m.state.ShutdownClean = false
+	if m.state.Update == nil {
+		m.state.Update = &UpdateState{}
+	}
+	m.state.Update.CurrentVersion = agentVersion
+	return m.save()
+}
+
+// MarkCleanShutdown sets shutdown_clean=true before process exit.
+func (m *Manager) MarkCleanShutdown() error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.state == nil {
+		m.state = LoadState(filepath.Join(m.stateDir, StateFileName))
+	}
+	m.state.ShutdownClean = true
+	m.state.LastUpdated = time.Now().UTC().Format(time.RFC3339)
+	return m.save()
+}
+
+// RecordConnected updates connection timestamps after WS connect.
+func (m *Manager) RecordConnected() error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.state == nil {
+		m.state = LoadState(filepath.Join(m.stateDir, StateFileName))
+	}
+	if m.state.Connection == nil {
+		m.state.Connection = &ConnectionState{}
+	}
+	m.state.Connection.LastConnected = time.Now().UTC().Format(time.RFC3339)
+	m.state.Connection.ReconnectAttempts = 0
+	m.state.LastUpdated = time.Now().UTC().Format(time.RFC3339)
+	return m.save()
+}
+
+// RecordDisconnected updates disconnection timestamp.
+func (m *Manager) RecordDisconnected() error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.state == nil {
+		m.state = LoadState(filepath.Join(m.stateDir, StateFileName))
+	}
+	if m.state.Connection == nil {
+		m.state.Connection = &ConnectionState{}
+	}
+	m.state.Connection.LastDisconnected = time.Now().UTC().Format(time.RFC3339)
+	m.state.Connection.ReconnectAttempts++
+	m.state.LastUpdated = time.Now().UTC().Format(time.RFC3339)
 	return m.save()
 }
 
