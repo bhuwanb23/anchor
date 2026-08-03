@@ -230,7 +230,8 @@ func run(configPath string) {
 		"/var/lib/yourplatform",
 		cfg.ServerID,
 		backupAlertSender,
-	).WithStateManager(&mainStateManagerAdapter{sm: stateManager})
+	).WithStateManager(&mainStateManagerAdapter{sm: stateManager}).
+		WithReporter(backup.NewBackupReporter(wsClient))
 	backupScheduler.UpdateConfig(backup.SchedulerConfig{
 		Schedule:         cfg.BackupSchedule,
 		RetentionDaily:   cfg.BackupRetentionDaily,
