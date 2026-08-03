@@ -33,6 +33,7 @@ func NewRouter(database *sql.DB, cfg *config.Config, hub *ws.Hub) http.Handler {
 	r.Get("/ws/browser", ws.HandleBrowserWS(hub, database, cfg.JWTSecret))
 
 	releaseDir := filepath.Join(".", "release")
+	r.Get("/releases/latest.json", handlers.LatestRelease)
 	r.Handle("/releases/*", http.StripPrefix("/releases/", http.FileServer(http.Dir(releaseDir))))
 
 	// Create DNS client if Cloudflare credentials are configured
