@@ -107,3 +107,55 @@ export interface StopStreamLogsCommand {
   container_id?: string
   all?: boolean
 }
+
+// Backup types
+export interface BackupComponentResult {
+  type: string
+  name: string
+  size_bytes: number
+  status: "success" | "failed"
+}
+
+export interface BackupProjectResult {
+  name: string
+  status: "success" | "partial" | "failed"
+  components?: BackupComponentResult[]
+  error?: string
+}
+
+export interface BackupJob {
+  id: string
+  server_id: string
+  status: "pending" | "running" | "success" | "partial" | "failed"
+  started_at?: string
+  completed_at?: string
+  error_message?: string
+  snapshot_id?: string
+  duration_seconds?: number
+  size_new_bytes?: number
+  size_total_bytes?: number
+  project_results?: string // JSON string of BackupProjectResult[]
+  retention_applied?: boolean
+  snapshots_pruned?: number
+  created_at: string
+}
+
+export interface BackupSchedule {
+  id: string
+  server_id: string
+  enabled: boolean
+  schedule: string
+  retention_daily: number
+  retention_weekly: number
+  retention_monthly: number
+  hour_utc?: number
+  last_backup_at?: string
+  next_backup_at?: string
+  created_at: string
+  updated_at: string
+}
+
+export interface BackupUsage {
+  total_bytes: number
+  snapshot_count: number
+}
