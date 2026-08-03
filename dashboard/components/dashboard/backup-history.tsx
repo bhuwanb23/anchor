@@ -120,7 +120,7 @@ export function BackupHistory({ jobs, onRestore }: BackupHistoryProps) {
               )}
               {job.status === "partial" || hasPartial ? (
                 <Badge variant="warning">Partial</Badge>
-              )}
+              ) : null}
               {(job.status === "failed" || hasFailed) && (
                 <Badge variant="danger">Failed</Badge>
               )}
@@ -129,7 +129,7 @@ export function BackupHistory({ jobs, onRestore }: BackupHistoryProps) {
               )}
               {job.status === "success" && job.snapshot_id && onRestore && (
                 <Button
-                  variant="outline"
+                  variant="secondary"
                   size="sm"
                   onClick={() => onRestore(job)}
                   className="ml-2"

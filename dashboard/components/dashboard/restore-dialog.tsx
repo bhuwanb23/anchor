@@ -129,7 +129,7 @@ export function RestoreDialog({ job, isOpen, onClose, onRestore }: RestoreDialog
         {/* Actions */}
         <div className="flex justify-end gap-3">
           <Button
-            variant="outline"
+            variant="secondary"
             onClick={onClose}
             disabled={isRestoring}
           >
