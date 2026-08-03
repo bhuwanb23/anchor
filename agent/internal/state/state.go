@@ -29,23 +29,23 @@ const (
 
 // State represents the full agent state persisted to disk.
 type State struct {
-	Version        int                      `json:"version"`
-	AgentVersion   string                   `json:"agent_version,omitempty"`
-	LastUpdated    string                   `json:"last_updated,omitempty"`
-	ShutdownClean  bool                     `json:"shutdown_clean"`
-	Connection     *ConnectionState         `json:"connection,omitempty"`
-	Update         *UpdateState             `json:"update,omitempty"`
-	Projects       map[string]*ProjectState `json:"projects"`
-	Routes         map[string]*RouteState   `json:"routes"`
-	Certificates   map[string]*CertState    `json:"certificates,omitempty"`
-	Backup         *BackupState             `json:"backup,omitempty"`
+	Version       int                      `json:"version"`
+	AgentVersion  string                   `json:"agent_version,omitempty"`
+	LastUpdated   string                   `json:"last_updated,omitempty"`
+	ShutdownClean bool                     `json:"shutdown_clean"`
+	Connection    *ConnectionState         `json:"connection,omitempty"`
+	Update        *UpdateState             `json:"update,omitempty"`
+	Projects      map[string]*ProjectState `json:"projects"`
+	Routes        map[string]*RouteState   `json:"routes"`
+	Certificates  map[string]*CertState    `json:"certificates,omitempty"`
+	Backup        *BackupState             `json:"backup,omitempty"`
 }
 
 // ConnectionState tracks WebSocket connection history.
 type ConnectionState struct {
-	LastConnected    string `json:"last_connected,omitempty"`
-	LastDisconnected string `json:"last_disconnected,omitempty"`
-	ReconnectAttempts int   `json:"reconnect_attempts,omitempty"`
+	LastConnected     string `json:"last_connected,omitempty"`
+	LastDisconnected  string `json:"last_disconnected,omitempty"`
+	ReconnectAttempts int    `json:"reconnect_attempts,omitempty"`
 }
 
 // UpdateState tracks self-update status.
@@ -57,7 +57,18 @@ type UpdateState struct {
 
 // ProjectState tracks all containers belonging to a project.
 type ProjectState struct {
-	Containers map[string]*ContainerState `json:"containers"`
+	Containers         map[string]*ContainerState `json:"containers"`
+	LastDeployment     *DeploymentRecord          `json:"last_deployment,omitempty"`
+	PreviousDeployment *DeploymentRecord          `json:"previous_deployment,omitempty"`
+}
+
+// DeploymentRecord stores enough info to roll back a deploy.
+type DeploymentRecord struct {
+	Image       string `json:"image"`
+	Port        int    `json:"port"`
+	Domain      string `json:"domain,omitempty"`
+	ContainerID string `json:"container_id,omitempty"`
+	DeployedAt  string `json:"deployed_at"`
 }
 
 // ContainerState tracks a single container's known state.
