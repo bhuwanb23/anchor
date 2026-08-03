@@ -488,11 +488,26 @@ func (e *Executor) executeDeploy(ctx context.Context, cmd Command, result *Resul
 		return fmt.Errorf("start container: %w", err)
 	}
 
-	// Wait for health check to pass (up to 2 minutes)
-	if err := e.docker.WaitForHealthy(ctx, id, 2*time.Minute); err != nil {
+	// Wait for health check to pass (60s — fatal per Layer 4B)
+	SendProgress(e.progressSender, cmd.ID, "health", "Waiting for health check...", 70)
+	if err := e.docker.WaitForHealthy(ctx, id, 60*time.Second); err != nil {
 		slog.Warn("container did not become healthy after deploy",
 			"app", p.AppName, "container", id[:12], "error", err)
-		// Non-fatal — container may still serve traffic without health check
+		logs := e.tailLogs(ctx, id, 50)
+		_ = e.docker.RemoveContainerSafe(ctx, id)
+
+		// Auto-rollback to previous deployment
+		if prev := e.rollbackToPrevious(ctx, p.AppName); prev != nil {
+			result.Status = "failed"
+			result.Error = fmt.Sprintf("health check failed: %v; rolled back to previous version (%s)", err, prev.Image)
+			result.Logs = logs
+			result.Output = "auto_rollback=success"
+			return nil
+		}
+		result.Status = "failed"
+		result.Error = fmt.Sprintf("health check failed: %v; auto-rollback unavailable (no previous deployment)", err)
+		result.Logs = logs
+		return nil
 	}
 
 	// Start background health monitoring (runs until context is cancelled)
@@ -505,15 +520,24 @@ func (e *Executor) executeDeploy(ctx context.Context, cmd Command, result *Resul
 		return true // continue monitoring
 	})
 
-	// --- Caddy route ---
+	// --- Caddy route (only after healthy) ---
+	SendProgress(e.progressSender, cmd.ID, "routing", "Configuring domain route...", 85)
 	if p.Domain != "" && p.Port > 0 {
 		routeID := caddy.RouteID(p.AppName)
 		upstream := fmt.Sprintf("127.0.0.1:%d", p.Port)
 		domains := []string{p.Domain}
 		if err := e.caddy.SetRouteByID(routeID, domains, upstream); err != nil {
+			logs := e.tailLogs(ctx, id, 50)
+			_ = e.docker.RemoveContainerSafe(ctx, id)
+			if prev := e.rollbackToPrevious(ctx, p.AppName); prev != nil {
+				result.Status = "failed"
+				result.Error = fmt.Sprintf("caddy route failed: %v; rolled back to %s", err, prev.Image)
+				result.Logs = logs
+				result.Output = "auto_rollback=success"
+				return nil
+			}
 			return fmt.Errorf("set caddy route: %w", err)
 		}
-		// Store route in state
 		if e.stateManager != nil {
 			_ = e.stateManager.SetRoute(routeID, p.AppName, domains, upstream)
 		}
@@ -530,6 +554,13 @@ func (e *Executor) executeDeploy(ctx context.Context, cmd Command, result *Resul
 			RestartPolicy: "always",
 			CreatedAt:     time.Now().UTC().Format(time.RFC3339),
 		})
+		_ = e.stateManager.RecordDeployment(p.AppName, &state.DeploymentRecord{
+			Image:       p.Image,
+			Port:        p.Port,
+			Domain:      p.Domain,
+			ContainerID: id,
+			DeployedAt:  time.Now().UTC().Format(time.RFC3339),
+		})
 	}
 
 	volInfo := ""
@@ -537,9 +568,47 @@ func (e *Executor) executeDeploy(ctx context.Context, cmd Command, result *Resul
 		volInfo = fmt.Sprintf(", %d volume(s) mounted", len(volumeMounts))
 	}
 
+	SendProgress(e.progressSender, cmd.ID, "complete", "Deploy finished", 100)
 	result.Status = "success"
 	result.Output = fmt.Sprintf("deployed %s (container %s%s)", p.AppName, id[:12], volInfo)
 	return nil
+}
+
+func (e *Executor) tailLogs(ctx context.Context, containerID string, lines int) string {
+	if e.docker == nil {
+		return ""
+	}
+	out, err := e.docker.GetContainerLogs(ctx, containerID, lines)
+	if err != nil {
+		return ""
+	}
+	return out
+}
+
+// rollbackToPrevious redeploys the previous deployment image; returns the record if successful.
+func (e *Executor) rollbackToPrevious(ctx context.Context, appName string) *state.DeploymentRecord {
+	if e.stateManager == nil {
+		return nil
+	}
+	prev := e.stateManager.GetPreviousDeployment(appName)
+	if prev == nil || prev.Image == "" {
+		return nil
+	}
+	payload, _ := json.Marshal(DeployPayload{
+		AppName: appName,
+		Image:   prev.Image,
+		Port:    prev.Port,
+		Domain:  prev.Domain,
+		Name:    appName,
+	})
+	cmd := Command{ID: "auto-rollback-" + appName, Type: "deploy", Payload: payload}
+	// Avoid infinite recursion on health failure during rollback by using internal deploy without nested rollback
+	res := &Result{}
+	if err := e.executeDeployNoRollback(ctx, cmd, res, prev); err != nil || res.Status == "failed" {
+		slog.Error("auto-rollback failed", "app", appName, "error", err, "result", res.Error)
+		return nil
+	}
+	return prev
 }
 
 func (e *Executor) executeRollback(ctx context.Context, cmd Command, result *Result) error {
