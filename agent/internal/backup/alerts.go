@@ -88,3 +88,33 @@ func AlertBackupRetrying(attempt, maxAttempts int, reason string) BackupAlert {
 		),
 	}
 }
+
+// AlertVerificationFailed creates an alert when post-backup or weekly verification fails.
+func AlertVerificationFailed(snapshotID, reason string) BackupAlert {
+	return BackupAlert{
+		Level: "warning",
+		Type:  "backup_verification_failed",
+		Message: fmt.Sprintf(
+			"Warning: Your backup storage appears to have data integrity issues. "+
+				"Backups are continuing but some snapshots may not be fully restorable. "+
+				"Please contact support immediately. "+
+				"Snapshot: %s. Error: %s",
+			snapshotID, reason,
+		),
+	}
+}
+
+// AlertVerificationCritical creates an alert when monthly full verification fails.
+func AlertVerificationCritical(reason string) BackupAlert {
+	return BackupAlert{
+		Level: "critical",
+		Type:  "backup_verification_critical",
+		Message: fmt.Sprintf(
+			"Critical: Monthly backup verification failed. "+
+				"Your backup repository may have data corruption. "+
+				"Please contact support immediately. "+
+				"Error: %s",
+			reason,
+		),
+	}
+}
