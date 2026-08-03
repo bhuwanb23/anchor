@@ -614,11 +614,11 @@ func (c *Client) InspectContainer(ctx context.Context, id string) (types.Contain
 // resource usage at a point in time. It is the Layer 3A surface that
 // higher layers (e.g. Layer 4C metrics) consume.
 type ContainerStats struct {
-	CPUPercent     float64 // percentage across all allocated CPUs
-	RAMUsedBytes   uint64  // current memory usage (cgroup usage minus cache)
-	RAMLimitBytes  uint64  // hard memory limit (0 if unset)
-	NetRxBytes     uint64  // aggregate bytes received (across interfaces)
-	NetTxBytes     uint64  // aggregate bytes sent (across interfaces)
+	CPUPercent    float64 // percentage across all allocated CPUs
+	RAMUsedBytes  uint64  // current memory usage (cgroup usage minus cache)
+	RAMLimitBytes uint64  // hard memory limit (0 if unset)
+	NetRxBytes    uint64  // aggregate bytes received (across interfaces)
+	NetTxBytes    uint64  // aggregate bytes sent (across interfaces)
 }
 
 // GetContainerStats performs a one-shot Docker stats call for a single
@@ -731,17 +731,17 @@ const (
 )
 
 type CreateContainerOpts struct {
-	Name         string
-	Image        string
-	PortBindings nat.PortMap
-	ExposedPorts nat.PortSet
-	Env          []string
-	Networks     []NetworkEndpointConfig // Attach to networks at creation time (one step)
-	VolumeMounts []VolumeMount          // Mount persistent volumes into the container
-	Labels       map[string]string       // Container labels (project, role, managed-by, etc.)
-	ResourceLimits *ResourceLimits       // Memory and CPU limits (nil = no limits)
-	HealthCheck    *HealthCheckConfig    // Docker health check (nil = none)
-	RestartPolicy  string // "always" (default), "unless-stopped", "no"
+	Name           string
+	Image          string
+	PortBindings   nat.PortMap
+	ExposedPorts   nat.PortSet
+	Env            []string
+	Networks       []NetworkEndpointConfig // Attach to networks at creation time (one step)
+	VolumeMounts   []VolumeMount           // Mount persistent volumes into the container
+	Labels         map[string]string       // Container labels (project, role, managed-by, etc.)
+	ResourceLimits *ResourceLimits         // Memory and CPU limits (nil = no limits)
+	HealthCheck    *HealthCheckConfig      // Docker health check (nil = none)
+	RestartPolicy  string                  // "always" (default), "unless-stopped", "no"
 }
 
 // ---------------------------------------------------------------------------
