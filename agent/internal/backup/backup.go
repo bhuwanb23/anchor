@@ -320,6 +320,14 @@ func (b *BackupManager) WithDockerClient(client DockerClient) *BackupManager {
 	return b
 }
 
+// GetRepository returns the repository manager for verification operations.
+func (b *BackupManager) GetRepository() *RepositoryManager {
+	if b.repository == nil && b.config != nil {
+		b.repository = NewRepositoryManager(*b.config, b.restic.BinaryPath(), b.dataDir)
+	}
+	return b.repository
+}
+
 // RunManifestBackup executes a manifest-driven backup if state and Docker are available.
 // Falls back to legacy RunBackup if dependencies are not set.
 func (b *BackupManager) RunManifestBackup(ctx context.Context, serverID string) (*BackupRunResult, error) {

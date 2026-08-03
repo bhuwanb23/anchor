@@ -260,6 +260,8 @@ func (e *Executor) Execute(ctx context.Context, cmd Command) Result {
 		err = e.executeBackupRestore(ctx, cmd, &result)
 	case "backup_config":
 		err = e.executeBackupConfig(ctx, cmd, &result)
+	case "backup_verify":
+		err = e.executeBackupVerify(ctx, cmd, &result)
 	case "fetch_logs":
 		err = e.executeFetchLogs(ctx, cmd, &result)
 	case "delete_project":
@@ -884,6 +886,69 @@ func (e *Executor) executeBackupConfig(ctx context.Context, cmd Command, result 
 
 	result.Status = "success"
 	result.Output = "backup config updated"
+	return nil
+}
+
+// BackupVerifyPayload is the payload for backup_verify commands.
+type BackupVerifyPayload struct {
+	ServerID  string `json:"server_id"`
+	SnapshotID string `json:"snapshot_id,omitempty"`
+	Subset    string `json:"subset,omitempty"` // "5%", "25%", "100%"
+}
+
+func (e *Executor) executeBackupVerify(ctx context.Context, cmd Command, result *Result) error {
+	var p BackupVerifyPayload
+	if err := json.Unmarshal(cmd.Payload, &p); err != nil {
+		return fmt.Errorf("invalid backup_verify payload: %w", err)
+	}
+
+	if e.backup == nil {
+		return fmt.Errorf("backup manager not initialized")
+	}
+
+	// Create verification manager
+	verifier := backup.NewVerificationManager(e.backup.GetRepository())
+
+	// Determine verification tier based on subset
+	subset := p.SnapshotID
+	if subset == "" {
+		subset = "5%" // Default to post-backup verification
+	}
+
+	var status *backup.VerificationStatus
+	switch subset {
+	case "100%":
+		status = verifier.VerifyFull(ctx, p.SnapshotID)
+	case "25%":
+		status = verifier.VerifyDeep(ctx, p.SnapshotID)
+	default:
+		status = verifier.VerifyPostBackup(ctx, p.SnapshotID)
+	}
+
+	// Report verification result
+	if e.backupReporter != nil {
+		msg := map[string]interface{}{
+			"type": "backup_verification",
+			"payload": map[string]interface{}{
+				"server_id":        e.serverID,
+				"backup_id":        cmd.ID,
+				"snapshot_id":      status.SnapshotID,
+				"status":           status.Status,
+				"subset":           status.Subset,
+				"started_at":       status.StartedAt,
+				"completed_at":     status.CompletedAt,
+				"duration_seconds": int64(status.Duration.Seconds()),
+				"files_count":      status.FilesCount,
+				"error":            status.Error,
+			},
+		}
+		if err := e.backupReporter.wsClient.SendJSON(msg); err != nil {
+			slog.Warn("failed to send verification result", "error", err)
+		}
+	}
+
+	result.Status = "success"
+	result.Output = fmt.Sprintf("verification %s: %s", status.Status, status.Subset)
 	return nil
 }
 
