@@ -523,7 +523,14 @@ func (h *Backup) TriggerBackupVerification(w http.ResponseWriter, r *http.Reques
 		},
 	}
 
-	h.Hub.SendToAgent(serverID, msg)
+	msgBytes, err := json.Marshal(msg)
+	if err != nil {
+		slog.Error("marshal verification message", "error", err)
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	h.Hub.SendToAgent(serverID, msgBytes)
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{
