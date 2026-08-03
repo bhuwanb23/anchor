@@ -158,9 +158,17 @@ export interface BackupSchedule {
   updated_at: string
 }
 
+export interface BackupUsageHistoryPoint {
+  size_bytes: number
+  recorded_at: string
+}
+
 export interface BackupUsage {
   total_bytes: number
   snapshot_count: number
+  limit_bytes: number
+  percent_used: number
+  history: BackupUsageHistoryPoint[]
 }
 
 // Restore types

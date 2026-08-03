@@ -28,6 +28,45 @@ function formatBytes(bytes: number): string {
   return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + " " + sizes[i];
 }
 
+function StorageHistoryChart({
+  history,
+  limitBytes,
+}: {
+  history: { size_bytes: number; recorded_at: string }[];
+  limitBytes: number;
+}) {
+  const max = Math.max(limitBytes, ...history.map((h) => h.size_bytes), 1);
+  const width = 320;
+  const height = 64;
+  const pad = 2;
+  const points = history
+    .map((h, i) => {
+      const x =
+        pad + (i / Math.max(1, history.length - 1)) * (width - pad * 2);
+      const y =
+        height - pad - (h.size_bytes / max) * (height - pad * 2);
+      return `${x},${y}`;
+    })
+    .join(" ");
+
+  return (
+    <svg
+      viewBox={`0 0 ${width} ${height}`}
+      className="h-16 w-full text-emerald-600"
+      preserveAspectRatio="none"
+      role="img"
+      aria-label="Backup storage usage over time"
+    >
+      <polyline
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        points={points}
+      />
+    </svg>
+  );
+}
+
 export default function BackupsPage({
   params,
 }: {
@@ -150,16 +189,61 @@ export default function BackupsPage({
           {usageLoading ? (
             <div className="text-sm text-muted-foreground">Loading...</div>
           ) : (
-            <div className="text-sm">
-              <span className="font-medium">
-                {usage ? formatBytes(usage.total_bytes) : "0 B"}
-              </span>{" "}
-              used in backup storage
-              {usage && usage.snapshot_count > 0 && (
-                <span className="text-muted-foreground">
-                  {" "}
-                  ({usage.snapshot_count} snapshots)
+            <div className="space-y-4">
+              <div className="flex items-baseline justify-between gap-4 text-sm">
+                <div>
+                  <span className="font-medium">
+                    {usage ? formatBytes(usage.total_bytes) : "0 B"}
+                  </span>
+                  <span className="text-muted-foreground">
+                    {" "}
+                    of {usage ? formatBytes(usage.limit_bytes || 1073741824) : "1 GB"} used
+                  </span>
+                  {usage && usage.snapshot_count > 0 && (
+                    <span className="text-muted-foreground">
+                      {" "}
+                      ({usage.snapshot_count} snapshots)
+                    </span>
+                  )}
+                </div>
+                <span
+                  className={
+                    (usage?.percent_used ?? 0) >= 95
+                      ? "font-medium text-red-600"
+                      : (usage?.percent_used ?? 0) >= 80
+                        ? "font-medium text-amber-600"
+                        : "text-muted-foreground"
+                  }
+                >
+                  {(usage?.percent_used ?? 0).toFixed(0)}%
                 </span>
+              </div>
+
+              <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
+                <div
+                  className={
+                    (usage?.percent_used ?? 0) >= 95
+                      ? "h-full rounded-full bg-red-500 transition-all"
+                      : (usage?.percent_used ?? 0) >= 80
+                        ? "h-full rounded-full bg-amber-500 transition-all"
+                        : "h-full rounded-full bg-emerald-500 transition-all"
+                  }
+                  style={{
+                    width: `${Math.min(100, usage?.percent_used ?? 0)}%`,
+                  }}
+                />
+              </div>
+
+              {usage?.history && usage.history.length > 1 && (
+                <div>
+                  <div className="mb-2 text-xs text-muted-foreground">
+                    Usage over time
+                  </div>
+                  <StorageHistoryChart
+                    history={usage.history}
+                    limitBytes={usage.limit_bytes || 1073741824}
+                  />
+                </div>
               )}
             </div>
           )}

@@ -1,4 +1,4 @@
-package backup
+package ws
 
 import (
 	"database/sql"
