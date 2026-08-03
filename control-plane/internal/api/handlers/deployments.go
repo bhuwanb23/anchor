@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/yourname/yourplatform/control-plane/internal/config"
@@ -77,18 +78,24 @@ func MakeDeployApp(db *sql.DB, cfg *config.Config, hub *ws.Hub) http.HandlerFunc
 			return
 		}
 
-		// Send deploy command to agent via WebSocket
-		deployMsg := map[string]interface{}{
+		// Send deploy command to agent via WebSocket (queue if offline)
+		expires := time.Now().UTC().Add(time.Hour).Format(time.RFC3339)
+		cmd := map[string]interface{}{
+			"id":         deploymentID,
 			"type":       "deploy",
-			"deployment": deploymentID,
-			"app_name":   req.AppName,
-			"image":      req.Image,
-			"port":       req.Port,
-			"domain":     domainStr,
+			"server_id":  req.ServerID,
+			"expires_at": expires,
+			"payload": map[string]interface{}{
+				"app_name": req.AppName,
+				"image":    req.Image,
+				"port":     req.Port,
+				"domain":   domainStr,
+			},
 		}
-		msgBytes, _ := json.Marshal(deployMsg)
-		if !hub.SendToAgent(req.ServerID, msgBytes) {
-			slog.Warn("agent not connected, deploy queued", "server_id", req.ServerID)
+		if err := ws.QueueOrSendCommand(hub, db, req.ServerID, cmd); err != nil {
+			slog.Error("queue deploy command", "error", err)
+			http.Error(w, "internal server error", http.StatusInternalServerError)
+			return
 		}
 
 		slog.Info("deploy initiated", "deployment_id", deploymentID, "server_id", req.ServerID, "app", req.AppName, "domain", domainStr)
