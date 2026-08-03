@@ -101,9 +101,9 @@ func (r *Reporter) SendBatch(serverID string, reports []HealthReport) {
 		return
 	}
 	msg := map[string]interface{}{
-		"type":     "health_report_batch",
+		"type":      "health_report_batch",
 		"server_id": serverID,
-		"reports":  reports,
+		"reports":   reports,
 	}
 	if err := r.sender.SendJSON(msg); err != nil {
 		slog.Warn("metrics: failed to send health_report_batch", "error", err)

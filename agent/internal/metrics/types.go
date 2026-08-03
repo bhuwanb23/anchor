@@ -23,21 +23,21 @@ type ContainerMetrics struct {
 
 // ServerMetrics holds host-level resource usage from one collection cycle.
 type ServerMetrics struct {
-	CPUPercent float64 `json:"cpu_percent"`
-	RAMUsedMB  int64   `json:"ram_used_mb"`
-	RAMTotalMB int64   `json:"ram_total_mb"`
-	RAMPercent float64 `json:"ram_percent"`
-	DiskUsedGB float64 `json:"disk_used_gb"`
-	DiskTotalGB float64 `json:"disk_total_gb"`
-	DiskPercent float64 `json:"disk_percent"`
-	VarDiskUsedGB float64 `json:"var_disk_used_gb,omitempty"`
+	CPUPercent     float64 `json:"cpu_percent"`
+	RAMUsedMB      int64   `json:"ram_used_mb"`
+	RAMTotalMB     int64   `json:"ram_total_mb"`
+	RAMPercent     float64 `json:"ram_percent"`
+	DiskUsedGB     float64 `json:"disk_used_gb"`
+	DiskTotalGB    float64 `json:"disk_total_gb"`
+	DiskPercent    float64 `json:"disk_percent"`
+	VarDiskUsedGB  float64 `json:"var_disk_used_gb,omitempty"`
 	VarDiskTotalGB float64 `json:"var_disk_total_gb,omitempty"`
 	VarDiskPercent float64 `json:"var_disk_percent,omitempty"`
-	Load1Min    float64 `json:"load_1min"`
-	LoadPerCore float64 `json:"load_per_core"`
-	CPUCores    int     `json:"cpu_cores"`
-	NetRxBytes  uint64  `json:"net_rx_bytes"`
-	NetTxBytes  uint64  `json:"net_tx_bytes"`
+	Load1Min       float64 `json:"load_1min"`
+	LoadPerCore    float64 `json:"load_per_core"`
+	CPUCores       int     `json:"cpu_cores"`
+	NetRxBytes     uint64  `json:"net_rx_bytes"`
+	NetTxBytes     uint64  `json:"net_tx_bytes"`
 }
 
 // PlatformMetrics captures the health of the platform's own components.
