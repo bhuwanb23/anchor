@@ -3,6 +3,7 @@ package handlers
 import (
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
 
@@ -234,6 +235,128 @@ func (h *Backup) BackupStatus(serverID string, payload map[string]interface{}) {
 	if err := queries.UpdateBackupJobStatus(h.DB, jobID, status, errPtr, snapPtr); err != nil {
 		slog.Error("update backup job status", "job_id", jobID, "error", err)
 	}
+}
+
+// GetBackupHistory returns paginated backup job history with full metadata.
+// GET /api/v1/servers/{serverID}/backup/history
+func (h *Backup) GetBackupHistory(w http.ResponseWriter, r *http.Request) {
+	serverID := chi.URLParam(r, "serverID")
+
+	limit := 20
+	jobs, err := queries.GetBackupJobsByServer(h.DB, serverID, limit)
+	if err != nil {
+		slog.Error("get backup history", "error", err)
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(jobs)
+}
+
+// GetBackupSchedule returns the backup schedule for a server.
+// GET /api/v1/servers/{serverID}/backup/schedule
+func (h *Backup) GetBackupSchedule(w http.ResponseWriter, r *http.Request) {
+	serverID := chi.URLParam(r, "serverID")
+
+	config, err := queries.GetBackupConfigWithSchedule(h.DB, serverID)
+	if err == sql.ErrNoRows {
+		// Create default config
+		configID := uuid.New().String()
+		if err := queries.InsertBackupConfig(h.DB, configID, serverID); err != nil {
+			slog.Error("insert default backup config", "error", err)
+			http.Error(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
+		config, err = queries.GetBackupConfigWithSchedule(h.DB, serverID)
+		if err != nil {
+			slog.Error("get backup config after insert", "error", err)
+			http.Error(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
+	}
+	if err != nil {
+		slog.Error("get backup schedule", "error", err)
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(config)
+}
+
+// UpdateBackupSchedule updates the backup schedule hour.
+// PUT /api/v1/servers/{serverID}/backup/schedule
+func (h *Backup) UpdateBackupSchedule(w http.ResponseWriter, r *http.Request) {
+	serverID := chi.URLParam(r, "serverID")
+
+	var req struct {
+		HourUTC int `json:"hour_utc"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	if req.HourUTC < 0 || req.HourUTC > 23 {
+		http.Error(w, "hour_utc must be 0-23", http.StatusBadRequest)
+		return
+	}
+
+	// Ensure config exists
+	_, err := queries.GetBackupConfigByServer(h.DB, serverID)
+	if err == sql.ErrNoRows {
+		configID := uuid.New().String()
+		if err := queries.InsertBackupConfig(h.DB, configID, serverID); err != nil {
+			slog.Error("insert backup config", "error", err)
+			http.Error(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
+	}
+
+	if err := queries.UpdateBackupSchedule(h.DB, serverID, req.HourUTC); err != nil {
+		slog.Error("update backup schedule", "error", err)
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	// Send updated config to agent
+	schedule := fmt.Sprintf("%02d:00", req.HourUTC)
+	msg := map[string]interface{}{
+		"type": "command",
+		"payload": map[string]interface{}{
+			"id":   uuid.New().String(),
+			"type": "backup_config",
+			"payload": map[string]interface{}{
+				"schedule": schedule,
+			},
+		},
+	}
+
+	msgBytes, _ := json.Marshal(msg)
+	h.Hub.SendToAgent(serverID, msgBytes)
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"status": "updated"})
+}
+
+// GetBackupUsage returns storage usage stats for a server.
+// GET /api/v1/servers/{serverID}/backup/usage
+func (h *Backup) GetBackupUsage(w http.ResponseWriter, r *http.Request) {
+	serverID := chi.URLParam(r, "serverID")
+
+	totalBytes, snapshotCount, err := queries.GetBackupUsage(h.DB, serverID)
+	if err != nil {
+		slog.Error("get backup usage", "error", err)
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"total_bytes":    totalBytes,
+		"snapshot_count": snapshotCount,
+	})
 }
 
 func strPtr(s string) *string {
