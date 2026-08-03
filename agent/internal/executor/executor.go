@@ -194,6 +194,30 @@ func (e *Executor) WithBackupReporter(r *backup.BackupReporter) *Executor {
 	return e
 }
 
+// WithProgressSender attaches a WS sender for command_ack / command_progress.
+func (e *Executor) WithProgressSender(s ProgressSender) *Executor {
+	e.progressSender = s
+	return e
+}
+
+// WithUpdateFn wires agent self-update for update_agent commands.
+func (e *Executor) WithUpdateFn(fn func(ctx context.Context, version string) error) *Executor {
+	e.updateFn = fn
+	return e
+}
+
+// WithPreflightFn wires run_preflight commands.
+func (e *Executor) WithPreflightFn(fn func() (string, error)) *Executor {
+	e.preflightFn = fn
+	return e
+}
+
+// Slots returns the slot manager (for tests).
+func (e *Executor) Slots() *SlotManager { return e.slots }
+
+// Idempotency returns the idempotency cache (for tests).
+func (e *Executor) Idempotency() *IdempotencyCache { return e.idempotency }
+
 // LogStreamer returns the attached log streamer, or nil if not configured.
 func (e *Executor) LogStreamer() *logstream.LogStreamer {
 	return e.logStreamer
