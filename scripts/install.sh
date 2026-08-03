@@ -278,14 +278,16 @@ Description=YourPlatform Agent
 After=network-online.target docker.service
 Wants=network-online.target
 Requires=docker.service
+StartLimitIntervalSec=200
+StartLimitBurst=5
 
 [Service]
 Type=simple
 ExecStart=/usr/local/bin/yourplatform-agent run --config /etc/yourplatform/config.yaml
-Restart=always
+Restart=on-failure
 RestartSec=10
-StartLimitInterval=200
-StartLimitBurst=5
+TimeoutStopSec=90
+KillMode=mixed
 MemoryMax=256M
 CPUQuota=20%
 StandardOutput=journal
