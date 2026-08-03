@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import api from "@/lib/api";
-import type { BackupJob, BackupSchedule, BackupUsage, RestoreRequest, RestoreJob } from "@/types";
+import type { BackupJob, BackupSchedule, BackupUsage, RestoreRequest, RestoreJob, VerificationSchedule } from "@/types";
 
 export function useBackupHistory(serverId: string, pollIntervalMs = 10000) {
   const [jobs, setJobs] = useState<BackupJob[]>([]);
@@ -235,4 +235,69 @@ export function useTriggerRestore(serverId: string) {
   );
 
   return { triggerRestore, isTriggering, error };
+}
+
+// ---------------------------------------------------------------------------
+// Verification hooks
+// ---------------------------------------------------------------------------
+
+export function useBackupVerification(serverId: string) {
+  const [verification, setVerification] = useState<VerificationSchedule | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const mountedRef = useRef(true);
+
+  const fetchVerification = useCallback(async () => {
+    try {
+      const res = await api.get<VerificationSchedule>(
+        `/api/v1/servers/${serverId}/backup/verification`
+      );
+      if (mountedRef.current) {
+        setVerification(res.data);
+        setError(null);
+      }
+    } catch (e) {
+      if (mountedRef.current) {
+        setError(e instanceof Error ? e.message : "Failed to fetch verification status");
+      }
+    } finally {
+      if (mountedRef.current) {
+        setIsLoading(false);
+      }
+    }
+  }, [serverId]);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    fetchVerification();
+    return () => {
+      mountedRef.current = false;
+    };
+  }, [fetchVerification]);
+
+  return { verification, isLoading, error, refetch: fetchVerification };
+}
+
+export function useTriggerVerification(serverId: string) {
+  const [isTriggering, setIsTriggering] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const triggerVerification = useCallback(async () => {
+    setIsTriggering(true);
+    setError(null);
+    try {
+      await api.post(
+        `/api/v1/servers/${serverId}/backup/verification/trigger`,
+        {}
+      );
+      setIsTriggering(false);
+      return true;
+    } catch (e) {
+      setIsTriggering(false);
+      setError(e instanceof Error ? e.message : "Failed to trigger verification");
+      return false;
+    }
+  }, [serverId]);
+
+  return { triggerVerification, isTriggering, error };
 }
