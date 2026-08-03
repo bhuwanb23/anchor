@@ -183,6 +183,62 @@ func (m *Manager) SetContainer(project, role string, container *ContainerState) 
 	return m.save()
 }
 
+// RecordDeployment shifts last→previous and sets a new last deployment.
+func (m *Manager) RecordDeployment(project string, rec *DeploymentRecord) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if m.state == nil {
+		m.state = LoadState(filepath.Join(m.stateDir, StateFileName))
+	}
+	if m.state.Projects == nil {
+		m.state.Projects = make(map[string]*ProjectState)
+	}
+	ps, ok := m.state.Projects[project]
+	if !ok {
+		ps = &ProjectState{Containers: make(map[string]*ContainerState)}
+		m.state.Projects[project] = ps
+	}
+	if ps.LastDeployment != nil {
+		ps.PreviousDeployment = ps.LastDeployment
+	}
+	ps.LastDeployment = rec
+	return m.save()
+}
+
+// GetPreviousDeployment returns the previous deployment for rollback.
+func (m *Manager) GetPreviousDeployment(project string) *DeploymentRecord {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.state == nil {
+		m.state = LoadState(filepath.Join(m.stateDir, StateFileName))
+	}
+	ps, ok := m.state.Projects[project]
+	if !ok || ps.PreviousDeployment == nil {
+		return nil
+	}
+	cp := *ps.PreviousDeployment
+	return &cp
+}
+
+// GetProjectAppContainer returns the app container state for a project.
+func (m *Manager) GetProjectAppContainer(project string) *ContainerState {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.state == nil {
+		m.state = LoadState(filepath.Join(m.stateDir, StateFileName))
+	}
+	ps, ok := m.state.Projects[project]
+	if !ok || ps.Containers == nil {
+		return nil
+	}
+	if c, ok := ps.Containers["app"]; ok {
+		cp := *c
+		return &cp
+	}
+	return nil
+}
+
 // RemoveContainer removes a single container from the state.
 func (m *Manager) RemoveContainer(project, role string) error {
 	m.mu.Lock()
