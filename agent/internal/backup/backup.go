@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"time"
 )
 
 type BackupManager struct {
@@ -25,6 +26,8 @@ type BackupManager struct {
 // StateManager interface for state operations.
 type StateManager interface {
 	GetState() *StateData
+	GetLastBackupTime() time.Time
+	RecordBackupCompletion(snapshotID string, duration time.Duration, totalBytes int64) error
 }
 
 // StateData holds project state for backup manifest building.

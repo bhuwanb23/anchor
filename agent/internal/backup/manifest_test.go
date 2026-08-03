@@ -45,7 +45,9 @@ func (m *MockDockerClient) ExecInContainer(ctx context.Context, containerID stri
 
 // mockStateManager is a minimal mock for testing.
 type mockStateManager struct {
-	projects map[string]interface{}
+	projects      map[string]interface{}
+	lastBackupAt  time.Time
+	lastSnapshotID string
 }
 
 func (m *mockStateManager) GetState() *StateData {
@@ -57,6 +59,16 @@ func (m *mockStateManager) GetState() *StateData {
 	return &StateData{
 		Projects: m.projects,
 	}
+}
+
+func (m *mockStateManager) GetLastBackupTime() time.Time {
+	return m.lastBackupAt
+}
+
+func (m *mockStateManager) RecordBackupCompletion(snapshotID string, duration time.Duration, totalBytes int64) error {
+	m.lastBackupAt = time.Now()
+	m.lastSnapshotID = snapshotID
+	return nil
 }
 
 func TestNewBackupManifestBuilder(t *testing.T) {

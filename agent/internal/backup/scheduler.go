@@ -29,16 +29,17 @@ type SchedulerConfig struct {
 
 // BackupScheduler manages scheduled backup execution.
 type BackupScheduler struct {
-	executor    BackupExecutor
-	lock        *BackupLock
-	config      SchedulerConfig
-	serverID    string
-	dataDir     string
-	alertSender AlertSender
-	stopCh      chan struct{}
-	mu          sync.Mutex
-	nextRun     time.Time
-	running     bool
+	executor     BackupExecutor
+	lock         *BackupLock
+	config       SchedulerConfig
+	serverID     string
+	dataDir      string
+	alertSender  AlertSender
+	stateManager StateManager
+	stopCh       chan struct{}
+	mu           sync.Mutex
+	nextRun      time.Time
+	running      bool
 }
 
 // NewBackupScheduler creates a new backup scheduler.
@@ -65,6 +66,12 @@ func NewBackupScheduler(
 	}
 }
 
+// WithStateManager sets the state manager for missed backup detection.
+func (s *BackupScheduler) WithStateManager(sm StateManager) *BackupScheduler {
+	s.stateManager = sm
+	return s
+}
+
 // Start begins the scheduler loop. It runs in the calling goroutine.
 func (s *BackupScheduler) Start(ctx context.Context) {
 	slog.Info("backup scheduler started",
@@ -77,6 +84,23 @@ func (s *BackupScheduler) Start(ctx context.Context) {
 	}
 
 	s.calculateNextRun()
+
+	// Check for missed backups on startup
+	if s.stateManager != nil {
+		lastBackup := s.stateManager.GetLastBackupTime()
+		if !lastBackup.IsZero() {
+			timeSinceBackup := time.Since(lastBackup)
+			if timeSinceBackup > 25*time.Hour {
+				slog.Warn("missed backup detected, running immediately",
+					"last_backup", lastBackup,
+					"hours_since", timeSinceBackup.Hours())
+				go s.runBackup(ctx)
+			}
+		} else {
+			slog.Info("no previous backup found, running immediately")
+			go s.runBackup(ctx)
+		}
+	}
 
 	for {
 		select {
@@ -211,6 +235,16 @@ func (s *BackupScheduler) runBackup(ctx context.Context) {
 		slog.Info("scheduled backup completed",
 			"snapshot", result.SnapshotID,
 			"duration", result.Duration)
+		// Record completion to state for missed backup detection
+		if s.stateManager != nil {
+			if err := s.stateManager.RecordBackupCompletion(
+				result.SnapshotID,
+				result.Duration,
+				result.TotalBytes,
+			); err != nil {
+				slog.Warn("failed to record backup completion", "error", err)
+			}
+		}
 	}
 }
 
