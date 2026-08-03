@@ -56,9 +56,10 @@ type DeployPayload struct {
 }
 
 type UpdateEnvPayload struct {
-	ProjectName string            `json:"project_name"`
-	Vars        map[string]string `json:"vars"` // key=value pairs to set
-	Remove      []string          `json:"remove,omitempty"` // keys to remove
+	ProjectName  string            `json:"project_name"`
+	Vars         map[string]string `json:"vars"` // key=value pairs to set
+	Remove       []string          `json:"remove,omitempty"` // keys to remove
+	RestartAfter bool              `json:"restart_after,omitempty"`
 }
 
 type StopPayload struct {
@@ -212,6 +213,14 @@ func (e *Executor) WithPreflightFn(fn func() (string, error)) *Executor {
 	return e
 }
 
+// WithEnvManager overrides the env file manager (tests / custom dirs).
+func (e *Executor) WithEnvManager(em *env.Manager) *Executor {
+	if em != nil {
+		e.envManager = em
+	}
+	return e
+}
+
 // Slots returns the slot manager (for tests).
 func (e *Executor) Slots() *SlotManager { return e.slots }
 
@@ -274,7 +283,7 @@ func (e *Executor) Execute(ctx context.Context, cmd Command) Result {
 
 	var err error
 	switch cmd.Type {
-	case "deploy":
+	case "deploy", "redeploy":
 		err = e.executeDeploy(ctx, cmd, &result)
 	case "rollback":
 		err = e.executeRollback(ctx, cmd, &result)
@@ -282,8 +291,14 @@ func (e *Executor) Execute(ctx context.Context, cmd Command) Result {
 		err = e.executeRestart(ctx, cmd, &result)
 	case "stop":
 		err = e.executeStop(ctx, cmd, &result)
-	case "backup":
-		err = e.executeBackup(ctx, cmd, &result)
+	case "start":
+		err = e.executeStart(ctx, cmd, &result)
+	case "backup", "run_backup":
+		if cmd.Type == "run_backup" {
+			err = e.executeBackupTrigger(ctx, cmd, &result)
+		} else {
+			err = e.executeBackup(ctx, cmd, &result)
+		}
 	case "backup_init":
 		err = e.executeBackupInit(ctx, cmd, &result)
 	case "backup_status":
@@ -292,20 +307,36 @@ func (e *Executor) Execute(ctx context.Context, cmd Command) Result {
 		err = e.executeBackupList(ctx, cmd, &result)
 	case "backup_trigger":
 		err = e.executeBackupTrigger(ctx, cmd, &result)
-	case "backup_restore":
+	case "backup_restore", "restore":
 		err = e.executeBackupRestore(ctx, cmd, &result)
 	case "backup_config":
 		err = e.executeBackupConfig(ctx, cmd, &result)
 	case "backup_verify":
 		err = e.executeBackupVerify(ctx, cmd, &result)
-	case "fetch_logs":
+	case "fetch_logs", "get_logs":
 		err = e.executeFetchLogs(ctx, cmd, &result)
 	case "delete_project":
 		err = e.executeDeleteProject(ctx, cmd, &result)
-	case "update_env":
+	case "update_env", "set_env", "delete_env":
 		err = e.executeUpdateEnv(ctx, cmd, &result)
-	case "update_domains":
+	case "update_domains", "add_domain", "remove_domain":
 		err = e.executeUpdateDomains(ctx, cmd, &result)
+	case "verify_dns":
+		err = e.executeVerifyDNS(ctx, cmd, &result)
+	case "create_database":
+		err = e.executeCreateDatabase(ctx, cmd, &result)
+	case "delete_database":
+		err = e.executeDeleteDatabase(ctx, cmd, &result)
+	case "start_log_stream":
+		err = e.executeStartLogStream(ctx, cmd, &result)
+	case "stop_log_stream":
+		err = e.executeStopLogStream(ctx, cmd, &result)
+	case "update_agent":
+		err = e.executeUpdateAgent(ctx, cmd, &result)
+	case "run_preflight":
+		err = e.executeRunPreflight(ctx, cmd, &result)
+	case "get_state":
+		err = e.executeGetState(ctx, cmd, &result)
 	default:
 		result.Status = "error"
 		result.Error = fmt.Sprintf("unknown command type: %s", cmd.Type)
@@ -320,10 +351,22 @@ func (e *Executor) Execute(ctx context.Context, cmd Command) Result {
 }
 
 func (e *Executor) executeDeploy(ctx context.Context, cmd Command, result *Result) error {
+	return e.executeDeployInternal(ctx, cmd, result, true)
+}
+
+func (e *Executor) executeDeployInternal(ctx context.Context, cmd Command, result *Result, allowAutoRollback bool) error {
 	var p DeployPayload
 	if err := json.Unmarshal(cmd.Payload, &p); err != nil {
 		return fmt.Errorf("invalid deploy payload: %w", err)
 	}
+	if p.AppName == "" {
+		p.AppName = p.Name
+	}
+	if err := validateDeployPayload(p); err != nil {
+		return err
+	}
+
+	SendProgress(e.progressSender, cmd.ID, "pulling", "Pulling image...", 10)
 
 	// Pull image first
 	var progressFn docker.PullProgressFunc
@@ -336,6 +379,8 @@ func (e *Executor) executeDeploy(ctx context.Context, cmd Command, result *Resul
 	if _, _, err := e.docker.PullImageIfNeeded(ctx, p.Image, e.imageCache, progressFn); err != nil {
 		return fmt.Errorf("pull image: %w", err)
 	}
+
+	SendProgress(e.progressSender, cmd.ID, "starting", "Creating container...", 40)
 
 	// Determine container type (default to "app")
 	ct := p.ContainerType
@@ -406,42 +451,32 @@ func (e *Executor) executeDeploy(ctx context.Context, cmd Command, result *Resul
 	healthCheck := docker.DefaultHealthCheck(ct, p.Port)
 
 	// --- Environment variables ---
-	// Read existing env file, merge with deploy payload, add defaults
 	envVars, err := e.envManager.ReadEnvFile(p.AppName)
 	if err != nil {
 		slog.Warn("failed to read env file", "app", p.AppName, "error", err)
 		envVars = make(map[string]string)
 	}
 
-	// Overlay vars from deploy payload (dashboard updates)
 	for k, v := range p.Env {
 		envVars[k] = v
 	}
 
-	// Auto-generate DATABASE_URL when Postgres is added to a project
 	if ct == docker.ContainerTypePostgres {
 		dbName := p.AppName + "_db"
 		if _, exists := envVars["DATABASE_URL"]; !exists {
-			// Generate a random password and store it
 			password := generateRandomPassword(24)
 			envVars["DATABASE_URL"] = env.GenerateDatabaseURL(password, dbName)
 		}
 	}
 
-	// Add platform defaults (YOURPLATFORM, PORT)
 	envVars = env.MergeWithDefaults(envVars, p.Port)
 
-	// Write updated env file (values stored locally, never sent to control plane)
 	if err := e.envManager.WriteEnvFile(p.AppName, envVars); err != nil {
 		slog.Warn("failed to write env file", "app", p.AppName, "error", err)
 	}
 
-	// --- Container labels ---
 	labels := docker.ContainerLabels(p.AppName, ct)
 
-	// --- Deploy (create + start with crash detection) ---
-
-	// Replace existing container with same name (enables re-deploy)
 	if _, err := e.docker.ReplaceExistingContainer(ctx, containerName); err != nil {
 		slog.Warn("failed to replace existing container", "name", containerName, "error", err)
 	}
@@ -463,15 +498,10 @@ func (e *Executor) executeDeploy(ctx context.Context, cmd Command, result *Resul
 		return fmt.Errorf("create container: %w", err)
 	}
 
-	// Start with crash detection (30s timeout)
 	if err := e.docker.StartContainerWithWait(ctx, id, 30*time.Second); err != nil {
-		// If it's a crash, surface the crash reason
 		if crashErr, ok := err.(*docker.CrashError); ok {
 			_ = e.docker.RemoveContainerSafe(ctx, id)
-			result.Status = "error"
-			result.Output = ""
-
-			// OOM-specific messaging
+			result.Status = "failed"
 			if docker.IsOOMKill(crashErr.ExitCode) {
 				limitMB := rlimits.MemoryHard / (1024 * 1024)
 				result.Error = fmt.Sprintf(
@@ -481,14 +511,18 @@ func (e *Executor) executeDeploy(ctx context.Context, cmd Command, result *Resul
 			} else {
 				result.Error = crashErr.Error()
 			}
+			if allowAutoRollback {
+				if prev := e.rollbackToPrevious(ctx, p.AppName); prev != nil {
+					result.Error += fmt.Sprintf("; rolled back to %s", prev.Image)
+					result.Output = "auto_rollback=success"
+				}
+			}
 			return nil
 		}
-		// Some other error starting
 		_ = e.docker.RemoveContainerSafe(ctx, id)
 		return fmt.Errorf("start container: %w", err)
 	}
 
-	// Wait for health check to pass (60s — fatal per Layer 4B)
 	SendProgress(e.progressSender, cmd.ID, "health", "Waiting for health check...", 70)
 	if err := e.docker.WaitForHealthy(ctx, id, 60*time.Second); err != nil {
 		slog.Warn("container did not become healthy after deploy",
@@ -496,13 +530,14 @@ func (e *Executor) executeDeploy(ctx context.Context, cmd Command, result *Resul
 		logs := e.tailLogs(ctx, id, 50)
 		_ = e.docker.RemoveContainerSafe(ctx, id)
 
-		// Auto-rollback to previous deployment
-		if prev := e.rollbackToPrevious(ctx, p.AppName); prev != nil {
-			result.Status = "failed"
-			result.Error = fmt.Sprintf("health check failed: %v; rolled back to previous version (%s)", err, prev.Image)
-			result.Logs = logs
-			result.Output = "auto_rollback=success"
-			return nil
+		if allowAutoRollback {
+			if prev := e.rollbackToPrevious(ctx, p.AppName); prev != nil {
+				result.Status = "failed"
+				result.Error = fmt.Sprintf("health check failed: %v; rolled back to previous version (%s)", err, prev.Image)
+				result.Logs = logs
+				result.Output = "auto_rollback=success"
+				return nil
+			}
 		}
 		result.Status = "failed"
 		result.Error = fmt.Sprintf("health check failed: %v; auto-rollback unavailable (no previous deployment)", err)
@@ -510,31 +545,31 @@ func (e *Executor) executeDeploy(ctx context.Context, cmd Command, result *Resul
 		return nil
 	}
 
-	// Start background health monitoring (runs until context is cancelled)
 	e.docker.RunHealthMonitor(ctx, id, 30*time.Second, func(_ context.Context, health *docker.ContainerHealth) bool {
 		if health.Status == docker.HealthUnhealthy {
 			slog.Warn("container unhealthy",
 				"app", p.AppName, "container", id[:12],
 				"failing_streak", health.FailingStreak, "output", health.Output)
 		}
-		return true // continue monitoring
+		return true
 	})
 
-	// --- Caddy route (only after healthy) ---
 	SendProgress(e.progressSender, cmd.ID, "routing", "Configuring domain route...", 85)
-	if p.Domain != "" && p.Port > 0 {
+	if p.Domain != "" && p.Port > 0 && e.caddy != nil {
 		routeID := caddy.RouteID(p.AppName)
 		upstream := fmt.Sprintf("127.0.0.1:%d", p.Port)
 		domains := []string{p.Domain}
 		if err := e.caddy.SetRouteByID(routeID, domains, upstream); err != nil {
 			logs := e.tailLogs(ctx, id, 50)
 			_ = e.docker.RemoveContainerSafe(ctx, id)
-			if prev := e.rollbackToPrevious(ctx, p.AppName); prev != nil {
-				result.Status = "failed"
-				result.Error = fmt.Sprintf("caddy route failed: %v; rolled back to %s", err, prev.Image)
-				result.Logs = logs
-				result.Output = "auto_rollback=success"
-				return nil
+			if allowAutoRollback {
+				if prev := e.rollbackToPrevious(ctx, p.AppName); prev != nil {
+					result.Status = "failed"
+					result.Error = fmt.Sprintf("caddy route failed: %v; rolled back to %s", err, prev.Image)
+					result.Logs = logs
+					result.Output = "auto_rollback=success"
+					return nil
+				}
 			}
 			return fmt.Errorf("set caddy route: %w", err)
 		}
@@ -543,7 +578,6 @@ func (e *Executor) executeDeploy(ctx context.Context, cmd Command, result *Resul
 		}
 	}
 
-	// --- Update state file ---
 	if e.stateManager != nil {
 		_ = e.stateManager.SetContainer(p.AppName, string(ct), &state.ContainerState{
 			ContainerID:   id,
@@ -574,11 +608,24 @@ func (e *Executor) executeDeploy(ctx context.Context, cmd Command, result *Resul
 	return nil
 }
 
+func validateDeployPayload(p DeployPayload) error {
+	if p.AppName == "" && p.Name == "" {
+		return fmt.Errorf("app_name is required")
+	}
+	if p.Image == "" {
+		return fmt.Errorf("image is required")
+	}
+	if p.Port < 0 || p.Port > 65535 {
+		return fmt.Errorf("invalid port: %d", p.Port)
+	}
+	return nil
+}
+
 func (e *Executor) tailLogs(ctx context.Context, containerID string, lines int) string {
 	if e.docker == nil {
 		return ""
 	}
-	out, err := e.docker.GetContainerLogs(ctx, containerID, lines)
+	out, err := e.docker.GetContainerLogsTail(ctx, containerID, lines)
 	if err != nil {
 		return ""
 	}
@@ -602,9 +649,8 @@ func (e *Executor) rollbackToPrevious(ctx context.Context, appName string) *stat
 		Name:    appName,
 	})
 	cmd := Command{ID: "auto-rollback-" + appName, Type: "deploy", Payload: payload}
-	// Avoid infinite recursion on health failure during rollback by using internal deploy without nested rollback
 	res := &Result{}
-	if err := e.executeDeployNoRollback(ctx, cmd, res, prev); err != nil || res.Status == "failed" {
+	if err := e.executeDeployInternal(ctx, cmd, res, false); err != nil || res.Status == "failed" {
 		slog.Error("auto-rollback failed", "app", appName, "error", err, "result", res.Error)
 		return nil
 	}
@@ -616,76 +662,45 @@ func (e *Executor) executeRollback(ctx context.Context, cmd Command, result *Res
 		ContainerID   string `json:"container_id"`
 		PreviousImage string `json:"previous_image"`
 		AppName       string `json:"app_name"`
+		ProjectName   string `json:"project_name"`
 	}
 	if err := json.Unmarshal(cmd.Payload, &p); err != nil {
 		return fmt.Errorf("invalid rollback payload: %w", err)
 	}
-
-	if p.ContainerID != "" {
-		_ = e.docker.StopContainerGraceful(ctx, p.ContainerID)
+	appName := p.AppName
+	if appName == "" {
+		appName = p.ProjectName
+	}
+	if appName == "" {
+		return fmt.Errorf("app_name is required for rollback")
 	}
 
-	if p.PreviousImage != "" {
-		if p.AppName != "" {
-			if _, err := e.docker.EnsureProjectNetwork(ctx, p.AppName); err != nil {
-				slog.Warn("ensure network for rollback", "app", p.AppName, "error", err)
-			}
+	var prev *state.DeploymentRecord
+	if e.stateManager != nil {
+		prev = e.stateManager.GetPreviousDeployment(appName)
+	}
+	image := p.PreviousImage
+	port := 0
+	domain := ""
+	if prev != nil {
+		if image == "" {
+			image = prev.Image
 		}
-
-		networks := []docker.NetworkEndpointConfig{}
-		if p.AppName != "" {
-			networks = append(networks, docker.NetworkEndpointConfig{
-				NetworkName: docker.ProjectNetworkName(p.AppName),
-			})
-		}
-
-		id, err := e.docker.CreateContainer(ctx, docker.CreateContainerOpts{
-			Name:     "rollback-" + p.ContainerID[:8],
-			Image:    p.PreviousImage,
-			Networks: networks,
-		})
-		if err != nil {
-			return fmt.Errorf("create rollback container: %w", err)
-		}
-		if err := e.docker.StartContainer(ctx, id); err != nil {
-			return fmt.Errorf("start rollback container: %w", err)
-		}
-
-		// Update state with rollback image
-		if e.stateManager != nil && p.AppName != "" {
-			_ = e.stateManager.SetContainer(p.AppName, "app", &state.ContainerState{
-				ContainerID: id,
-				Image:       p.PreviousImage,
-				Status:      "running",
-				CreatedAt:   time.Now().UTC().Format(time.RFC3339),
-			})
-		}
-
-		// Update Caddy route to point to rollback container
-		// The rollback container gets a new port, so we need to inspect it
-		if p.AppName != "" {
-			if inspect, err := e.docker.InspectContainer(ctx, id); err == nil {
-				// Find the mapped port for the app
-				if ports, ok := inspect.NetworkSettings.Ports["3000/tcp"]; ok && len(ports) > 0 {
-					routeID := caddy.RouteID(p.AppName)
-					// Look up existing domains from state
-					routes := e.stateManager.GetRoutes()
-					if existing, ok := routes[routeID]; ok {
-						upstream := fmt.Sprintf("127.0.0.1:%s", ports[0].HostPort)
-						if err := e.caddy.SetRouteByID(routeID, existing.Domains, upstream); err != nil {
-							slog.Warn("failed to update caddy route for rollback", "error", err)
-						}
-						_ = e.stateManager.SetRoute(routeID, p.AppName, existing.Domains, upstream)
-					}
-				}
-			}
-		}
-
-		result.Output = fmt.Sprintf("rolled back to %s (container %s)", p.PreviousImage, id[:12])
+		port = prev.Port
+		domain = prev.Domain
+	}
+	if image == "" {
+		return fmt.Errorf("no previous deployment found for %s", appName)
 	}
 
-	result.Status = "success"
-	return nil
+	payload, _ := json.Marshal(DeployPayload{
+		AppName: appName,
+		Image:   image,
+		Port:    port,
+		Domain:  domain,
+		Name:    appName,
+	})
+	return e.executeDeployInternal(ctx, Command{ID: cmd.ID, Type: "deploy", Payload: payload}, result, false)
 }
 
 func (e *Executor) executeRestart(ctx context.Context, cmd Command, result *Result) error {
@@ -1068,8 +1083,9 @@ func (e *Executor) executeUpdateEnv(ctx context.Context, cmd Command, result *Re
 		return fmt.Errorf("invalid update_env payload: %w", err)
 	}
 
-	// Set/update vars
-	for k, v := range p.Vars {
+	// Set/update vars — never log secret values
+	for k := range p.Vars {
+		v := p.Vars[k]
 		if err := e.envManager.UpdateEnvVar(p.ProjectName, k, v); err != nil {
 			return fmt.Errorf("update env var %s: %w", k, err)
 		}
@@ -1085,6 +1101,23 @@ func (e *Executor) executeUpdateEnv(ctx context.Context, cmd Command, result *Re
 	}
 
 	result.Status = "success"
+	if p.RestartAfter {
+		restarted := false
+		if e.stateManager != nil && e.docker != nil {
+			if c := e.stateManager.GetProjectAppContainer(p.ProjectName); c != nil && c.ContainerID != "" {
+				if err := e.docker.RestartContainer(ctx, c.ContainerID); err != nil {
+					return fmt.Errorf("restart after env update: %w", err)
+				}
+				restarted = true
+			}
+		}
+		if restarted {
+			result.Output = fmt.Sprintf("env updated for %s — restarted", p.ProjectName)
+		} else {
+			result.Output = fmt.Sprintf("env updated for %s — restart_after requested", p.ProjectName)
+		}
+		return nil
+	}
 	result.Output = fmt.Sprintf("env updated for %s — restart to apply", p.ProjectName)
 	return nil
 }
