@@ -327,6 +327,93 @@ func (rm *RepositoryManager) PruneWithConfig(ctx context.Context, keepDaily, kee
 	return nil
 }
 
+// StatsResult holds restic repository size from `restic stats --mode raw-data`.
+type StatsResult struct {
+	TotalSize      int64 `json:"total_size"`
+	TotalFileCount int64 `json:"total_file_count"`
+	SnapshotsCount int64 `json:"snapshots_count"`
+}
+
+const ResticCacheDir = "/var/lib/yourplatform/restic-cache"
+
+// StatsRawData runs `restic stats --mode raw-data --json` and returns repository size.
+func (rm *RepositoryManager) StatsRawData(ctx context.Context) (*StatsResult, error) {
+	slog.Info("collecting restic repository stats", "dest", rm.config.Destination)
+
+	args := rm.repoArgs()
+	args = append(args, "stats", "--mode", "raw-data", "--json")
+
+	cmd := exec.CommandContext(ctx, rm.resticBin, args...)
+	rm.setCacheEnv(cmd)
+	output, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("restic stats failed: %w", err)
+	}
+
+	stats, err := ParseStatsJSON(output)
+	if err != nil {
+		return nil, err
+	}
+
+	slog.Info("repository stats collected",
+		"total_size", stats.TotalSize,
+		"files", stats.TotalFileCount,
+		"snapshots", stats.SnapshotsCount)
+	return stats, nil
+}
+
+// ParseStatsJSON parses restic stats --json output.
+func ParseStatsJSON(data []byte) (*StatsResult, error) {
+	var stats StatsResult
+	if err := json.Unmarshal(data, &stats); err != nil {
+		return nil, fmt.Errorf("parse restic stats json: %w", err)
+	}
+	return &stats, nil
+}
+
+// RebuildIndex runs `restic rebuild-index` to rebuild the repository index.
+func (rm *RepositoryManager) RebuildIndex(ctx context.Context) error {
+	slog.Info("rebuilding restic index", "dest", rm.config.Destination)
+
+	args := rm.repoArgs()
+	args = append(args, "rebuild-index")
+
+	cmd := exec.CommandContext(ctx, rm.resticBin, args...)
+	rm.setCacheEnv(cmd)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("restic rebuild-index failed: %w\n%s", err, string(output))
+	}
+
+	slog.Info("restic index rebuilt")
+	return nil
+}
+
+// CacheCleanup runs `restic cache --cleanup` to remove stale local cache entries.
+func (rm *RepositoryManager) CacheCleanup(ctx context.Context) error {
+	slog.Info("cleaning restic cache", "cache_dir", ResticCacheDir)
+
+	if err := os.MkdirAll(ResticCacheDir, 0700); err != nil {
+		return fmt.Errorf("create restic cache dir: %w", err)
+	}
+
+	args := []string{"cache", "--cleanup"}
+	cmd := exec.CommandContext(ctx, rm.resticBin, args...)
+	rm.setCacheEnv(cmd)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("restic cache --cleanup failed: %w\n%s", err, string(output))
+	}
+
+	slog.Info("restic cache cleaned")
+	return nil
+}
+
+// setCacheEnv sets RESTIC_CACHE_DIR on the command.
+func (rm *RepositoryManager) setCacheEnv(cmd *exec.Cmd) {
+	cmd.Env = append(os.Environ(), "RESTIC_CACHE_DIR="+ResticCacheDir)
+}
+
 // GeneratePassword creates a cryptographically secure 32-byte password.
 func GeneratePassword() (string, error) {
 	bytes := make([]byte, 32)

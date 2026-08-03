@@ -13,6 +13,12 @@ type BackupExecutor interface {
 	RunManifestBackup(ctx context.Context, serverID string) (*BackupRunResult, error)
 }
 
+// MaintenanceRunner runs restic repository maintenance operations.
+type MaintenanceRunner interface {
+	RebuildIndex(ctx context.Context) error
+	CacheCleanup(ctx context.Context) error
+}
+
 // AlertSender sends backup alerts to the control plane.
 type AlertSender interface {
 	SendBackupAlert(alert BackupAlert) error
@@ -38,6 +44,7 @@ type BackupScheduler struct {
 	stateManager StateManager
 	reporter     *BackupReporter
 	verifier     *VerificationManager
+	maintenance  MaintenanceRunner
 	stopCh       chan struct{}
 	mu           sync.Mutex
 	nextRun      time.Time
@@ -47,6 +54,11 @@ type BackupScheduler struct {
 	lastFullVerification time.Time
 	verifyInterval       time.Duration // default: 7 days (weekly)
 	fullVerifyInterval   time.Duration // default: 30 days (monthly)
+	// Maintenance scheduling (separate from backups)
+	lastCacheCleanup time.Time
+	lastIndexRebuild time.Time
+	cacheInterval    time.Duration // default: 7 days (weekly)
+	indexInterval    time.Duration // default: 30 days (monthly)
 }
 
 // NewBackupScheduler creates a new backup scheduler.
@@ -72,6 +84,8 @@ func NewBackupScheduler(
 		},
 		verifyInterval:     7 * 24 * time.Hour,  // weekly
 		fullVerifyInterval: 30 * 24 * time.Hour, // monthly
+		cacheInterval:      7 * 24 * time.Hour,  // weekly
+		indexInterval:      30 * 24 * time.Hour, // monthly
 	}
 }
 
@@ -90,6 +104,24 @@ func (s *BackupScheduler) WithReporter(reporter *BackupReporter) *BackupSchedule
 // WithVerifier sets the verification manager for scheduled verification.
 func (s *BackupScheduler) WithVerifier(verifier *VerificationManager) *BackupScheduler {
 	s.verifier = verifier
+	return s
+}
+
+// WithMaintenance sets the maintenance runner for cache cleanup and index rebuild.
+func (s *BackupScheduler) WithMaintenance(m MaintenanceRunner) *BackupScheduler {
+	s.maintenance = m
+	return s
+}
+
+// WithCacheCleanupInterval sets the interval between cache cleanup runs.
+func (s *BackupScheduler) WithCacheCleanupInterval(interval time.Duration) *BackupScheduler {
+	s.cacheInterval = interval
+	return s
+}
+
+// WithIndexRebuildInterval sets the interval between index rebuild runs.
+func (s *BackupScheduler) WithIndexRebuildInterval(interval time.Duration) *BackupScheduler {
+	s.indexInterval = interval
 	return s
 }
 
@@ -156,6 +188,16 @@ func (s *BackupScheduler) Start(ctx context.Context) {
 		if s.verifier != nil {
 			if s.verificationDue(now) {
 				go s.runVerification(ctx)
+			}
+		}
+
+		// Check if maintenance is due (separate from backups)
+		if s.maintenance != nil {
+			if s.cacheCleanupDue(now) {
+				go s.runCacheCleanup(ctx)
+			}
+			if s.indexRebuildDue(now) {
+				go s.runIndexRebuild(ctx)
 			}
 		}
 
@@ -418,4 +460,56 @@ func (s *BackupScheduler) runVerification(ctx context.Context) {
 		"status", result.Status,
 		"subset", result.Subset,
 		"duration", result.Duration)
+}
+
+// cacheCleanupDue returns true if weekly cache cleanup is due.
+func (s *BackupScheduler) cacheCleanupDue(now time.Time) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.lastCacheCleanup.IsZero() || now.Sub(s.lastCacheCleanup) >= s.cacheInterval
+}
+
+// indexRebuildDue returns true if monthly index rebuild is due.
+func (s *BackupScheduler) indexRebuildDue(now time.Time) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.lastIndexRebuild.IsZero() || now.Sub(s.lastIndexRebuild) >= s.indexInterval
+}
+
+// runCacheCleanup runs restic cache --cleanup if no backup is in progress.
+func (s *BackupScheduler) runCacheCleanup(ctx context.Context) {
+	if s.lock.IsLocked() || s.IsRunning() {
+		slog.Info("skipping cache cleanup: backup in progress")
+		return
+	}
+
+	slog.Info("starting weekly restic cache cleanup")
+	if err := s.maintenance.CacheCleanup(ctx); err != nil {
+		slog.Warn("restic cache cleanup failed", "error", err)
+		return
+	}
+
+	s.mu.Lock()
+	s.lastCacheCleanup = time.Now()
+	s.mu.Unlock()
+	slog.Info("weekly restic cache cleanup completed")
+}
+
+// runIndexRebuild runs restic rebuild-index if no backup is in progress.
+func (s *BackupScheduler) runIndexRebuild(ctx context.Context) {
+	if s.lock.IsLocked() || s.IsRunning() {
+		slog.Info("skipping index rebuild: backup in progress")
+		return
+	}
+
+	slog.Info("starting monthly restic index rebuild")
+	if err := s.maintenance.RebuildIndex(ctx); err != nil {
+		slog.Warn("restic rebuild-index failed", "error", err)
+		return
+	}
+
+	s.mu.Lock()
+	s.lastIndexRebuild = time.Now()
+	s.mu.Unlock()
+	slog.Info("monthly restic index rebuild completed")
 }

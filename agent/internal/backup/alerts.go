@@ -118,3 +118,57 @@ func AlertVerificationCritical(reason string) BackupAlert {
 		),
 	}
 }
+
+// AlertStorageWarning creates an alert when backup storage reaches 80% of plan limit.
+func AlertStorageWarning(usedBytes, limitBytes int64, percent int, daysUntilFull int, retentionDaily, retentionWeekly, retentionMonthly int) BackupAlert {
+	return BackupAlert{
+		Level: "warning",
+		Type:  "backup_storage_warning",
+		Message: formatStorageAlert(percent, usedBytes, limitBytes, daysUntilFull, retentionDaily, retentionWeekly, retentionMonthly),
+	}
+}
+
+// AlertStorageUrgent creates an alert when backup storage reaches 95% of plan limit.
+func AlertStorageUrgent(usedBytes, limitBytes int64, percent int, daysUntilFull int, retentionDaily, retentionWeekly, retentionMonthly int) BackupAlert {
+	return BackupAlert{
+		Level: "critical",
+		Type:  "backup_storage_urgent",
+		Message: formatStorageAlert(percent, usedBytes, limitBytes, daysUntilFull, retentionDaily, retentionWeekly, retentionMonthly),
+	}
+}
+
+func formatStorageAlert(percent int, usedBytes, limitBytes int64, daysUntilFull, retentionDaily, retentionWeekly, retentionMonthly int) string {
+	msg := fmt.Sprintf(
+		"Your backup storage is %d%% full (%s of %s used). ",
+		percent, formatBytesHuman(usedBytes), formatBytesHuman(limitBytes),
+	)
+	if daysUntilFull > 0 {
+		msg += fmt.Sprintf("At your current backup rate, storage will be full in approximately %d days. ", daysUntilFull)
+	}
+	msg += fmt.Sprintf(
+		"Options:\n"+
+			"  - Upgrade your plan for more storage\n"+
+			"  - Reduce retention period (currently keeping %d daily, %d weekly, %d monthly)\n"+
+			"  - Add your own S3 storage in settings",
+		retentionDaily, retentionWeekly, retentionMonthly,
+	)
+	return msg
+}
+
+func formatBytesHuman(bytes int64) string {
+	const (
+		kb = 1024
+		mb = kb * 1024
+		gb = mb * 1024
+	)
+	switch {
+	case bytes >= gb:
+		return fmt.Sprintf("%.1fGB", float64(bytes)/float64(gb))
+	case bytes >= mb:
+		return fmt.Sprintf("%dMB", bytes/mb)
+	case bytes >= kb:
+		return fmt.Sprintf("%dKB", bytes/kb)
+	default:
+		return fmt.Sprintf("%dB", bytes)
+	}
+}

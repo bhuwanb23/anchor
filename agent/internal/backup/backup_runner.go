@@ -38,6 +38,8 @@ type BackupRunResult struct {
 	VerificationStatus string        `json:"verification_status"` // "verified" | "failed" | "skipped"
 	VerificationError  string        `json:"verification_error,omitempty"`
 	VerificationTime   time.Duration `json:"verification_time"`
+	// RepoSizeBytes is the restic repository total size from stats --mode raw-data.
+	RepoSizeBytes int64 `json:"repo_size_bytes,omitempty"`
 }
 
 // BackupRunner executes manifest-driven backups.
@@ -223,12 +225,16 @@ func (r *BackupRunner) RunManifestBackup(ctx context.Context, serverID string) (
 		// Non-fatal: backup succeeded, prune is cleanup
 	}
 
+	// Collect repository storage usage after backup
+	r.collectRepoStats(ctx, result)
+
 	result.Duration = time.Since(startTime)
 
 	slog.Info("manifest backup completed",
 		"snapshot", result.SnapshotID,
 		"duration", result.Duration,
 		"total_bytes", result.TotalBytes,
+		"repo_size_bytes", result.RepoSizeBytes,
 		"dumps", len(result.DumpResults))
 
 	return result, nil
@@ -409,6 +415,9 @@ func (r *BackupRunner) RunManifestBackupWithProgress(ctx context.Context, server
 		slog.Warn("backup prune failed", "error", err)
 	}
 
+	// Collect repository storage usage after backup
+	r.collectRepoStats(ctx, result)
+
 	result.Duration = time.Since(startTime)
 
 	// Report completion
@@ -420,9 +429,28 @@ func (r *BackupRunner) RunManifestBackupWithProgress(ctx context.Context, server
 		"snapshot", result.SnapshotID,
 		"duration", result.Duration,
 		"total_bytes", result.TotalBytes,
+		"repo_size_bytes", result.RepoSizeBytes,
 		"dumps", len(result.DumpResults))
 
 	return result, nil
+}
+
+// collectRepoStats runs restic stats and stores the repository size on the result.
+func (r *BackupRunner) collectRepoStats(ctx context.Context, result *BackupRunResult) {
+	if r.manager.repository == nil {
+		r.manager.repository = NewRepositoryManager(
+			*r.manager.config,
+			r.manager.restic.BinaryPath(),
+			r.manager.dataDir,
+		)
+	}
+
+	stats, err := r.manager.repository.StatsRawData(ctx)
+	if err != nil {
+		slog.Warn("failed to collect repository stats", "error", err)
+		return
+	}
+	result.RepoSizeBytes = stats.TotalSize
 }
 
 // executeResticBackupJSON runs restic with JSON output for progress reporting.

@@ -345,17 +345,28 @@ func (h *Backup) UpdateBackupSchedule(w http.ResponseWriter, r *http.Request) {
 func (h *Backup) GetBackupUsage(w http.ResponseWriter, r *http.Request) {
 	serverID := chi.URLParam(r, "serverID")
 
-	totalBytes, snapshotCount, err := queries.GetBackupUsage(h.DB, serverID)
+	info, err := queries.GetBackupUsageInfo(h.DB, serverID)
 	if err != nil {
 		slog.Error("get backup usage", "error", err)
 		http.Error(w, "internal server error", http.StatusInternalServerError)
 		return
 	}
 
+	history := make([]map[string]interface{}, 0, len(info.History))
+	for _, entry := range info.History {
+		history = append(history, map[string]interface{}{
+			"size_bytes":  entry.SizeBytes,
+			"recorded_at": entry.RecordedAt,
+		})
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"total_bytes":    totalBytes,
-		"snapshot_count": snapshotCount,
+		"total_bytes":    info.TotalBytes,
+		"snapshot_count": info.SnapshotCount,
+		"limit_bytes":    info.LimitBytes,
+		"percent_used":   info.PercentUsed,
+		"history":        history,
 	})
 }
 

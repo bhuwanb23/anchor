@@ -131,14 +131,21 @@ func handleBackupStatus(db *sql.DB, serverID string, payload json.RawMessage) {
 	_ = queries.UpdateBackupJobFull(db, jobID, result.Status, durPtr, sizeNewPtr, sizeTotalPtr, projResultsPtr, retPtr, prunedPtr, errPtr, snapPtr)
 
 	// If completed with snapshot, record snapshot
-	if (result.Status == "success" || result.Status == "completed") && result.ResticSnapshotID != "" {
+	if (result.Status == "success" || result.Status == "completed" || result.Status == "partial") && result.ResticSnapshotID != "" {
 		snapshotID := uuid.New().String()
 		_ = queries.InsertBackupSnapshot(db, snapshotID, serverID, result.ResticSnapshotID, "/var/lib/yourplatform", result.SizeNewBytes)
 	}
 
 	// Update last backup time on success
-	if result.Status == "success" || result.Status == "completed" {
+	if result.Status == "success" || result.Status == "completed" || result.Status == "partial" {
 		_ = queries.UpdateLastBackupTime(db, serverID)
+	}
+
+	// Persist repository storage usage and evaluate plan limits
+	if result.SizeTotalBytes > 0 {
+		_ = queries.UpdateRepositorySize(db, serverID, result.SizeTotalBytes)
+		_ = queries.InsertBackupStorageHistory(db, uuid.New().String(), serverID, result.SizeTotalBytes)
+		EvaluateAndAlertStorageQuota(db, serverID, result.SizeTotalBytes)
 	}
 
 	slog.Info("backup status", "server_id", serverID, "backup_id", result.BackupID, "status", result.Status)

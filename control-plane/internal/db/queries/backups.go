@@ -6,23 +6,26 @@ import (
 )
 
 type BackupConfig struct {
-	ID                string
-	ServerID          string
-	Enabled           bool
-	Schedule          string
-	RetentionDaily    int
-	RetentionWeekly   int
-	RetentionMonthly  int
-	S3Endpoint        sql.NullString
-	S3AccessKey       sql.NullString
-	S3SecretKey       sql.NullString
-	S3Bucket          sql.NullString
-	S3Region          sql.NullString
-	HourUTC           sql.NullInt64
-	LastBackupAt      sql.NullString
-	NextBackupAt      sql.NullString
-	CreatedAt         string
-	UpdatedAt         string
+	ID                   string
+	ServerID             string
+	Enabled              bool
+	Schedule             string
+	RetentionDaily       int
+	RetentionWeekly      int
+	RetentionMonthly     int
+	S3Endpoint           sql.NullString
+	S3AccessKey          sql.NullString
+	S3SecretKey          sql.NullString
+	S3Bucket             sql.NullString
+	S3Region             sql.NullString
+	HourUTC              sql.NullInt64
+	LastBackupAt         sql.NullString
+	NextBackupAt         sql.NullString
+	StorageLimitBytes    int64
+	RepositorySizeBytes  sql.NullInt64
+	StorageAlertLevel    sql.NullString
+	CreatedAt            string
+	UpdatedAt            string
 }
 
 type BackupSnapshot struct {
@@ -266,6 +269,172 @@ func GetBackupUsage(db *sql.DB, serverID string) (totalSizeBytes int64, snapshot
 		serverID,
 	).Scan(&totalSizeBytes, &snapshotCount)
 	return
+}
+
+// BackupStorageHistoryEntry is one point of repository size over time.
+type BackupStorageHistoryEntry struct {
+	SizeBytes  int64
+	RecordedAt string
+}
+
+// BackupUsageInfo is the full storage usage payload for the API.
+type BackupUsageInfo struct {
+	TotalBytes    int64
+	SnapshotCount int
+	LimitBytes    int64
+	PercentUsed   float64
+	History       []BackupStorageHistoryEntry
+}
+
+const DefaultStorageLimitBytes int64 = 1073741824 // 1 GiB
+
+// GetBackupUsageInfo returns repository size, plan limit, and history.
+func GetBackupUsageInfo(db *sql.DB, serverID string) (*BackupUsageInfo, error) {
+	info := &BackupUsageInfo{
+		LimitBytes: DefaultStorageLimitBytes,
+		History:    []BackupStorageHistoryEntry{},
+	}
+
+	var repoSize sql.NullInt64
+	var limitBytes sql.NullInt64
+	err := db.QueryRow(
+		`SELECT repository_size_bytes, storage_limit_bytes FROM backup_configs WHERE server_id = ?`,
+		serverID,
+	).Scan(&repoSize, &limitBytes)
+	if err != nil && err != sql.ErrNoRows {
+		return nil, err
+	}
+	if limitBytes.Valid && limitBytes.Int64 > 0 {
+		info.LimitBytes = limitBytes.Int64
+	}
+	if repoSize.Valid {
+		info.TotalBytes = repoSize.Int64
+	}
+
+	err = db.QueryRow(
+		`SELECT COUNT(*) FROM backup_snapshots WHERE server_id = ?`,
+		serverID,
+	).Scan(&info.SnapshotCount)
+	if err != nil {
+		return nil, err
+	}
+
+	if info.LimitBytes > 0 {
+		info.PercentUsed = float64(info.TotalBytes) / float64(info.LimitBytes) * 100
+	}
+
+	rows, err := db.Query(
+		`SELECT size_bytes, recorded_at FROM backup_storage_history
+		 WHERE server_id = ? ORDER BY recorded_at ASC LIMIT 90`,
+		serverID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var e BackupStorageHistoryEntry
+		if err := rows.Scan(&e.SizeBytes, &e.RecordedAt); err != nil {
+			return nil, err
+		}
+		info.History = append(info.History, e)
+	}
+	return info, rows.Err()
+}
+
+// UpdateRepositorySize stores the current repository size on backup_configs.
+func UpdateRepositorySize(db *sql.DB, serverID string, sizeBytes int64) error {
+	_, err := db.Exec(
+		`UPDATE backup_configs SET repository_size_bytes = ?, updated_at = ? WHERE server_id = ?`,
+		sizeBytes, time.Now().UTC().Format(time.RFC3339), serverID,
+	)
+	return err
+}
+
+// InsertBackupStorageHistory records a repository size sample.
+func InsertBackupStorageHistory(db *sql.DB, id, serverID string, sizeBytes int64) error {
+	_, err := db.Exec(
+		`INSERT INTO backup_storage_history (id, server_id, size_bytes, recorded_at) VALUES (?, ?, ?, ?)`,
+		id, serverID, sizeBytes, time.Now().UTC().Format(time.RFC3339),
+	)
+	return err
+}
+
+// GetStorageAlertLevel returns the last fired storage alert band ("80", "95", or empty).
+func GetStorageAlertLevel(db *sql.DB, serverID string) (string, error) {
+	var level sql.NullString
+	err := db.QueryRow(
+		`SELECT storage_alert_level FROM backup_configs WHERE server_id = ?`,
+		serverID,
+	).Scan(&level)
+	if err == sql.ErrNoRows {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	if level.Valid {
+		return level.String, nil
+	}
+	return "", nil
+}
+
+// SetStorageAlertLevel updates the last fired storage alert band.
+func SetStorageAlertLevel(db *sql.DB, serverID, level string) error {
+	_, err := db.Exec(
+		`UPDATE backup_configs SET storage_alert_level = ?, updated_at = ? WHERE server_id = ?`,
+		level, time.Now().UTC().Format(time.RFC3339), serverID,
+	)
+	return err
+}
+
+// GetBackupStorageLimits returns limit and retention for alert messaging.
+func GetBackupStorageLimits(db *sql.DB, serverID string) (limitBytes int64, daily, weekly, monthly int, err error) {
+	limitBytes = DefaultStorageLimitBytes
+	daily, weekly, monthly = 7, 4, 12
+	var lim sql.NullInt64
+	err = db.QueryRow(
+		`SELECT storage_limit_bytes, retention_daily, retention_weekly, retention_monthly
+		 FROM backup_configs WHERE server_id = ?`,
+		serverID,
+	).Scan(&lim, &daily, &weekly, &monthly)
+	if err == sql.ErrNoRows {
+		return limitBytes, daily, weekly, monthly, nil
+	}
+	if err != nil {
+		return 0, 0, 0, 0, err
+	}
+	if lim.Valid && lim.Int64 > 0 {
+		limitBytes = lim.Int64
+	}
+	return limitBytes, daily, weekly, monthly, nil
+}
+
+// EstimateDaysUntilFull estimates days until the plan limit based on recent history growth.
+func EstimateDaysUntilFull(history []BackupStorageHistoryEntry, currentBytes, limitBytes int64) int {
+	if limitBytes <= currentBytes || len(history) < 2 {
+		if limitBytes <= currentBytes {
+			return 0
+		}
+		return -1
+	}
+
+	first := history[0]
+	last := history[len(history)-1]
+	growth := last.SizeBytes - first.SizeBytes
+	if growth <= 0 {
+		return -1
+	}
+
+	// Assume roughly one sample per day; fall back to sample count as days.
+	days := float64(len(history) - 1)
+	if days < 1 {
+		days = 1
+	}
+	bytesPerDay := float64(growth) / days
+	remaining := float64(limitBytes - currentBytes)
+	return int(remaining / bytesPerDay)
 }
 
 func GetBackupConfigWithSchedule(db *sql.DB, serverID string) (*BackupConfig, error) {
