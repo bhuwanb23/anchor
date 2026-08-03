@@ -11,8 +11,8 @@ import (
 	"time"
 )
 
-// RestoreResult holds the result of restoring a single component.
-type RestoreResult struct {
+// ComponentRestoreResult holds the result of restoring a single component.
+type ComponentRestoreResult struct {
 	Type   string `json:"type"`
 	Name   string `json:"name"`
 	Status string `json:"status"` // "success" | "failed"
@@ -21,10 +21,10 @@ type RestoreResult struct {
 
 // RestoreProjectResult holds the result of restoring a single project.
 type RestoreProjectResult struct {
-	Name       string          `json:"name"`
-	Status     string          `json:"status"` // "success" | "partial" | "failed"
-	Components []RestoreResult `json:"components,omitempty"`
-	Error      string          `json:"error,omitempty"`
+	Name       string                  `json:"name"`
+	Status     string                  `json:"status"` // "success" | "partial" | "failed"
+	Components []ComponentRestoreResult `json:"components,omitempty"`
+	Error      string                  `json:"error,omitempty"`
 }
 
 // RestoreRunResult holds the result of a manifest-driven restore.
@@ -148,7 +148,7 @@ func (r *RestoreRunner) RunRestore(ctx context.Context, snapshotID, projectName 
 
 	// Phase 4: Restore components
 	for _, comp := range targetProject.Components {
-		compResult := RestoreResult{
+		compResult := ComponentRestoreResult{
 			Type:   comp.Type,
 			Name:   comp.Name(),
 			Status: "success",

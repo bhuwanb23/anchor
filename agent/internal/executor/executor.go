@@ -1061,3 +1061,11 @@ func (a *dockerClientAdapter) FinishVolumeForBackup(ctx context.Context, info ba
 func (a *dockerClientAdapter) ExecInContainer(ctx context.Context, containerID string, cmd []string) (string, error) {
 	return a.dc.ExecInContainer(ctx, containerID, cmd)
 }
+
+func (a *dockerClientAdapter) StopContainer(ctx context.Context, containerID string) error {
+	return a.dc.StopContainer(ctx, containerID)
+}
+
+func (a *dockerClientAdapter) StartContainer(ctx context.Context, containerID string) error {
+	return a.dc.StartContainer(ctx, containerID)
+}

@@ -39,7 +39,7 @@ func TestRestoreRunResult_Structure(t *testing.T) {
 		ProjectResult: &RestoreProjectResult{
 			Name:   "my-project",
 			Status: "success",
-			Components: []RestoreResult{
+			Components: []ComponentRestoreResult{
 				{Type: ComponentTypePostgresDump, Name: "mydb", Status: "success"},
 			},
 		},
@@ -75,7 +75,7 @@ func TestRestoreProjectResult_PartialStatus(t *testing.T) {
 	result := &RestoreProjectResult{
 		Name:   "my-project",
 		Status: "partial",
-		Components: []RestoreResult{
+		Components: []ComponentRestoreResult{
 			{Type: ComponentTypePostgresDump, Name: "mydb", Status: "success"},
 			{Type: ComponentTypeVolume, Name: "uploads", Status: "failed", Error: "volume not found"},
 		},
@@ -108,7 +108,7 @@ func TestRestoreRunner_findDumpFile(t *testing.T) {
 	}
 
 	mockDocker := &MockDockerClient{}
-	manager := &BackupManager{dataDir: t.TempDir()}
+	manager := &BackupManager{dataDir: t.TempDir(), dockerClient: mockDocker}
 	runner := NewRestoreRunner(manager, mockDocker)
 
 	// Should find the dump file
@@ -122,7 +122,7 @@ func TestRestoreRunner_findDumpFile_NotFound(t *testing.T) {
 	restoreDir := t.TempDir()
 
 	mockDocker := &MockDockerClient{}
-	manager := &BackupManager{dataDir: t.TempDir()}
+	manager := &BackupManager{dataDir: t.TempDir(), dockerClient: mockDocker}
 	runner := NewRestoreRunner(manager, mockDocker)
 
 	found := runner.findDumpFile(restoreDir, "nonexistent", "postgres.dump")
@@ -141,7 +141,7 @@ func TestRestoreRunner_findDumpFile_RootLocation(t *testing.T) {
 	}
 
 	mockDocker := &MockDockerClient{}
-	manager := &BackupManager{dataDir: t.TempDir()}
+	manager := &BackupManager{dataDir: t.TempDir(), dockerClient: mockDocker}
 	runner := NewRestoreRunner(manager, mockDocker)
 
 	found := runner.findDumpFile(restoreDir, "test-project", "postgres.dump")
@@ -178,7 +178,7 @@ func TestRestoreRunner_readManifest(t *testing.T) {
 	}
 
 	mockDocker := &MockDockerClient{}
-	manager := &BackupManager{dataDir: t.TempDir()}
+	manager := &BackupManager{dataDir: t.TempDir(), dockerClient: mockDocker}
 	runner := NewRestoreRunner(manager, mockDocker)
 
 	readManifest, err := runner.readManifest(restoreDir)
@@ -201,7 +201,7 @@ func TestRestoreRunner_readManifest_NotFound(t *testing.T) {
 	restoreDir := t.TempDir()
 
 	mockDocker := &MockDockerClient{}
-	manager := &BackupManager{dataDir: t.TempDir()}
+	manager := &BackupManager{dataDir: t.TempDir(), dockerClient: mockDocker}
 	runner := NewRestoreRunner(manager, mockDocker)
 
 	_, err := runner.readManifest(restoreDir)
@@ -220,7 +220,7 @@ func TestRestoreRunner_readManifest_InvalidJSON(t *testing.T) {
 	}
 
 	mockDocker := &MockDockerClient{}
-	manager := &BackupManager{dataDir: t.TempDir()}
+	manager := &BackupManager{dataDir: t.TempDir(), dockerClient: mockDocker}
 	runner := NewRestoreRunner(manager, mockDocker)
 
 	_, err := runner.readManifest(restoreDir)
@@ -238,7 +238,7 @@ func TestRestoreRunner_findContainerByName_Found(t *testing.T) {
 			},
 		},
 	}
-	manager := &BackupManager{dataDir: t.TempDir()}
+	manager := &BackupManager{dataDir: t.TempDir(), dockerClient: mockDocker}
 	runner := NewRestoreRunner(manager, mockDocker)
 
 	id, err := runner.findContainerByName(context.Background(), "my-container")
@@ -254,7 +254,7 @@ func TestRestoreRunner_findContainerByName_NotFound(t *testing.T) {
 	mockDocker := &MockDockerClient{
 		Containers: []types.Container{},
 	}
-	manager := &BackupManager{dataDir: t.TempDir()}
+	manager := &BackupManager{dataDir: t.TempDir(), dockerClient: mockDocker}
 	runner := NewRestoreRunner(manager, mockDocker)
 
 	_, err := runner.findContainerByName(context.Background(), "nonexistent")
@@ -274,7 +274,7 @@ func TestRestoreRunner_findContainerByVolume_Found(t *testing.T) {
 			},
 		},
 	}
-	manager := &BackupManager{dataDir: t.TempDir()}
+	manager := &BackupManager{dataDir: t.TempDir(), dockerClient: mockDocker}
 	runner := NewRestoreRunner(manager, mockDocker)
 
 	id, err := runner.findContainerByVolume(context.Background(), "yourplatform_test_uploads")
@@ -290,7 +290,7 @@ func TestRestoreRunner_findContainerByVolume_NotFound(t *testing.T) {
 	mockDocker := &MockDockerClient{
 		Containers: []types.Container{},
 	}
-	manager := &BackupManager{dataDir: t.TempDir()}
+	manager := &BackupManager{dataDir: t.TempDir(), dockerClient: mockDocker}
 	runner := NewRestoreRunner(manager, mockDocker)
 
 	_, err := runner.findContainerByVolume(context.Background(), "nonexistent")
@@ -311,7 +311,7 @@ func TestRestoreRunner_cleanupRestoreDir(t *testing.T) {
 	}
 
 	mockDocker := &MockDockerClient{}
-	manager := &BackupManager{dataDir: t.TempDir()}
+	manager := &BackupManager{dataDir: t.TempDir(), dockerClient: mockDocker}
 	runner := NewRestoreRunner(manager, mockDocker)
 
 	runner.cleanupRestoreDir(subDir)
@@ -322,10 +322,6 @@ func TestRestoreRunner_cleanupRestoreDir(t *testing.T) {
 }
 
 func TestRestoreProgressReporter_Mock(t *testing.T) {
-	mockDocker := &MockDockerClient{}
-	manager := &BackupManager{dataDir: t.TempDir()}
-	runner := NewRestoreRunner(manager, mockDocker)
-
 	reporter := &mockRestoreReporter{}
 
 	result := &RestoreRunResult{

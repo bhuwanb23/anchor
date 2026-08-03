@@ -153,16 +153,16 @@ func GenerateBackupID() string {
 
 // RestoreStatusPayload is the restore status message sent to the control plane.
 type RestoreStatusPayload struct {
-	ServerID        string                `json:"server_id"`
-	RestoreID       string                `json:"restore_id"`
-	SnapshotID      string                `json:"snapshot_id"`
-	ProjectName     string                `json:"project_name"`
-	Status          string                `json:"status"` // "running" | "success" | "partial" | "failed"
-	StartedAt       time.Time             `json:"started_at"`
-	CompletedAt     time.Time             `json:"completed_at,omitempty"`
-	DurationSeconds int64                 `json:"duration_seconds"`
-	Components      []RestoreResult       `json:"components,omitempty"`
-	Error           string                `json:"error,omitempty"`
+	ServerID        string                  `json:"server_id"`
+	RestoreID       string                  `json:"restore_id"`
+	SnapshotID      string                  `json:"snapshot_id"`
+	ProjectName     string                  `json:"project_name"`
+	Status          string                  `json:"status"` // "running" | "success" | "partial" | "failed"
+	StartedAt       time.Time               `json:"started_at"`
+	CompletedAt     time.Time               `json:"completed_at,omitempty"`
+	DurationSeconds int64                   `json:"duration_seconds"`
+	Components      []ComponentRestoreResult `json:"components,omitempty"`
+	Error           string                  `json:"error,omitempty"`
 }
 
 // ReportRestoreRunning sends a "running" status at restore start.
