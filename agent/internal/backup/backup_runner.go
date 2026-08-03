@@ -34,6 +34,10 @@ type BackupRunResult struct {
 	Duration       time.Duration   `json:"duration"`
 	StartedAt      time.Time       `json:"started_at"`
 	Error          string          `json:"error,omitempty"`
+	// Verification fields
+	VerificationStatus string        `json:"verification_status"` // "verified" | "failed" | "skipped"
+	VerificationError  string        `json:"verification_error,omitempty"`
+	VerificationTime   time.Duration `json:"verification_time"`
 }
 
 // BackupRunner executes manifest-driven backups.
@@ -195,6 +199,24 @@ func (r *BackupRunner) RunManifestBackup(ctx context.Context, serverID string) (
 	}
 	result.SnapshotID = snapshotID
 
+	// Verify the snapshot (post-backup verification)
+	verifyStart := time.Now()
+	if r.manager.verifier != nil {
+		verifyResult := r.manager.verifier.VerifyPostBackup(ctx, snapshotID)
+		if verifyResult != nil {
+			result.VerificationStatus = verifyResult.Status
+			result.VerificationError = verifyResult.Error
+			result.VerificationTime = verifyResult.Duration
+		}
+	} else {
+		result.VerificationStatus = "skipped"
+		slog.Debug("verification skipped: no verifier configured")
+	}
+	verifyDuration := time.Since(verifyStart)
+	if result.VerificationTime == 0 {
+		result.VerificationTime = verifyDuration
+	}
+
 	// Run prune to clean up old backups
 	if err := r.manager.Prune(ctx); err != nil {
 		slog.Warn("backup prune failed", "error", err)
@@ -341,9 +363,22 @@ func (r *BackupRunner) RunManifestBackupWithProgress(ctx context.Context, server
 	}
 
 	// Verify the snapshot
-	if err := r.VerifySnapshot(ctx); err != nil {
-		slog.Warn("snapshot verification failed", "error", err)
-		// Non-fatal: backup succeeded, verification is a check
+	if r.manager.verifier != nil {
+		verifyResult := r.manager.verifier.VerifyPostBackup(ctx, snapshotID)
+		if verifyResult != nil {
+			result.VerificationStatus = verifyResult.Status
+			result.VerificationError = verifyResult.Error
+			result.VerificationTime = verifyResult.Duration
+		}
+	} else {
+		// Fallback to legacy verification
+		if err := r.VerifySnapshot(ctx); err != nil {
+			slog.Warn("snapshot verification failed", "error", err)
+			result.VerificationStatus = "failed"
+			result.VerificationError = err.Error()
+		} else {
+			result.VerificationStatus = "verified"
+		}
 	}
 
 	// Apply retention policy
