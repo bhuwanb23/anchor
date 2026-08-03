@@ -284,6 +284,9 @@ func HandleAgentWS(hub *Hub, db *sql.DB, baseDomain string) http.HandlerFunc {
 		}
 		_ = conn.WriteJSON(ack)
 
+		// Deliver offline queue
+		sendHelloAck(conn, db, serverID)
+
 		if status != "connected" {
 			_ = queries.UpdateServerConnection(db, serverID, "connected")
 		}
@@ -314,39 +317,37 @@ func HandleAgentWS(hub *Hub, db *sql.DB, baseDomain string) http.HandlerFunc {
 				}
 
 			switch msg.Type {
+			case "hello":
+				sendHelloAck(conn, db, serverID)
 			case "result":
 				slog.Info("command result", "server_id", serverID, "payload", string(msg.Payload))
+				hub.ForwardToBrowsers(serverID, data)
+			case "command_ack":
+				hub.ForwardToBrowsers(serverID, data)
+				slog.Debug("command_ack", "server_id", serverID, "payload", string(msg.Payload))
+			case "command_progress":
+				hub.ForwardToBrowsers(serverID, data)
 			case "preflight_result":
 				handlePreflightResult(db, serverID, msg.Payload)
 			case "certificate_alert":
-				// Forward certificate alerts to browsers and log as server event
 				hub.ForwardToBrowsers(serverID, data)
 				slog.Warn("certificate alert", "server_id", serverID, "payload", string(msg.Payload))
 			case "error_alert":
-				// Forward error alerts (502, rate limit, cert failures) to browsers
 				hub.ForwardToBrowsers(serverID, data)
 				slog.Warn("error alert", "server_id", serverID, "payload", string(msg.Payload))
 			case "server_event":
-				// Forward server events (cert issued/renewed/failed) to browsers
 				hub.ForwardToBrowsers(serverID, data)
 				slog.Info("server event", "server_id", serverID, "payload", string(msg.Payload))
 			case "backup_status":
-				// Handle backup status updates from agent
 				handleBackupStatus(db, serverID, msg.Payload)
-				// Forward to browsers for real-time updates
 				hub.ForwardToBrowsers(serverID, data)
 		case "restore_status":
-			// Handle restore status updates from agent
 			handleRestoreStatus(db, serverID, msg.Payload)
-			// Forward to browsers for real-time updates
 			hub.ForwardToBrowsers(serverID, data)
 		case "backup_verification":
-			// Handle backup verification updates from agent
 			handleBackupVerification(db, serverID, msg.Payload)
-			// Forward to browsers for real-time updates
 			hub.ForwardToBrowsers(serverID, data)
 		case "log_line", "log_history", "pull_progress", "docker_status", "reconciliation_result":
-				// Forward streaming messages to all browsers watching this server
 				hub.ForwardToBrowsers(serverID, data)
 			default:
 				slog.Debug("agent message", "type", msg.Type, "server_id", serverID)
@@ -367,4 +368,63 @@ func HandleAgentWS(hub *Hub, db *sql.DB, baseDomain string) http.HandlerFunc {
 			}
 		}()
 	}
+}
+
+func sendHelloAck(conn *websocket.Conn, db *sql.DB, serverID string) {
+	pending, err := queries.PendingCommandsAsJSON(db, serverID)
+	if err != nil {
+		slog.Warn("list pending commands", "server_id", serverID, "error", err)
+		pending = nil
+	}
+	if pending == nil {
+		pending = []json.RawMessage{}
+	}
+	ack := map[string]interface{}{
+		"type": "hello_ack",
+		"payload": map[string]interface{}{
+			"server_id":         serverID,
+			"pending_commands":  pending,
+		},
+	}
+	if err := conn.WriteJSON(ack); err != nil {
+		slog.Warn("send hello_ack", "server_id", serverID, "error", err)
+		return
+	}
+	_ = queries.DeletePendingCommands(db, serverID)
+	slog.Info("sent hello_ack", "server_id", serverID, "pending", len(pending))
+}
+
+// QueueOrSendCommand sends to agent or enqueues if offline.
+func QueueOrSendCommand(hub *Hub, db *sql.DB, serverID string, cmd map[string]interface{}) error {
+	cmdID, _ := cmd["id"].(string)
+	if cmdID == "" {
+		cmdID = uuid.New().String()
+		cmd["id"] = cmdID
+	}
+	cmdType, _ := cmd["type"].(string)
+	payloadBytes, err := json.Marshal(cmd)
+	if err != nil {
+		return err
+	}
+
+	envelope := map[string]interface{}{
+		"type":    "command",
+		"payload": json.RawMessage(payloadBytes),
+	}
+	msgBytes, _ := json.Marshal(envelope)
+
+	if hub.SendToAgent(serverID, msgBytes) {
+		return nil
+	}
+
+	projectKey := ""
+	if p, ok := cmd["payload"].(map[string]interface{}); ok {
+		if v, ok := p["app_name"].(string); ok {
+			projectKey = v
+		} else if v, ok := p["project_name"].(string); ok {
+			projectKey = v
+		}
+	}
+	expiresAt, _ := cmd["expires_at"].(string)
+	return queries.EnqueuePendingCommand(db, cmdID, serverID, cmdType, string(payloadBytes), projectKey, expiresAt)
 }
