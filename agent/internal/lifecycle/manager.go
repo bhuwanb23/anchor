@@ -25,6 +25,9 @@ type Manager struct {
 	accepting    atomic.Bool
 	inFlight     sync.WaitGroup
 	onUpdatePush func(version string)
+	// OnConnect is called after a successful WebSocket connection,
+	// after the standard hello/preflight messages have been sent.
+	OnConnect func()
 }
 
 // NewManager creates a connection manager.
@@ -96,6 +99,9 @@ func (m *Manager) Run(ctx context.Context) {
 		}
 		m.sendPreflight()
 		m.sendHello()
+		if m.OnConnect != nil {
+			m.OnConnect()
+		}
 	}
 	onDisconnect := func() {
 		ClearConnected(m.dataDir)
