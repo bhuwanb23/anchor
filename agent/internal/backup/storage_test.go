@@ -7,6 +7,42 @@ import (
 	"time"
 )
 
+func TestReportResult_IncludesRepoSize(t *testing.T) {
+	client := &mockWSClient{}
+	reporter := NewBackupReporter(client)
+
+	result := &BackupRunResult{
+		SnapshotID:    "snap-abc",
+		TotalBytes:    1000,
+		RepoSizeBytes: 859832320,
+		StartedAt:     time.Now().Add(-time.Minute),
+		Duration:      time.Minute,
+	}
+
+	reporter.ReportResult("srv-1", "bkp-1", result, true, 0)
+
+	if len(client.messages) != 1 {
+		t.Fatalf("messages = %d, want 1", len(client.messages))
+	}
+	msg := client.messages[0].(map[string]interface{})
+	payload := msg["payload"].(BackupStatusPayload)
+	if payload.SizeTotalBytes != 859832320 {
+		t.Errorf("SizeTotalBytes = %d, want 859832320", payload.SizeTotalBytes)
+	}
+	if payload.SizeNewBytes != 1000 {
+		t.Errorf("SizeNewBytes = %d, want 1000", payload.SizeNewBytes)
+	}
+}
+
+type mockWSClient struct {
+	messages []interface{}
+}
+
+func (m *mockWSClient) SendJSON(v interface{}) error {
+	m.messages = append(m.messages, v)
+	return nil
+}
+
 func TestParseStatsJSON(t *testing.T) {
 	data := []byte(`{"total_size":859832320,"total_file_count":42,"snapshots_count":7}`)
 	stats, err := ParseStatsJSON(data)
