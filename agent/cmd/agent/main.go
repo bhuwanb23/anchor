@@ -141,7 +141,7 @@ func runAgent(args []string) int {
 	}
 	slog.Info("startup step 4 complete: caddy started")
 
-	if _, err := state.ReconcileCaddy(ctx, stateMgr, caddyMgr); err != nil {
+	if _, _, err := state.ReconcileCaddy(ctx, stateMgr, caddyMgr); err != nil {
 		slog.Warn("caddy route restore failed", "error", err)
 	} else {
 		slog.Info("caddy routes restored from state")
