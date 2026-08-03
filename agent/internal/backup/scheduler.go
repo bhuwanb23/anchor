@@ -37,10 +37,16 @@ type BackupScheduler struct {
 	alertSender  AlertSender
 	stateManager StateManager
 	reporter     *BackupReporter
+	verifier     *VerificationManager
 	stopCh       chan struct{}
 	mu           sync.Mutex
 	nextRun      time.Time
 	running      bool
+	// Verification scheduling
+	lastVerification     time.Time
+	lastFullVerification time.Time
+	verifyInterval       time.Duration // default: 7 days (weekly)
+	fullVerifyInterval   time.Duration // default: 30 days (monthly)
 }
 
 // NewBackupScheduler creates a new backup scheduler.
@@ -64,6 +70,8 @@ func NewBackupScheduler(
 			RetentionMonthly: 12,
 			Enabled:          true,
 		},
+		verifyInterval:     7 * 24 * time.Hour,  // weekly
+		fullVerifyInterval: 30 * 24 * time.Hour, // monthly
 	}
 }
 
@@ -76,6 +84,24 @@ func (s *BackupScheduler) WithStateManager(sm StateManager) *BackupScheduler {
 // WithReporter sets the backup reporter for status reporting.
 func (s *BackupScheduler) WithReporter(reporter *BackupReporter) *BackupScheduler {
 	s.reporter = reporter
+	return s
+}
+
+// WithVerifier sets the verification manager for scheduled verification.
+func (s *BackupScheduler) WithVerifier(verifier *VerificationManager) *BackupScheduler {
+	s.verifier = verifier
+	return s
+}
+
+// WithVerificationInterval sets the interval between verification runs.
+func (s *BackupScheduler) WithVerificationInterval(interval time.Duration) *BackupScheduler {
+	s.verifyInterval = interval
+	return s
+}
+
+// WithFullVerificationInterval sets the interval between full verification runs.
+func (s *BackupScheduler) WithFullVerificationInterval(interval time.Duration) *BackupScheduler {
+	s.fullVerifyInterval = interval
 	return s
 }
 
@@ -124,6 +150,13 @@ func (s *BackupScheduler) Start(ctx context.Context) {
 		if !s.nextRun.IsZero() && now.After(s.nextRun) {
 			s.runBackup(ctx)
 			s.calculateNextRun()
+		}
+
+		// Check if verification is due
+		if s.verifier != nil {
+			if s.verificationDue(now) {
+				go s.runVerification(ctx)
+			}
 		}
 
 		// Sleep for 30 seconds before checking again
@@ -313,4 +346,76 @@ func (s *BackupScheduler) sendAlert(alert BackupAlert) {
 			slog.Warn("failed to send backup alert", "error", err)
 		}
 	}
+}
+
+// verificationDue checks if verification is due based on configured intervals.
+func (s *BackupScheduler) verificationDue(now time.Time) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	// Check if weekly verification is due
+	if s.lastVerification.IsZero() || now.Sub(s.lastVerification) >= s.verifyInterval {
+		return true
+	}
+
+	// Check if monthly full verification is due
+	if s.lastFullVerification.IsZero() || now.Sub(s.lastFullVerification) >= s.fullVerifyInterval {
+		return true
+	}
+
+	return false
+}
+
+// runVerification executes the appropriate verification tier.
+func (s *BackupScheduler) runVerification(ctx context.Context) {
+	slog.Info("starting scheduled verification")
+
+	// Get the latest snapshot ID from the last backup result
+	var snapshotID string
+	if s.stateManager != nil {
+		// Use a placeholder - the actual snapshot ID should come from the last backup
+		// For now, we verify the entire repository
+		snapshotID = "latest"
+	}
+
+	now := time.Now()
+	s.mu.Lock()
+	isMonthly := s.lastFullVerification.IsZero() || now.Sub(s.lastFullVerification) >= s.fullVerifyInterval
+	s.mu.Unlock()
+
+	var result *VerificationStatus
+	if isMonthly {
+		slog.Info("running monthly full verification (100%)")
+		result = s.verifier.VerifyFull(ctx, snapshotID)
+	} else {
+		slog.Info("running weekly deep verification (25%)")
+		result = s.verifier.VerifyDeep(ctx, snapshotID)
+	}
+
+	if result == nil {
+		slog.Error("verification returned nil result")
+		return
+	}
+
+	// Update last verification times
+	s.mu.Lock()
+	s.lastVerification = now
+	if isMonthly {
+		s.lastFullVerification = now
+	}
+	s.mu.Unlock()
+
+	// Alert on failure
+	if result.Status == "failed" {
+		if isMonthly {
+			s.sendAlert(AlertVerificationCritical(result.Error))
+		} else {
+			s.sendAlert(AlertVerificationFailed(result.SnapshotID, result.Error))
+		}
+	}
+
+	slog.Info("scheduled verification completed",
+		"status", result.Status,
+		"subset", result.Subset,
+		"duration", result.Duration)
 }
