@@ -610,6 +610,70 @@ func (c *Client) InspectContainer(ctx context.Context, id string) (types.Contain
 	return resp, nil
 }
 
+// ContainerStats is a clean, dependency-free snapshot of a container's
+// resource usage at a point in time. It is the Layer 3A surface that
+// higher layers (e.g. Layer 4C metrics) consume.
+type ContainerStats struct {
+	CPUPercent     float64 // percentage across all allocated CPUs
+	RAMUsedBytes   uint64  // current memory usage (cgroup usage minus cache)
+	RAMLimitBytes  uint64  // hard memory limit (0 if unset)
+	NetRxBytes     uint64  // aggregate bytes received (across interfaces)
+	NetTxBytes     uint64  // aggregate bytes sent (across interfaces)
+}
+
+// GetContainerStats performs a one-shot Docker stats call for a single
+// container and returns a clean ContainerStats value. Errors when the
+// container cannot be inspected/statted (e.g. stopped or removed).
+func (c *Client) GetContainerStats(ctx context.Context, id string) (ContainerStats, error) {
+	if err := c.ensureConnected(ctx); err != nil {
+		return ContainerStats{}, fmt.Errorf("docker unavailable: %w", err)
+	}
+
+	resp, err := c.cliUnsafe().ContainerStats(ctx, id, false)
+	if err != nil {
+		return ContainerStats{}, fmt.Errorf("container stats %s: %w", shortID(id), err)
+	}
+	defer resp.Body.Close()
+
+	var sj types.StatsJSON
+	if err := json.NewDecoder(resp.Body).Decode(&sj); err != nil {
+		return ContainerStats{}, fmt.Errorf("decode stats %s: %w", shortID(id), err)
+	}
+
+	out := ContainerStats{}
+	s := sj.Stats
+
+	// CPU percent: delta between current and previous sample.
+	if s.PreCPUStats.CPUUsage.TotalUsage != 0 && s.CPUStats.SystemUsage > s.PreCPUStats.SystemUsage {
+		cpuDelta := float64(s.CPUStats.CPUUsage.TotalUsage - s.PreCPUStats.CPUUsage.TotalUsage)
+		sysDelta := float64(s.CPUStats.SystemUsage - s.PreCPUStats.SystemUsage)
+		numCPUs := uint32(s.CPUStats.OnlineCPUs)
+		if numCPUs == 0 && len(s.CPUStats.CPUUsage.PercpuUsage) > 0 {
+			numCPUs = uint32(len(s.CPUStats.CPUUsage.PercpuUsage))
+		}
+		if numCPUs == 0 {
+			numCPUs = 1
+		}
+		out.CPUPercent = cpuDelta / sysDelta * float64(numCPUs) * 100.0
+	}
+
+	// Memory: subtract page cache so we report anonymous memory.
+	usage := s.MemoryStats.Usage
+	if v, ok := s.MemoryStats.Stats["total_inactive_file"]; ok && v < usage {
+		usage -= v
+	}
+	out.RAMUsedBytes = usage
+	out.RAMLimitBytes = s.MemoryStats.Limit
+
+	// Network: aggregate across interfaces.
+	for _, n := range sj.Networks {
+		out.NetRxBytes += n.RxBytes
+		out.NetTxBytes += n.TxBytes
+	}
+
+	return out, nil
+}
+
 // ExecInContainer runs a command inside a running container and returns the output.
 func (c *Client) ExecInContainer(ctx context.Context, containerID string, cmd []string) (string, error) {
 	if err := c.ensureConnected(ctx); err != nil {
@@ -683,6 +747,14 @@ type CreateContainerOpts struct {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+// shortID returns the first 12 characters of a container/image ID for logs.
+func shortID(id string) string {
+	if len(id) > 12 {
+		return id[:12]
+	}
+	return id
+}
 
 // isConnectionError returns true if the error is likely a Docker
 // daemon connectivity issue (broken pipe, connection refused, etc.).
