@@ -147,6 +147,131 @@ func GenerateBackupID() string {
 	return "bkp-" + time.Now().Format("20060102150405") + "-" + randomHex(6)
 }
 
+// ---------------------------------------------------------------------------
+// Restore reporting
+// ---------------------------------------------------------------------------
+
+// RestoreStatusPayload is the restore status message sent to the control plane.
+type RestoreStatusPayload struct {
+	ServerID        string                `json:"server_id"`
+	RestoreID       string                `json:"restore_id"`
+	SnapshotID      string                `json:"snapshot_id"`
+	ProjectName     string                `json:"project_name"`
+	Status          string                `json:"status"` // "running" | "success" | "partial" | "failed"
+	StartedAt       time.Time             `json:"started_at"`
+	CompletedAt     time.Time             `json:"completed_at,omitempty"`
+	DurationSeconds int64                 `json:"duration_seconds"`
+	Components      []RestoreResult       `json:"components,omitempty"`
+	Error           string                `json:"error,omitempty"`
+}
+
+// ReportRestoreRunning sends a "running" status at restore start.
+func (r *BackupReporter) ReportRestoreRunning(serverID, restoreID, snapshotID, projectName string) {
+	if r.wsClient == nil {
+		return
+	}
+
+	payload := RestoreStatusPayload{
+		ServerID:    serverID,
+		RestoreID:   restoreID,
+		SnapshotID:  snapshotID,
+		ProjectName: projectName,
+		Status:      "running",
+		StartedAt:   time.Now(),
+	}
+
+	msg := map[string]interface{}{
+		"type":    "restore_status",
+		"payload": payload,
+	}
+
+	if err := r.wsClient.SendJSON(msg); err != nil {
+		slog.Warn("failed to send restore running status", "error", err)
+	}
+}
+
+// ReportRestoreResult sends the full restore result to the control plane.
+func (r *BackupReporter) ReportRestoreResult(serverID, restoreID string, result *RestoreRunResult) {
+	if r.wsClient == nil {
+		return
+	}
+
+	status := "success"
+	if result.Error != "" {
+		status = "failed"
+	} else if result.ProjectResult != nil && result.ProjectResult.Status == "partial" {
+		status = "partial"
+	}
+
+	payload := RestoreStatusPayload{
+		ServerID:        serverID,
+		RestoreID:       restoreID,
+		SnapshotID:      result.SnapshotID,
+		ProjectName:     result.ProjectName,
+		Status:          status,
+		StartedAt:       result.StartedAt,
+		CompletedAt:     time.Now(),
+		DurationSeconds: int64(result.Duration.Seconds()),
+	}
+
+	if result.ProjectResult != nil {
+		payload.Components = result.ProjectResult.Components
+	}
+
+	if result.Error != "" {
+		payload.Error = result.Error
+	} else if result.ProjectResult != nil && result.ProjectResult.Error != "" {
+		payload.Error = result.ProjectResult.Error
+	}
+
+	msg := map[string]interface{}{
+		"type":    "restore_status",
+		"payload": payload,
+	}
+
+	if err := r.wsClient.SendJSON(msg); err != nil {
+		slog.Warn("failed to send restore result", "error", err)
+	}
+
+	slog.Info("restore status reported to control plane",
+		"server_id", serverID,
+		"restore_id", restoreID,
+		"status", status,
+		"snapshot", result.SnapshotID)
+}
+
+// ReportRestoreFailed sends a "failed" status when the restore could not complete.
+func (r *BackupReporter) ReportRestoreFailed(serverID, restoreID, snapshotID, projectName string, startedAt time.Time, err error) {
+	if r.wsClient == nil {
+		return
+	}
+
+	payload := RestoreStatusPayload{
+		ServerID:    serverID,
+		RestoreID:   restoreID,
+		SnapshotID:  snapshotID,
+		ProjectName: projectName,
+		Status:      "failed",
+		StartedAt:   startedAt,
+		CompletedAt: time.Now(),
+		Error:       err.Error(),
+	}
+
+	msg := map[string]interface{}{
+		"type":    "restore_status",
+		"payload": payload,
+	}
+
+	if sendErr := r.wsClient.SendJSON(msg); sendErr != nil {
+		slog.Warn("failed to send restore failed status", "error", sendErr)
+	}
+}
+
+// GenerateRestoreID creates a unique restore ID.
+func GenerateRestoreID() string {
+	return "rst-" + time.Now().Format("20060102150405") + "-" + randomHex(6)
+}
+
 // randomHex returns a random hex string of the given length.
 func randomHex(n int) string {
 	const hexChars = "0123456789abcdef"
