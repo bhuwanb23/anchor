@@ -181,6 +181,42 @@ func handleRestoreStatus(db *sql.DB, serverID string, payload json.RawMessage) {
 		"status", result.Status)
 }
 
+// handleBackupVerification processes backup verification updates from the agent.
+func handleBackupVerification(db *sql.DB, serverID string, payload json.RawMessage) {
+	var result struct {
+		ServerID         string `json:"server_id"`
+		BackupID         string `json:"backup_id"`
+		SnapshotID       string `json:"snapshot_id"`
+		Status           string `json:"status"`
+		Subset           string `json:"subset"`
+		StartedAt        string `json:"started_at"`
+		CompletedAt      string `json:"completed_at,omitempty"`
+		DurationSeconds  int64  `json:"duration_seconds"`
+		FilesCount       int    `json:"files_count"`
+		Error            string `json:"error,omitempty"`
+	}
+
+	if err := json.Unmarshal(payload, &result); err != nil {
+		slog.Warn("failed to parse backup_verification", "server_id", serverID, "error", err)
+		return
+	}
+
+	if result.BackupID == "" || result.Status == "" {
+		return
+	}
+
+	// Update the backup job's verification status
+	_ = queries.UpdateBackupJobVerification(db, result.BackupID, result.Status, result.Error)
+
+	slog.Info("backup verification",
+		"server_id", serverID,
+		"backup_id", result.BackupID,
+		"snapshot", result.SnapshotID,
+		"status", result.Status,
+		"subset", result.Subset,
+		"files", result.FilesCount)
+}
+
 func HandleAgentWS(hub *Hub, db *sql.DB, baseDomain string) http.HandlerFunc {
 	upgrader := websocket.Upgrader{
 		ReadBufferSize:  1024,
@@ -292,12 +328,17 @@ func HandleAgentWS(hub *Hub, db *sql.DB, baseDomain string) http.HandlerFunc {
 				handleBackupStatus(db, serverID, msg.Payload)
 				// Forward to browsers for real-time updates
 				hub.ForwardToBrowsers(serverID, data)
-			case "restore_status":
-				// Handle restore status updates from agent
-				handleRestoreStatus(db, serverID, msg.Payload)
-				// Forward to browsers for real-time updates
-				hub.ForwardToBrowsers(serverID, data)
-			case "log_line", "log_history", "pull_progress", "docker_status", "reconciliation_result":
+		case "restore_status":
+			// Handle restore status updates from agent
+			handleRestoreStatus(db, serverID, msg.Payload)
+			// Forward to browsers for real-time updates
+			hub.ForwardToBrowsers(serverID, data)
+		case "backup_verification":
+			// Handle backup verification updates from agent
+			handleBackupVerification(db, serverID, msg.Payload)
+			// Forward to browsers for real-time updates
+			hub.ForwardToBrowsers(serverID, data)
+		case "log_line", "log_history", "pull_progress", "docker_status", "reconciliation_result":
 				// Forward streaming messages to all browsers watching this server
 				hub.ForwardToBrowsers(serverID, data)
 			default:
