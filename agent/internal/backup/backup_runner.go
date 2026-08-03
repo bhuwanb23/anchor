@@ -8,14 +8,32 @@ import (
 	"time"
 )
 
+// ComponentResult holds the result of backing up a single component.
+type ComponentResult struct {
+	Type      string `json:"type"`
+	Name      string `json:"name"`
+	SizeBytes int64  `json:"size_bytes"`
+	Status    string `json:"status"` // "success" | "failed"
+}
+
+// ProjectResult holds the backup result for a single project.
+type ProjectResult struct {
+	Name       string            `json:"name"`
+	Status     string            `json:"status"` // "success" | "partial" | "failed"
+	Components []ComponentResult `json:"components,omitempty"`
+	Error      string            `json:"error,omitempty"`
+}
+
 // BackupRunResult holds the result of a manifest-driven backup.
 type BackupRunResult struct {
-	Manifest    *BackupManifest `json:"manifest"`
-	SnapshotID  string          `json:"snapshot_id"`
-	DumpResults []*DumpResult   `json:"dump_results"`
-	TotalBytes  int64           `json:"total_bytes"`
-	Duration    time.Duration   `json:"duration"`
-	Error       string          `json:"error,omitempty"`
+	Manifest       *BackupManifest `json:"manifest"`
+	SnapshotID     string          `json:"snapshot_id"`
+	DumpResults    []*DumpResult   `json:"dump_results"`
+	ProjectResults []ProjectResult `json:"project_results"`
+	TotalBytes     int64           `json:"total_bytes"`
+	Duration       time.Duration   `json:"duration"`
+	StartedAt      time.Time       `json:"started_at"`
+	Error          string          `json:"error,omitempty"`
 }
 
 // BackupRunner executes manifest-driven backups.
@@ -42,7 +60,9 @@ func NewBackupRunner(manager *BackupManager, dockerClient DockerClient) *BackupR
 func (r *BackupRunner) RunManifestBackup(ctx context.Context, serverID string) (*BackupRunResult, error) {
 	startTime := time.Now()
 
-	result := &BackupRunResult{}
+	result := &BackupRunResult{
+		StartedAt: startTime,
+	}
 
 	// Build manifest
 	slog.Info("building backup manifest", "server_id", serverID)
@@ -65,10 +85,20 @@ func (r *BackupRunner) RunManifestBackup(ctx context.Context, serverID string) (
 		r.dumper.CleanupAllDumps()
 	}()
 
-	// Dump databases for each project
+	// Dump databases for each project and build per-project results
 	for _, project := range manifest.Projects {
+		projectResult := ProjectResult{
+			Name:   project.Name,
+			Status: "success",
+		}
+
 		for _, comp := range project.Components {
 			var dumpResult *DumpResult
+			compResult := ComponentResult{
+				Type:   comp.Type,
+				Name:   comp.Name(),
+				Status: "success",
+			}
 
 			switch comp.Type {
 			case ComponentTypePostgresDump:
@@ -80,6 +110,8 @@ func (r *BackupRunner) RunManifestBackup(ctx context.Context, serverID string) (
 				if err != nil {
 					slog.Warn("postgres dump failed",
 						"project", project.Name, "error", err)
+					compResult.Status = "failed"
+					projectResult.Status = "partial"
 				}
 
 			case ComponentTypeMysqlDump:
@@ -91,6 +123,8 @@ func (r *BackupRunner) RunManifestBackup(ctx context.Context, serverID string) (
 				if err != nil {
 					slog.Warn("mysql dump failed",
 						"project", project.Name, "error", err)
+					compResult.Status = "failed"
+					projectResult.Status = "partial"
 				}
 
 			case ComponentTypeRedisDump:
@@ -101,14 +135,21 @@ func (r *BackupRunner) RunManifestBackup(ctx context.Context, serverID string) (
 				if err != nil {
 					slog.Warn("redis dump failed",
 						"project", project.Name, "error", err)
+					compResult.Status = "failed"
+					projectResult.Status = "partial"
 				}
 			}
 
 			if dumpResult != nil {
 				result.DumpResults = append(result.DumpResults, dumpResult)
 				result.TotalBytes += dumpResult.SizeBytes
+				compResult.SizeBytes = dumpResult.SizeBytes
 			}
+
+			projectResult.Components = append(projectResult.Components, compResult)
 		}
+
+		result.ProjectResults = append(result.ProjectResults, projectResult)
 	}
 
 	// Collect all paths to back up

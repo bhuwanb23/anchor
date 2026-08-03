@@ -69,6 +69,24 @@ type BackupComponent struct {
 	Path        string `json:"path,omitempty"`
 }
 
+// Name returns a human-readable name for the component.
+func (c *BackupComponent) Name() string {
+	switch c.Type {
+	case ComponentTypePostgresDump:
+		return c.Database
+	case ComponentTypeMysqlDump:
+		return c.Database
+	case ComponentTypeRedisDump:
+		return "redis"
+	case ComponentTypeVolume:
+		return c.VolumeName
+	case ComponentTypeEnvFile:
+		return c.Path
+	default:
+		return c.Type
+	}
+}
+
 // PlatformBackup holds platform-level data to back up.
 type PlatformBackup struct {
 	Type string `json:"type"`
