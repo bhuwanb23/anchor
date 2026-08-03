@@ -35,6 +35,9 @@ type BackupStatusPayload struct {
 	RetentionApplied bool            `json:"retention_applied"`
 	SnapshotsPruned  int             `json:"snapshots_pruned"`
 	Error            string          `json:"error,omitempty"`
+	// Verification fields
+	VerificationStatus string `json:"verification_status,omitempty"`
+	VerificationError  string `json:"verification_error,omitempty"`
 }
 
 // ReportRunning sends a "running" status at backup start.
@@ -85,6 +88,8 @@ func (r *BackupReporter) ReportResult(serverID, backupID string, result *BackupR
 		Projects:         result.ProjectResults,
 		RetentionApplied: retentionApplied,
 		SnapshotsPruned:  snapshotsPruned,
+		VerificationStatus: result.VerificationStatus,
+		VerificationError:  result.VerificationError,
 	}
 
 	if result.Error != "" {
