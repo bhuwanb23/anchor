@@ -7,13 +7,16 @@ import {
   useBackupSchedule,
   useBackupUsage,
   useTriggerBackup,
+  useTriggerRestore,
 } from "@/hooks/use-backup";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { BackupHistory } from "@/components/dashboard/backup-history";
 import { BackupScheduleComponent } from "@/components/dashboard/backup-schedule";
+import { RestoreDialog } from "@/components/dashboard/restore-dialog";
 import { ArrowLeft, Server, HardDrive, RefreshCw } from "lucide-react";
 import Link from "next/link";
+import type { BackupJob } from "@/types";
 
 function formatBytes(bytes: number): string {
   if (bytes === 0) return "0 B";
@@ -38,6 +41,10 @@ export default function BackupsPage({
   } = useBackupSchedule(id);
   const { usage, isLoading: usageLoading, refetch: refetchUsage } = useBackupUsage(id);
   const { triggerBackup, isTriggering } = useTriggerBackup(id);
+  const { triggerRestore, isTriggering: isRestoring } = useTriggerRestore(id);
+
+  const [restoreDialogOpen, setRestoreDialogOpen] = useState(false);
+  const [selectedBackupJob, setSelectedBackupJob] = useState<BackupJob | null>(null);
 
   const handleTrigger = async () => {
     const jobId = await triggerBackup();
@@ -48,6 +55,21 @@ export default function BackupsPage({
         refetchUsage();
       }, 2000);
     }
+  };
+
+  const handleRestoreClick = (job: BackupJob) => {
+    setSelectedBackupJob(job);
+    setRestoreDialogOpen(true);
+  };
+
+  const handleRestore = async (snapshotId: string, projectName: string) => {
+    const jobId = await triggerRestore({ snapshot_id: snapshotId, project_name: projectName });
+    if (jobId) {
+      setTimeout(() => {
+        refetchHistory();
+      }, 2000);
+    }
+    return jobId;
   };
 
   const lastJob = jobs.find((j) => j.status === "success" || j.status === "partial");
@@ -165,10 +187,23 @@ export default function BackupsPage({
               Loading backup history...
             </div>
           ) : (
-            <BackupHistory jobs={jobs} />
+            <BackupHistory jobs={jobs} onRestore={handleRestoreClick} />
           )}
         </CardContent>
       </Card>
+
+      {/* Restore Dialog */}
+      {selectedBackupJob && (
+        <RestoreDialog
+          job={selectedBackupJob}
+          isOpen={restoreDialogOpen}
+          onClose={() => {
+            setRestoreDialogOpen(false);
+            setSelectedBackupJob(null);
+          }}
+          onRestore={handleRestore}
+        />
+      )}
     </div>
   );
 }
