@@ -43,6 +43,14 @@ func (m *MockDockerClient) ExecInContainer(ctx context.Context, containerID stri
 	return m.ExecOutput, m.ExecError
 }
 
+func (m *MockDockerClient) StopContainer(ctx context.Context, id string) error {
+	return nil
+}
+
+func (m *MockDockerClient) StartContainer(ctx context.Context, id string) error {
+	return nil
+}
+
 // mockStateManager is a minimal mock for testing.
 type mockStateManager struct {
 	projects      map[string]interface{}
