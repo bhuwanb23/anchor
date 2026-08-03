@@ -330,3 +330,18 @@ func (b *BackupManager) RunManifestBackup(ctx context.Context, serverID string) 
 	runner := NewBackupRunner(b, b.dockerClient)
 	return runner.RunManifestBackup(ctx, serverID)
 }
+
+// RunRestore executes a manifest-driven restore for a single project.
+// Requires Docker client to be set via WithDockerClient.
+func (b *BackupManager) RunRestore(ctx context.Context, snapshotID, projectName string, reporter RestoreProgressReporter) (*RestoreRunResult, error) {
+	if b.dockerClient == nil {
+		return nil, fmt.Errorf("docker client required for restore")
+	}
+
+	if b.repository == nil {
+		b.repository = NewRepositoryManager(*b.config, b.restic.BinaryPath(), b.dataDir)
+	}
+
+	runner := NewRestoreRunner(b, b.dockerClient)
+	return runner.RunRestore(ctx, snapshotID, projectName, reporter)
+}
