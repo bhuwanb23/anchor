@@ -1,6 +1,7 @@
 "use client";
 
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import type { BackupJob, BackupProjectResult } from "@/types";
 
 function formatBytes(bytes: number): string {
@@ -48,9 +49,10 @@ function parseProjectResults(projectResults?: string): BackupProjectResult[] {
 
 interface BackupHistoryProps {
   jobs: BackupJob[];
+  onRestore?: (job: BackupJob) => void;
 }
 
-export function BackupHistory({ jobs }: BackupHistoryProps) {
+export function BackupHistory({ jobs, onRestore }: BackupHistoryProps) {
   if (jobs.length === 0) {
     return (
       <div className="text-center py-8 text-muted-foreground">
@@ -124,6 +126,16 @@ export function BackupHistory({ jobs }: BackupHistoryProps) {
               )}
               {job.status === "pending" && (
                 <Badge variant="default">Pending</Badge>
+              )}
+              {job.status === "success" && job.snapshot_id && onRestore && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => onRestore(job)}
+                  className="ml-2"
+                >
+                  Restore
+                </Button>
               )}
             </div>
           </div>
