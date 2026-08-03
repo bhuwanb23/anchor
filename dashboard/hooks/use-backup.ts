@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import api from "@/lib/api";
-import type { BackupJob, BackupSchedule, BackupUsage } from "@/types";
+import type { BackupJob, BackupSchedule, BackupUsage, RestoreRequest, RestoreJob } from "@/types";
 
 export function useBackupHistory(serverId: string, pollIntervalMs = 10000) {
   const [jobs, setJobs] = useState<BackupJob[]>([]);
@@ -160,4 +160,79 @@ export function useTriggerBackup(serverId: string) {
   }, [serverId]);
 
   return { triggerBackup, isTriggering, error };
+}
+
+// ---------------------------------------------------------------------------
+// Restore hooks
+// ---------------------------------------------------------------------------
+
+export function useRestoreHistory(serverId: string, pollIntervalMs = 10000) {
+  const [jobs, setJobs] = useState<RestoreJob[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const mountedRef = useRef(true);
+
+  const fetchHistory = useCallback(async () => {
+    try {
+      const res = await api.get<RestoreJob[]>(
+        `/api/v1/servers/${serverId}/backup/restores`
+      );
+      if (mountedRef.current) {
+        setJobs(res.data || []);
+        setError(null);
+      }
+    } catch (e) {
+      if (mountedRef.current) {
+        setError(e instanceof Error ? e.message : "Failed to fetch restore history");
+      }
+    } finally {
+      if (mountedRef.current) {
+        setIsLoading(false);
+      }
+    }
+  }, [serverId]);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    fetchHistory();
+    return () => {
+      mountedRef.current = false;
+    };
+  }, [fetchHistory]);
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      fetchHistory();
+    }, pollIntervalMs);
+    return () => clearInterval(interval);
+  }, [fetchHistory, pollIntervalMs]);
+
+  return { jobs, isLoading, error, refetch: fetchHistory };
+}
+
+export function useTriggerRestore(serverId: string) {
+  const [isTriggering, setIsTriggering] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const triggerRestore = useCallback(
+    async (request: RestoreRequest) => {
+      setIsTriggering(true);
+      setError(null);
+      try {
+        const res = await api.post<{ job_id: string; status: string }>(
+          `/api/v1/servers/${serverId}/backup/restore`,
+          request
+        );
+        setIsTriggering(false);
+        return res.data.job_id;
+      } catch (e) {
+        setIsTriggering(false);
+        setError(e instanceof Error ? e.message : "Failed to trigger restore");
+        return null;
+      }
+    },
+    [serverId]
+  );
+
+  return { triggerRestore, isTriggering, error };
 }
