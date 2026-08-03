@@ -78,6 +78,8 @@ func NewRouter(database *sql.DB, cfg *config.Config, hub *ws.Hub) http.Handler {
 			r.Get("/servers/{serverID}/backup/schedule", backupHandler.GetBackupSchedule)
 			r.Put("/servers/{serverID}/backup/schedule", backupHandler.UpdateBackupSchedule)
 			r.Get("/servers/{serverID}/backup/usage", backupHandler.GetBackupUsage)
+			r.Post("/servers/{serverID}/backup/restore", backupHandler.TriggerRestore)
+			r.Get("/servers/{serverID}/backup/restores", backupHandler.GetRestoreHistory)
 		})
 	})
 
