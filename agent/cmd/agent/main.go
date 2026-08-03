@@ -15,6 +15,7 @@ import (
 	"github.com/yourname/yourplatform/agent/internal/docker"
 	"github.com/yourname/yourplatform/agent/internal/executor"
 	"github.com/yourname/yourplatform/agent/internal/lifecycle"
+	"github.com/yourname/yourplatform/agent/internal/metrics"
 	"github.com/yourname/yourplatform/agent/internal/preflight"
 	"github.com/yourname/yourplatform/agent/internal/state"
 	"github.com/yourname/yourplatform/agent/internal/update"
@@ -219,6 +220,17 @@ func runAgent(args []string) int {
 	slog.Info("startup step 6: starting connection manager")
 	go connMgr.Run(ctx)
 
+	// Step 8: Layer 4C metrics collector (host, container, platform).
+	metricsReporter := metrics.NewReporter(wsClient, metrics.DefaultBufferCapacity())
+	metricsMgr := metrics.NewManager(
+		cfg.ServerID,
+		metrics.NewSystemCollector(caddyMetricsAdapter{caddyMgr}, stateMgr),
+		metrics.NewDockerCollector(dockerClient),
+		metricsReporter,
+	)
+	go metricsMgr.Run(ctx)
+	slog.Info("startup step 8 complete: metrics collector started")
+
 	slog.Info("startup step 8-10 complete: agent operational", "version", version.Version)
 
 	<-ctx.Done()
@@ -287,4 +299,21 @@ func (a backupStateAdapter) GetLastBackupTime() time.Time {
 
 func (a backupStateAdapter) RecordBackupCompletion(snapshotID string, duration time.Duration, totalBytes int64) error {
 	return a.m.RecordBackupCompletion(snapshotID, duration, totalBytes)
+}
+
+// caddyMetricsAdapter adapts *caddy.Manager to metrics.CaddyStatus.
+type caddyMetricsAdapter struct {
+	m *caddy.Manager
+}
+
+func (a caddyMetricsAdapter) IsAlive() bool {
+	return a.m.IsAlive()
+}
+
+func (a caddyMetricsAdapter) RoutesCount() (int, error) {
+	routes, err := a.m.GetRoutes()
+	if err != nil {
+		return 0, err
+	}
+	return len(routes), nil
 }
