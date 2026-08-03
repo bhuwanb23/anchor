@@ -49,6 +49,23 @@ type BackupJob struct {
 	RetentionApplied  sql.NullInt64
 	SnapshotsPruned   sql.NullInt64
 	CreatedAt         string
+	// Verification fields
+	VerificationStatus sql.NullString
+	VerificationError  sql.NullString
+}
+
+// BackupVerificationConfig holds per-server verification scheduling configuration.
+type BackupVerificationConfig struct {
+	ID                     string
+	ServerID               string
+	LastVerificationAt     sql.NullString
+	NextVerificationAt     sql.NullString
+	LastFullVerificationAt sql.NullString
+	NextFullVerificationAt sql.NullString
+	VerifyIntervalHours    int
+	FullVerifyIntervalHours int
+	CreatedAt              string
+	UpdatedAt              string
 }
 
 func InsertBackupConfig(db *sql.DB, id, serverID string) error {
@@ -338,4 +355,69 @@ func toNullString(s *string) sql.NullString {
 		return sql.NullString{}
 	}
 	return sql.NullString{String: *s, Valid: true}
+}
+
+// UpdateBackupJobVerification updates a backup job's verification status.
+func UpdateBackupJobVerification(db *sql.DB, jobID, verificationStatus, verificationError string) error {
+	_, err := db.Exec(
+		"UPDATE backup_jobs SET verification_status = ?, verification_error = ? WHERE id = ?",
+		verificationStatus, toNullString(&verificationError), jobID,
+	)
+	return err
+}
+
+// InsertVerificationConfig creates a default verification config for a server.
+func InsertVerificationConfig(db *sql.DB, id, serverID string) error {
+	_, err := db.Exec(
+		`INSERT INTO backup_verification_configs (id, server_id, verify_interval_hours, full_verify_interval_hours)
+		 VALUES (?, ?, 168, 720)`,
+		id, serverID,
+	)
+	return err
+}
+
+// GetVerificationConfigByServer returns the verification config for a server.
+func GetVerificationConfigByServer(db *sql.DB, serverID string) (*BackupVerificationConfig, error) {
+	var c BackupVerificationConfig
+	err := db.QueryRow(
+		`SELECT id, server_id, last_verification_at, next_verification_at,
+		        last_full_verification_at, next_full_verification_at,
+		        verify_interval_hours, full_verify_interval_hours, created_at, updated_at
+		 FROM backup_verification_configs WHERE server_id = ?`,
+		serverID,
+	).Scan(&c.ID, &c.ServerID, &c.LastVerificationAt, &c.NextVerificationAt,
+		&c.LastFullVerificationAt, &c.NextFullVerificationAt,
+		&c.VerifyIntervalHours, &c.FullVerifyIntervalHours,
+		&c.CreatedAt, &c.UpdatedAt)
+	if err != nil {
+		return nil, err
+	}
+	return &c, nil
+}
+
+// UpdateVerificationConfig updates verification scheduling timestamps.
+func UpdateVerificationConfig(db *sql.DB, serverID string, lastAt, nextAt, lastFullAt, nextFullAt *string) error {
+	_, err := db.Exec(
+		`UPDATE backup_verification_configs
+		 SET last_verification_at = ?, next_verification_at = ?,
+		     last_full_verification_at = ?, next_full_verification_at = ?,
+		     updated_at = datetime('now')
+		 WHERE server_id = ?`,
+		toNullString(lastAt), toNullString(nextAt),
+		toNullString(lastFullAt), toNullString(nextFullAt),
+		serverID,
+	)
+	return err
+}
+
+// UpdateVerificationConfigIntervals updates verification interval settings.
+func UpdateVerificationConfigIntervals(db *sql.DB, serverID string, verifyIntervalHours, fullVerifyIntervalHours int) error {
+	_, err := db.Exec(
+		`UPDATE backup_verification_configs
+		 SET verify_interval_hours = ?, full_verify_interval_hours = ?,
+		     updated_at = datetime('now')
+		 WHERE server_id = ?`,
+		verifyIntervalHours, fullVerifyIntervalHours, serverID,
+	)
+	return err
 }
