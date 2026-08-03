@@ -254,6 +254,58 @@ func (rm *RepositoryManager) Verify(ctx context.Context) error {
 	return nil
 }
 
+// VerifySubset runs an integrity check with a configurable data subset.
+// subset should be a percentage string like "5%", "25%", or "100%".
+func (rm *RepositoryManager) VerifySubset(ctx context.Context, subset string) error {
+	slog.Info("verifying repository integrity", "dest", rm.config.Destination, "subset", subset)
+
+	args := rm.repoArgs()
+	args = append(args, "check", "--read-data-subset="+subset)
+
+	cmd := exec.CommandContext(ctx, rm.resticBin, args...)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("restic check failed: %w\n%s", err, string(output))
+	}
+
+	slog.Info("repository verification passed", "subset", subset)
+	return nil
+}
+
+// ListSnapshotFiles lists files in a snapshot and returns the count.
+// Used to verify snapshot index is readable and metadata is intact.
+func (rm *RepositoryManager) ListSnapshotFiles(ctx context.Context, snapshotID string) (int, error) {
+	slog.Info("listing snapshot files", "snapshot", snapshotID)
+
+	args := rm.repoArgs()
+	args = append(args, "ls", "--json", snapshotID)
+
+	cmd := exec.CommandContext(ctx, rm.resticBin, args...)
+	output, err := cmd.Output()
+	if err != nil {
+		return 0, fmt.Errorf("restic ls failed: %w", err)
+	}
+
+	// restic ls --json outputs one JSON object per line
+	var filesCount int
+	lines := splitLines(string(output))
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		var entry struct {
+			Name string `json:"name"`
+		}
+		if err := json.Unmarshal([]byte(line), &entry); err == nil && entry.Name != "" {
+			filesCount++
+		}
+	}
+
+	slog.Info("snapshot files listed", "snapshot", snapshotID, "count", filesCount)
+	return filesCount, nil
+}
+
 // PruneWithConfig removes old snapshots based on configurable retention policy.
 func (rm *RepositoryManager) PruneWithConfig(ctx context.Context, keepDaily, keepWeekly, keepMonthly int) error {
 	slog.Info("pruning old backups", "keep_daily", keepDaily, "keep_weekly", keepWeekly, "keep_monthly", keepMonthly)
