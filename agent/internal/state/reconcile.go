@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/docker/docker/api/types"
@@ -288,4 +290,86 @@ func ReconcileCaddy(ctx context.Context, stateMgr *Manager, caddyClient CaddyCli
 
 	slog.Info("caddy reconciliation complete", "restored", restored, "orphaned_removed", orphaned)
 	return restored, orphaned, nil
+}
+
+// CheckPortMismatches verifies that each route's upstream port matches
+// the container's current host port. If a mismatch is found, the route
+// is updated with the correct port. Returns the number of fixed routes.
+func CheckPortMismatches(ctx context.Context, stateMgr *Manager, caddyClient CaddyClient) (fixed int, err error) {
+	state := stateMgr.GetState()
+	if state == nil {
+		return 0, nil
+	}
+
+	for routeID, rs := range state.Routes {
+		select {
+		case <-ctx.Done():
+			return fixed, ctx.Err()
+		default:
+		}
+
+		if rs.Project == "" {
+			continue
+		}
+
+		// Find the container for this project
+		ps, ok := state.Projects[rs.Project]
+		if !ok || ps.Containers == nil {
+			continue
+		}
+
+		// Get the first container in the project (main app container)
+		for _, cs := range ps.Containers {
+			if cs.HostPort == 0 || cs.ContainerID == "" {
+				continue
+			}
+
+			// Parse the current upstream port
+			currentUpstream := rs.Upstream
+			_, currentPort, err := parseUpstream(currentUpstream)
+			if err != nil {
+				continue
+			}
+
+			// Check if the port matches
+			if currentPort != cs.HostPort {
+				newUpstream := fmt.Sprintf("127.0.0.1:%d", cs.HostPort)
+				slog.Warn("port mismatch detected, updating route",
+					"route_id", routeID,
+					"old_upstream", currentUpstream,
+					"new_upstream", newUpstream,
+					"project", rs.Project)
+
+				if err := caddyClient.SetRouteByID(routeID, rs.Domains, newUpstream); err != nil {
+					slog.Warn("failed to fix port mismatch",
+						"route_id", routeID,
+						"error", err)
+					continue
+				}
+
+				// Update state
+				stateMgr.SetRoute(routeID, rs.Project, rs.Domains, newUpstream)
+				fixed++
+			}
+
+			break // only check the first container
+		}
+	}
+
+	if fixed > 0 {
+		slog.Info("port mismatch reconciliation complete", "fixed", fixed)
+	}
+	return fixed, nil
+}
+
+func parseUpstream(upstream string) (host string, port int, err error) {
+	parts := strings.SplitN(upstream, ":", 2)
+	if len(parts) != 2 {
+		return "", 0, fmt.Errorf("invalid upstream format: %s", upstream)
+	}
+	port, err = strconv.Atoi(parts[1])
+	if err != nil {
+		return "", 0, fmt.Errorf("invalid port in upstream: %s", upstream)
+	}
+	return parts[0], port, nil
 }

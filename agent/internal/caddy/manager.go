@@ -2,6 +2,7 @@ package caddy
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -17,19 +18,36 @@ func RouteID(project string) string {
 
 // Manager manages Caddy routes via the admin API.
 type Manager struct {
-	adminURL string
+	adminURL    string
+	retryConfig RetryConfig
 }
 
 // NewManager creates a new Caddy route manager.
 func NewManager(caddyAdminURL string) *Manager {
 	return &Manager{
 		adminURL: caddyAdminURL,
+		retryConfig: RetryConfig{
+			MaxAttempts: defaultMaxAttempts,
+			BaseDelay:   defaultBaseDelay,
+		},
 	}
+}
+
+// SetRetryConfig sets the retry configuration for admin API calls.
+func (m *Manager) SetRetryConfig(cfg RetryConfig) {
+	m.retryConfig = cfg
 }
 
 // SetRouteByID creates or updates a route by its ID.
 // This is idempotent — calling with the same routeID replaces the route.
+// Retries with exponential backoff if the admin API is temporarily unavailable.
 func (m *Manager) SetRouteByID(routeID string, domains []string, upstream string) error {
+	return retryWithBackoff(context.Background(), m.retryConfig, func() error {
+		return m.setRouteByIDInternal(routeID, domains, upstream)
+	})
+}
+
+func (m *Manager) setRouteByIDInternal(routeID string, domains []string, upstream string) error {
 	slog.Info("setting caddy route", "id", routeID, "domains", domains, "upstream", upstream)
 
 	if len(domains) == 0 {
@@ -47,7 +65,7 @@ func (m *Manager) SetRouteByID(routeID string, domains []string, upstream string
 				Upstreams: []CaddyUpstream{{Dial: upstream}},
 				Headers: &CaddyHeaders{
 					Set: map[string][]string{
-						"X-Real-IP":        {"{http.request.remote.host}"},
+						"X-Real-IP":         {"{http.request.remote.host}"},
 						"X-Forwarded-Proto": {"https"},
 						"X-Forwarded-Host":  {"{http.request.host}"},
 					},
@@ -216,6 +234,93 @@ func (m *Manager) Reload() error {
 	return nil
 }
 
+const (
+	letsEncryptProd   = "https://acme-v02.api.letsencrypt.org/directory"
+	letsEncryptStaging = "https://acme-staging-v02.api.letsencrypt.org/directory"
+)
+
+// SwitchCA changes the ACME CA between staging and production and reloads Caddy.
+func (m *Manager) SwitchCA(useProduction bool) error {
+	targetCA := letsEncryptStaging
+	if useProduction {
+		targetCA = letsEncryptProd
+	}
+
+	slog.Info("switching ACME CA", "target", targetCA, "production", useProduction)
+
+	// Read current config
+	resp, err := http.Get(m.adminURL + "/config/")
+	if err != nil {
+		return fmt.Errorf("read caddy config: %w", err)
+	}
+	defer resp.Body.Close()
+
+	var config map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&config); err != nil {
+		return fmt.Errorf("decode caddy config: %w", err)
+	}
+
+	// Navigate to apps.tls.automation.policies[0].issuers[0].ca
+	apps, ok := config["apps"].(map[string]interface{})
+	if !ok {
+		return fmt.Errorf("missing apps in caddy config")
+	}
+
+	tls, ok := apps["tls"].(map[string]interface{})
+	if !ok {
+		return fmt.Errorf("missing tls in caddy config")
+	}
+
+	automation, ok := tls["automation"].(map[string]interface{})
+	if !ok {
+		return fmt.Errorf("missing automation in caddy config")
+	}
+
+	policies, ok := automation["policies"].([]interface{})
+	if !ok || len(policies) == 0 {
+		return fmt.Errorf("missing or empty policies in caddy config")
+	}
+
+	policy, ok := policies[0].(map[string]interface{})
+	if !ok {
+		return fmt.Errorf("invalid policy format")
+	}
+
+	issuers, ok := policy["issuers"].([]interface{})
+	if !ok || len(issuers) == 0 {
+		return fmt.Errorf("missing or empty issuers in caddy config")
+	}
+
+	issuer, ok := issuers[0].(map[string]interface{})
+	if !ok {
+		return fmt.Errorf("invalid issuer format")
+	}
+
+	issuer["ca"] = targetCA
+
+	// Update config via PUT
+	data, _ := json.Marshal(config)
+	updateReq, err := http.NewRequest(http.MethodPut, m.adminURL+"/load", bytes.NewReader(data))
+	if err != nil {
+		return fmt.Errorf("create update request: %w", err)
+	}
+	updateReq.Header.Set("Content-Type", "application/json")
+
+	updateResp, err := http.DefaultClient.Do(updateReq)
+	if err != nil {
+		return fmt.Errorf("update caddy config: %w", err)
+	}
+	defer updateResp.Body.Close()
+
+	if updateResp.StatusCode >= 400 {
+		body, _ := io.ReadAll(updateResp.Body)
+		return fmt.Errorf("caddy config update rejected (%d): %s", updateResp.StatusCode, string(body))
+	}
+
+	slog.Info("ACME CA switched successfully", "ca", targetCA)
+	return nil
+}
+
 // verifyRoute confirms a route exists after PUT.
 func (m *Manager) verifyRoute(routeID string) error {
 	route, err := m.GetRouteByID(routeID)
@@ -255,4 +360,52 @@ type CaddyUpstream struct {
 // CaddyHeaders defines header manipulation rules.
 type CaddyHeaders struct {
 	Set map[string][]string `json:"set,omitempty"`
+}
+
+// SetAskRoute creates the on-demand TLS ask endpoint.
+// This starts a local HTTP server that Caddy calls to verify domain authorization.
+func (m *Manager) SetAskRoute(authorizer *DomainAuthorizer) error {
+	const askAddr = "localhost:2020"
+
+	// Update the Caddy config to point ask to the correct port
+	askURL := "http://" + askAddr + "/__yourplatform_ask"
+	updateReq := map[string]interface{}{
+		"apps": map[string]interface{}{
+			"http": map[string]interface{}{
+				"servers": map[string]interface{}{
+					"main": map[string]interface{}{
+						"on_demand": map[string]interface{}{
+							"ask": askURL,
+						},
+					},
+				},
+			},
+		},
+	}
+	data, _ := json.Marshal(updateReq)
+	req, err := http.NewRequest(http.MethodPatch, m.adminURL+"/config/", bytes.NewReader(data))
+	if err == nil {
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			slog.Warn("could not update on_demand.ask in caddy config, using initial config", "error", err)
+		} else {
+			resp.Body.Close()
+		}
+	}
+
+	// Start the ask endpoint server
+	go func() {
+		mux := http.NewServeMux()
+		mux.HandleFunc("/__yourplatform_ask", authorizer.HandleAsk)
+		slog.Info("starting ask endpoint server", "addr", askAddr)
+		if err := http.ListenAndServe(askAddr, mux); err != nil {
+			slog.Error("ask endpoint server failed", "error", err)
+		}
+	}()
+
+	// Wait for server to start
+	time.Sleep(100 * time.Millisecond)
+	slog.Info("on-demand TLS ask endpoint configured", "url", askURL)
+	return nil
 }

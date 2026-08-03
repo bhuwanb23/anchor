@@ -83,18 +83,31 @@ func (pc *ProcessConfig) configFile() string {
 
 // ProcessManager manages a Caddy child process.
 type ProcessManager struct {
-	cfg     ProcessConfig
-	cmd     *exec.Cmd
-	manager *Manager
+	cfg        ProcessConfig
+	cmd        *exec.Cmd
+	manager    *Manager
+	authorizer *DomainAuthorizer
+	logMonitor *LogMonitor
 }
 
 // NewProcessManager creates a new Caddy process manager.
 func NewProcessManager(cfg ProcessConfig, manager *Manager) *ProcessManager {
 	cfg.defaults()
 	return &ProcessManager{
-		cfg:     cfg,
-		manager: manager,
+		cfg:        cfg,
+		manager:    manager,
+		authorizer: NewDomainAuthorizer(),
 	}
+}
+
+// SetLogMonitor sets the log monitor for Caddy stderr parsing.
+func (pm *ProcessManager) SetLogMonitor(monitor *LogMonitor) {
+	pm.logMonitor = monitor
+}
+
+// Authorizer returns the domain authorizer for on-demand TLS.
+func (pm *ProcessManager) Authorizer() *DomainAuthorizer {
+	return pm.authorizer
 }
 
 // Start starts the Caddy process.
@@ -134,7 +147,11 @@ func (pm *ProcessManager) Start(ctx context.Context) error {
 	go func() {
 		scanner := bufio.NewScanner(stderr)
 		for scanner.Scan() {
-			slog.Warn("caddy", "output", scanner.Text())
+			line := scanner.Text()
+			slog.Warn("caddy", "output", line)
+			if pm.logMonitor != nil {
+				pm.logMonitor.ProcessLine(line)
+			}
 		}
 	}()
 
@@ -355,6 +372,28 @@ func (pm *ProcessManager) ensureConfig() error {
 			"module": "file_system",
 			"root":   pm.cfg.CertDir,
 		},
+		"logging": map[string]interface{}{
+			"logs": map[string]interface{}{
+				"default": map[string]interface{}{
+					"level": "INFO",
+					"encoder": map[string]interface{}{
+						"format": "json",
+					},
+				},
+				"tls": map[string]interface{}{
+					"level": "INFO",
+					"encoder": map[string]interface{}{
+						"format": "json",
+					},
+				},
+				"http.log.access": map[string]interface{}{
+					"level": "INFO",
+					"encoder": map[string]interface{}{
+						"format": "json",
+					},
+				},
+			},
+		},
 		"apps": map[string]interface{}{
 			"tls": map[string]interface{}{
 				"automation": map[string]interface{}{
@@ -378,6 +417,9 @@ func (pm *ProcessManager) ensureConfig() error {
 						"routes": []interface{}{},
 						"tls_connection_policies": []interface{}{
 							map[string]interface{}{},
+						},
+						"on_demand": map[string]interface{}{
+							"ask": "http://localhost:2020/__yourplatform_ask",
 						},
 					},
 					"redirect": map[string]interface{}{

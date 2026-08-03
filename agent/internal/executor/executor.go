@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/docker/docker/api/types"
 	"github.com/yourname/yourplatform/agent/internal/backup"
 	"github.com/yourname/yourplatform/agent/internal/caddy"
 	"github.com/yourname/yourplatform/agent/internal/docker"
@@ -67,6 +68,27 @@ type BackupPayload struct {
 	SourcePath string `json:"source_path"`
 }
 
+type BackupInitPayload struct {
+	Destination string `json:"destination"`
+	S3Endpoint  string `json:"s3_endpoint,omitempty"`
+	S3AccessKey string `json:"s3_access_key,omitempty"`
+	S3SecretKey string `json:"s3_secret_key,omitempty"`
+	S3Bucket    string `json:"s3_bucket,omitempty"`
+	S3Region    string `json:"s3_region,omitempty"`
+}
+
+type BackupRestorePayload struct {
+	SnapshotID string `json:"snapshot_id"`
+	TargetPath string `json:"target_path"`
+}
+
+type BackupConfigPayload struct {
+	Schedule       string `json:"schedule,omitempty"`
+	RetentionDaily int    `json:"retention_daily,omitempty"`
+	RetentionWeekly int   `json:"retention_weekly,omitempty"`
+	RetentionMonthly int  `json:"retention_monthly,omitempty"`
+}
+
 type FetchLogsPayload struct {
 	ContainerID string `json:"container_id"`
 }
@@ -75,15 +97,23 @@ type DeleteProjectPayload struct {
 	ProjectName string `json:"project_name"`
 }
 
+type UpdateDomainsPayload struct {
+	AppName string   `json:"app_name"`
+	Domains []string `json:"domains"`
+}
+
 type Executor struct {
 	docker       *docker.Client
 	caddy        *caddy.Manager
 	backup       *backup.BackupManager
+	scheduler    *backup.BackupScheduler
 	imageCache   *docker.ImageCache
 	reporter     ProgressReporter
 	envManager   *env.Manager
 	logStreamer  *logstream.LogStreamer
 	stateManager *state.Manager
+	authorizer   *caddy.DomainAuthorizer
+	serverID     string
 }
 
 // ProgressReporter sends image pull progress updates to the control plane.
@@ -121,6 +151,24 @@ func (e *Executor) WithLogStreamer(ls *logstream.LogStreamer) *Executor {
 // WithStateManager attaches a state manager for persistence across restarts.
 func (e *Executor) WithStateManager(sm *state.Manager) *Executor {
 	e.stateManager = sm
+	return e
+}
+
+// WithAuthorizer attaches a domain authorizer for on-demand TLS.
+func (e *Executor) WithAuthorizer(a *caddy.DomainAuthorizer) *Executor {
+	e.authorizer = a
+	return e
+}
+
+// WithScheduler attaches a backup scheduler for scheduled backups.
+func (e *Executor) WithScheduler(s *backup.BackupScheduler) *Executor {
+	e.scheduler = s
+	return e
+}
+
+// WithServerID sets the server ID for backup operations.
+func (e *Executor) WithServerID(id string) *Executor {
+	e.serverID = id
 	return e
 }
 
@@ -190,12 +238,26 @@ func (e *Executor) Execute(ctx context.Context, cmd Command) Result {
 		err = e.executeStop(ctx, cmd, &result)
 	case "backup":
 		err = e.executeBackup(ctx, cmd, &result)
+	case "backup_init":
+		err = e.executeBackupInit(ctx, cmd, &result)
+	case "backup_status":
+		err = e.executeBackupStatus(ctx, cmd, &result)
+	case "backup_list":
+		err = e.executeBackupList(ctx, cmd, &result)
+	case "backup_trigger":
+		err = e.executeBackupTrigger(ctx, cmd, &result)
+	case "backup_restore":
+		err = e.executeBackupRestore(ctx, cmd, &result)
+	case "backup_config":
+		err = e.executeBackupConfig(ctx, cmd, &result)
 	case "fetch_logs":
 		err = e.executeFetchLogs(ctx, cmd, &result)
 	case "delete_project":
 		err = e.executeDeleteProject(ctx, cmd, &result)
 	case "update_env":
 		err = e.executeUpdateEnv(ctx, cmd, &result)
+	case "update_domains":
+		err = e.executeUpdateDomains(ctx, cmd, &result)
 	default:
 		result.Status = "error"
 		result.Error = fmt.Sprintf("unknown command type: %s", cmd.Type)
@@ -621,6 +683,151 @@ func (e *Executor) executeBackup(ctx context.Context, cmd Command, result *Resul
 	return nil
 }
 
+func (e *Executor) executeBackupInit(ctx context.Context, cmd Command, result *Result) error {
+	var p BackupInitPayload
+	if err := json.Unmarshal(cmd.Payload, &p); err != nil {
+		return fmt.Errorf("invalid backup_init payload: %w", err)
+	}
+
+	// Update backup config
+	config := &backup.RepositoryConfig{
+		Destination: p.Destination,
+		S3Endpoint:  p.S3Endpoint,
+		S3AccessKey: p.S3AccessKey,
+		S3SecretKey: p.S3SecretKey,
+		S3Bucket:    p.S3Bucket,
+		S3Region:    p.S3Region,
+	}
+
+	// Save config
+	if err := backup.SaveConfig("/var/lib/yourplatform", config); err != nil {
+		return fmt.Errorf("save backup config: %w", err)
+	}
+
+	result.Status = "success"
+	result.Output = fmt.Sprintf("backup initialized for %s", p.Destination)
+	return nil
+}
+
+func (e *Executor) executeBackupStatus(ctx context.Context, cmd Command, result *Result) error {
+	status, err := e.backup.GetStatus(ctx)
+	if err != nil {
+		return fmt.Errorf("get backup status: %w", err)
+	}
+
+	result.Status = "success"
+	result.Output = fmt.Sprintf("restic %s, repository ok: %t, snapshots: %d",
+		status.ResticVersion, status.RepositoryOK, status.SnapshotCount)
+	return nil
+}
+
+func (e *Executor) executeBackupList(ctx context.Context, cmd Command, result *Result) error {
+	snapshots, err := e.backup.ListSnapshots(ctx)
+	if err != nil {
+		return fmt.Errorf("list snapshots: %w", err)
+	}
+
+	result.Status = "success"
+	result.Output = fmt.Sprintf("found %d snapshots", len(snapshots))
+	return nil
+}
+
+func (e *Executor) executeBackupTrigger(ctx context.Context, cmd Command, result *Result) error {
+	var p struct {
+		SourcePath string   `json:"source_path"`
+		Tags       []string `json:"tags,omitempty"`
+		Manifest   bool     `json:"manifest,omitempty"` // Use manifest-based backup
+	}
+	if err := json.Unmarshal(cmd.Payload, &p); err != nil {
+		return fmt.Errorf("invalid backup_trigger payload: %w", err)
+	}
+
+	// Try manifest-based backup if requested and dependencies available
+	if p.Manifest || (e.stateManager != nil && e.docker != nil) {
+		// Wire state and docker into backup manager using adapters
+		e.backup.WithStateManager(&stateManagerAdapter{sm: e.stateManager})
+		e.backup.WithDockerClient(&dockerClientAdapter{dc: e.docker})
+
+		// Run manifest backup
+		runResult, err := e.backup.RunManifestBackup(ctx, e.serverID)
+		if err != nil {
+			// Fall back to legacy backup if manifest fails
+			slog.Warn("manifest backup failed, falling back to legacy",
+				"error", err)
+			if err := e.backup.RunBackup(ctx, p.SourcePath); err != nil {
+				return fmt.Errorf("trigger backup: %w", err)
+			}
+			result.Status = "success"
+			result.Output = fmt.Sprintf("legacy backup triggered for %s", p.SourcePath)
+			return nil
+		}
+
+		result.Status = "success"
+		result.Output = fmt.Sprintf("manifest backup completed, snapshot: %s, duration: %v",
+			runResult.SnapshotID, runResult.Duration)
+		return nil
+	}
+
+	// Legacy backup path
+	if err := e.backup.RunBackup(ctx, p.SourcePath); err != nil {
+		return fmt.Errorf("trigger backup: %w", err)
+	}
+
+	result.Status = "success"
+	result.Output = fmt.Sprintf("backup triggered for %s", p.SourcePath)
+	return nil
+}
+
+func (e *Executor) executeBackupRestore(ctx context.Context, cmd Command, result *Result) error {
+	var p BackupRestorePayload
+	if err := json.Unmarshal(cmd.Payload, &p); err != nil {
+		return fmt.Errorf("invalid backup_restore payload: %w", err)
+	}
+
+	if err := e.backup.Restore(ctx, p.SnapshotID, p.TargetPath); err != nil {
+		return fmt.Errorf("restore: %w", err)
+	}
+
+	result.Status = "success"
+	result.Output = fmt.Sprintf("restored snapshot %s to %s", p.SnapshotID, p.TargetPath)
+	return nil
+}
+
+func (e *Executor) executeBackupConfig(ctx context.Context, cmd Command, result *Result) error {
+	var p BackupConfigPayload
+	if err := json.Unmarshal(cmd.Payload, &p); err != nil {
+		return fmt.Errorf("invalid backup_config payload: %w", err)
+	}
+
+	// Update scheduler configuration if scheduler is attached
+	if e.scheduler != nil {
+		cfg := backup.SchedulerConfig{
+			Schedule:         p.Schedule,
+			RetentionDaily:   p.RetentionDaily,
+			RetentionWeekly:  p.RetentionWeekly,
+			RetentionMonthly: p.RetentionMonthly,
+			Enabled:          true,
+		}
+		if cfg.Schedule == "" {
+			cfg.Schedule = "02:00"
+		}
+		if cfg.RetentionDaily == 0 {
+			cfg.RetentionDaily = 7
+		}
+		if cfg.RetentionWeekly == 0 {
+			cfg.RetentionWeekly = 4
+		}
+		if cfg.RetentionMonthly == 0 {
+			cfg.RetentionMonthly = 12
+		}
+		e.scheduler.UpdateConfig(cfg)
+	}
+
+	result.Status = "success"
+	result.Output = "backup config updated"
+	return nil
+}
+
 func (e *Executor) executeFetchLogs(ctx context.Context, cmd Command, result *Result) error {
 	var p FetchLogsPayload
 	if err := json.Unmarshal(cmd.Payload, &p); err != nil {
@@ -670,6 +877,56 @@ func (e *Executor) executeUpdateEnv(ctx context.Context, cmd Command, result *Re
 	return nil
 }
 
+func (e *Executor) executeUpdateDomains(ctx context.Context, cmd Command, result *Result) error {
+	var p UpdateDomainsPayload
+	if err := json.Unmarshal(cmd.Payload, &p); err != nil {
+		return fmt.Errorf("invalid update_domains payload: %w", err)
+	}
+
+	if p.AppName == "" {
+		return fmt.Errorf("app_name is required")
+	}
+
+	if len(p.Domains) == 0 {
+		return fmt.Errorf("at least one domain is required")
+	}
+
+	// Update Caddy route with new domain list
+	routeID := caddy.RouteID(p.AppName)
+
+	// Get existing route to preserve upstream
+	existing, err := e.caddy.GetRouteByID(routeID)
+	if err != nil {
+		return fmt.Errorf("get existing route: %w", err)
+	}
+
+	var upstream string
+	if existing != nil && len(existing.Handle) > 0 && len(existing.Handle[0].Upstreams) > 0 {
+		upstream = existing.Handle[0].Upstreams[0].Dial
+	} else {
+		return fmt.Errorf("no existing route found for %s", p.AppName)
+	}
+
+	if err := e.caddy.SetRouteByID(routeID, p.Domains, upstream); err != nil {
+		return fmt.Errorf("set caddy route: %w", err)
+	}
+
+	// Update state
+	if e.stateManager != nil {
+		_ = e.stateManager.SetRoute(routeID, p.AppName, p.Domains, upstream)
+	}
+
+	// Update domain authorizer for on-demand TLS
+	if e.authorizer != nil {
+		e.authorizer.SetDomains(p.Domains)
+	}
+
+	slog.Info("domains updated", "app", p.AppName, "domains", p.Domains)
+	result.Status = "success"
+	result.Output = fmt.Sprintf("domains updated for %s: %v", p.AppName, p.Domains)
+	return nil
+}
+
 // generateRandomPassword returns a random alphanumeric password of the given length.
 func generateRandomPassword(length int) string {
 	const charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
@@ -679,4 +936,61 @@ func generateRandomPassword(length int) string {
 		b[i] = charset[i%len(charset)]
 	}
 	return string(b)
+}
+
+// --- Adapter types to bridge type mismatches between executor and backup packages ---
+
+// stateManagerAdapter adapts *state.Manager to backup.StateManager interface.
+type stateManagerAdapter struct {
+	sm *state.Manager
+}
+
+func (a *stateManagerAdapter) GetState() *backup.StateData {
+	s := a.sm.GetState()
+	sd := &backup.StateData{
+		Projects: make(map[string]interface{}),
+	}
+	for k, v := range s.Projects {
+		sd.Projects[k] = v
+	}
+	return sd
+}
+
+// dockerClientAdapter adapts *docker.Client to backup.DockerClient interface.
+type dockerClientAdapter struct {
+	dc *docker.Client
+}
+
+func (a *dockerClientAdapter) ListManagedContainers(ctx context.Context) ([]types.Container, error) {
+	return a.dc.ListManagedContainers(ctx)
+}
+
+func (a *dockerClientAdapter) InspectContainer(ctx context.Context, id string) (types.ContainerJSON, error) {
+	return a.dc.InspectContainer(ctx, id)
+}
+
+func (a *dockerClientAdapter) ListProjectVolumes(ctx context.Context, projectName string) ([]*types.Volume, error) {
+	return a.dc.ListProjectVolumes(ctx, projectName)
+}
+
+func (a *dockerClientAdapter) PrepareVolumeForBackup(ctx context.Context, info backup.DockerBackupInfo) error {
+	return a.dc.PrepareVolumeForBackup(ctx, docker.BackupInfo{
+		VolumeName: info.VolumeName,
+		MountPath:  info.MountPath,
+		Project:    info.Project,
+		DBType:     docker.ContainerType(info.DBType),
+	})
+}
+
+func (a *dockerClientAdapter) FinishVolumeForBackup(ctx context.Context, info backup.DockerBackupInfo) error {
+	return a.dc.FinishVolumeBackup(ctx, docker.BackupInfo{
+		VolumeName: info.VolumeName,
+		MountPath:  info.MountPath,
+		Project:    info.Project,
+		DBType:     docker.ContainerType(info.DBType),
+	})
+}
+
+func (a *dockerClientAdapter) ExecInContainer(ctx context.Context, containerID string, cmd []string) (string, error) {
+	return a.dc.ExecInContainer(ctx, containerID, cmd)
 }

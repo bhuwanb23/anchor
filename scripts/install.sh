@@ -132,6 +132,7 @@ check_deps() {
 # ─────────────────────────────────────────────
 
 TMPDIR=""
+RESTIC_VERSION="0.17.3"
 
 download() {
   local download_url="${BASE_URL}/releases/v${AGENT_VERSION}/yourplatform-agent-linux-${ARCH}"
@@ -151,6 +152,35 @@ download() {
   fi
 
   echo "Download complete."
+}
+
+# ─────────────────────────────────────────────
+# Restic Download
+# ─────────────────────────────────────────────
+
+download_restic() {
+  local restic_url="https://github.com/restic/restic/releases/download/v${RESTIC_VERSION}/restic_${RESTIC_VERSION}_linux_${ARCH}.bz2"
+  local restic_bin="/usr/local/bin/restic"
+
+  if [ -f "$restic_bin" ]; then
+    echo "Restic already installed at $restic_bin, skipping download."
+    return 0
+  fi
+
+  echo "Downloading restic v${RESTIC_VERSION} for ${ARCH}..."
+
+  local restic_bz2="${TMPDIR}/restic.bz2"
+  if command -v curl &>/dev/null; then
+    curl -fsSL -o "$restic_bz2" "$restic_url"
+  else
+    wget -qO "$restic_bz2" "$restic_url"
+  fi
+
+  bunzip2 "$restic_bz2"
+  chmod +x "${TMPDIR}/restic"
+  mv "${TMPDIR}/restic" "$restic_bin"
+
+  echo "Restic installed to $restic_bin"
 }
 
 # ─────────────────────────────────────────────
@@ -370,6 +400,7 @@ check_deps
 download
 verify_checksum
 install_binary
+download_restic
 run_preflight
 install_service
 wait_for_connection

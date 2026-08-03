@@ -67,7 +67,44 @@ func handlePreflightResult(db *sql.DB, serverID string, payload json.RawMessage)
 	slog.Info("preflight result processed", "server_id", serverID, "passed", result.Passed, "warnings", len(result.Warnings))
 }
 
-func HandleAgentWS(hub *Hub, db *sql.DB) http.HandlerFunc {
+func handleBackupStatus(db *sql.DB, serverID string, payload json.RawMessage) {
+	var result struct {
+		JobID      string `json:"job_id"`
+		Status     string `json:"status"`
+		Error      string `json:"error,omitempty"`
+		SnapshotID string `json:"snapshot_id,omitempty"`
+		SizeBytes  int64  `json:"size_bytes,omitempty"`
+	}
+
+	if err := json.Unmarshal(payload, &result); err != nil {
+		slog.Warn("failed to parse backup_status", "server_id", serverID, "error", err)
+		return
+	}
+
+	if result.JobID == "" || result.Status == "" {
+		return
+	}
+
+	var errPtr, snapPtr *string
+	if result.Error != "" {
+		errPtr = &result.Error
+	}
+	if result.SnapshotID != "" {
+		snapPtr = &result.SnapshotID
+	}
+
+	_ = queries.UpdateBackupJobStatus(db, result.JobID, result.Status, errPtr, snapPtr)
+
+	// If completed with snapshot, record snapshot
+	if result.Status == "completed" && result.SnapshotID != "" {
+		snapshotID := uuid.New().String()
+		_ = queries.InsertBackupSnapshot(db, snapshotID, serverID, result.SnapshotID, "/var/lib/yourplatform", result.SizeBytes)
+	}
+
+	slog.Info("backup status", "server_id", serverID, "job_id", result.JobID, "status", result.Status)
+}
+
+func HandleAgentWS(hub *Hub, db *sql.DB, baseDomain string) http.HandlerFunc {
 	upgrader := websocket.Upgrader{
 		ReadBufferSize:  1024,
 		WriteBufferSize: 1024,
@@ -120,10 +157,12 @@ func HandleAgentWS(hub *Hub, db *sql.DB) http.HandlerFunc {
 		hub.RegisterAgent(serverID, agentID, conn)
 		slog.Info("agent connected", "agent_id", agentID, "server_id", serverID, "status", status)
 
-		_ = conn.WriteJSON(map[string]string{
-			"type":      "register_ack",
-			"server_id": serverID,
-		})
+		ack := map[string]string{
+			"type":        "register_ack",
+			"server_id":   serverID,
+			"base_domain": baseDomain,
+		}
+		_ = conn.WriteJSON(ack)
 
 		if status != "connected" {
 			_ = queries.UpdateServerConnection(db, serverID, "connected")
@@ -159,6 +198,21 @@ func HandleAgentWS(hub *Hub, db *sql.DB) http.HandlerFunc {
 				slog.Info("command result", "server_id", serverID, "payload", string(msg.Payload))
 			case "preflight_result":
 				handlePreflightResult(db, serverID, msg.Payload)
+			case "certificate_alert":
+				// Forward certificate alerts to browsers and log as server event
+				hub.ForwardToBrowsers(serverID, data)
+				slog.Warn("certificate alert", "server_id", serverID, "payload", string(msg.Payload))
+			case "error_alert":
+				// Forward error alerts (502, rate limit, cert failures) to browsers
+				hub.ForwardToBrowsers(serverID, data)
+				slog.Warn("error alert", "server_id", serverID, "payload", string(msg.Payload))
+			case "server_event":
+				// Forward server events (cert issued/renewed/failed) to browsers
+				hub.ForwardToBrowsers(serverID, data)
+				slog.Info("server event", "server_id", serverID, "payload", string(msg.Payload))
+			case "backup_status":
+				// Handle backup status updates from agent
+				handleBackupStatus(db, serverID, msg.Payload)
 			case "log_line", "log_history", "pull_progress", "docker_status", "reconciliation_result":
 				// Forward streaming messages to all browsers watching this server
 				hub.ForwardToBrowsers(serverID, data)

@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/yourname/yourplatform/agent/internal/caddy"
 )
@@ -537,5 +538,219 @@ func TestReconcileCaddy_PartialFailure(t *testing.T) {
 	}
 	if restored != 0 {
 		t.Errorf("expected 0 restored (all failed), got %d", restored)
+	}
+}
+
+func newTestManager(t *testing.T) *Manager {
+	t.Helper()
+	return NewManager(t.TempDir())
+}
+
+func newTestManagerWithDir(t *testing.T, path string) *Manager {
+	t.Helper()
+	return NewManager(filepath.Dir(path))
+}
+
+// --- Certificate State Tests ---
+
+func TestSetCertificate(t *testing.T) {
+	stateMgr := newTestManager(t)
+
+	err := stateMgr.SetCertificate("example.com", "2026-09-01T00:00:00Z", "Let's Encrypt", "valid")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	cert := stateMgr.GetCertificate("example.com")
+	if cert == nil {
+		t.Fatal("expected certificate to be set")
+	}
+	if cert.Domain != "example.com" {
+		t.Errorf("expected domain example.com, got %s", cert.Domain)
+	}
+	if cert.Expiry != "2026-09-01T00:00:00Z" {
+		t.Errorf("expected expiry 2026-09-01T00:00:00Z, got %s", cert.Expiry)
+	}
+	if cert.Issuer != "Let's Encrypt" {
+		t.Errorf("expected issuer Let's Encrypt, got %s", cert.Issuer)
+	}
+	if cert.Status != "valid" {
+		t.Errorf("expected status valid, got %s", cert.Status)
+	}
+}
+
+func TestSetCertificate_Update(t *testing.T) {
+	stateMgr := newTestManager(t)
+
+	stateMgr.SetCertificate("example.com", "2026-09-01T00:00:00Z", "Let's Encrypt", "valid")
+	stateMgr.SetCertificate("example.com", "2026-12-01T00:00:00Z", "Let's Encrypt", "expiring_soon")
+
+	cert := stateMgr.GetCertificate("example.com")
+	if cert == nil {
+		t.Fatal("expected certificate to exist")
+	}
+	if cert.Expiry != "2026-12-01T00:00:00Z" {
+		t.Errorf("expected updated expiry, got %s", cert.Expiry)
+	}
+	if cert.Status != "expiring_soon" {
+		t.Errorf("expected updated status, got %s", cert.Status)
+	}
+}
+
+func TestRemoveCertificate(t *testing.T) {
+	stateMgr := newTestManager(t)
+
+	stateMgr.SetCertificate("example.com", "2026-09-01T00:00:00Z", "Let's Encrypt", "valid")
+	stateMgr.RemoveCertificate("example.com")
+
+	cert := stateMgr.GetCertificate("example.com")
+	if cert != nil {
+		t.Errorf("expected certificate to be removed, got %+v", cert)
+	}
+}
+
+func TestRemoveCertificate_Nonexistent(t *testing.T) {
+	stateMgr := newTestManager(t)
+	stateMgr.RemoveCertificate("nonexistent.com") // should not panic
+}
+
+func TestGetCertificates_Multiple(t *testing.T) {
+	stateMgr := newTestManager(t)
+
+	stateMgr.SetCertificate("a.com", "2026-09-01T00:00:00Z", "Let's Encrypt", "valid")
+	stateMgr.SetCertificate("b.com", "2026-10-01T00:00:00Z", "Let's Encrypt", "valid")
+
+	certs := stateMgr.GetCertificates()
+	if len(certs) != 2 {
+		t.Fatalf("expected 2 certificates, got %d", len(certs))
+	}
+	if _, ok := certs["a.com"]; !ok {
+		t.Error("expected a.com in certificates")
+	}
+	if _, ok := certs["b.com"]; !ok {
+		t.Error("expected b.com in certificates")
+	}
+}
+
+func TestCertState_Persistence(t *testing.T) {
+	dir := t.TempDir()
+
+	// Create state, add a cert
+	stateMgr1 := NewManager(dir)
+	stateMgr1.SetCertificate("persist.com", "2026-09-01T00:00:00Z", "Let's Encrypt", "valid")
+
+	// Create new manager pointing at same directory — should reload from disk
+	stateMgr2 := NewManager(dir)
+	cert := stateMgr2.GetCertificate("persist.com")
+	if cert == nil {
+		t.Fatal("expected certificate to persist across manager instances")
+	}
+	if cert.Domain != "persist.com" {
+		t.Errorf("expected domain persist.com, got %s", cert.Domain)
+	}
+}
+
+// --- Backup State Tests ---
+
+func TestRecordBackupCompletion(t *testing.T) {
+	stateMgr := newTestManager(t)
+
+	err := stateMgr.RecordBackupCompletion("abc123", 5*time.Second, 1024*1024)
+	if err != nil {
+		t.Fatalf("RecordBackupCompletion failed: %v", err)
+	}
+
+	lastBackup := stateMgr.GetLastBackupTime()
+	if lastBackup.IsZero() {
+		t.Fatal("expected non-zero last backup time")
+	}
+
+	// Should be very recent (within last few seconds)
+	if time.Since(lastBackup) > 5*time.Second {
+		t.Errorf("last backup time is too old: %v", lastBackup)
+	}
+
+	// Verify state is persisted
+	backup := stateMgr.GetState().Backup
+	if backup.LastSnapshotID != "abc123" {
+		t.Errorf("expected snapshot ID abc123, got %q", backup.LastSnapshotID)
+	}
+	if backup.LastDurationMs != 5000 {
+		t.Errorf("expected duration 5000ms, got %d", backup.LastDurationMs)
+	}
+	if backup.LastTotalBytes != 1024*1024 {
+		t.Errorf("expected total bytes %d, got %d", 1024*1024, backup.LastTotalBytes)
+	}
+}
+
+func TestGetLastBackupTime_NoBackup(t *testing.T) {
+	stateMgr := newTestManager(t)
+
+	lastBackup := stateMgr.GetLastBackupTime()
+	if !lastBackup.IsZero() {
+		t.Errorf("expected zero time for no backup, got %v", lastBackup)
+	}
+}
+
+func TestBackupState_Persistence(t *testing.T) {
+	dir := t.TempDir()
+
+	// Record backup with first manager
+	stateMgr1 := NewManager(dir)
+	stateMgr1.RecordBackupCompletion("snap123", 10*time.Second, 2048)
+
+	// Create new manager — should reload from disk
+	stateMgr2 := NewManager(dir)
+	lastBackup := stateMgr2.GetLastBackupTime()
+	if lastBackup.IsZero() {
+		t.Fatal("expected backup time to persist across manager instances")
+	}
+
+	backup := stateMgr2.GetState().Backup
+	if backup.LastSnapshotID != "snap123" {
+		t.Errorf("expected snapshot ID snap123, got %q", backup.LastSnapshotID)
+	}
+}
+
+func TestBackupState_UpdateOverwritesPrevious(t *testing.T) {
+	stateMgr := newTestManager(t)
+
+	// First backup
+	stateMgr.RecordBackupCompletion("snap1", 5*time.Second, 1024)
+	time.Sleep(10 * time.Millisecond)
+
+	// Second backup
+	stateMgr.RecordBackupCompletion("snap2", 10*time.Second, 2048)
+
+	backup := stateMgr.GetState().Backup
+	if backup.LastSnapshotID != "snap2" {
+		t.Errorf("expected snapshot ID snap2, got %q", backup.LastSnapshotID)
+	}
+	if backup.LastDurationMs != 10000 {
+		t.Errorf("expected duration 10000ms, got %d", backup.LastDurationMs)
+	}
+}
+
+func TestBackupState_BackwardCompat(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "state.json")
+
+	// Write state without backup field (old format)
+	data := []byte(`{"version":1,"projects":{},"routes":{}}`)
+	os.WriteFile(path, data, 0600)
+
+	s := LoadState(path)
+	if s == nil {
+		t.Fatal("expected non-nil state")
+	}
+	if s.Backup != nil {
+		t.Error("expected nil backup state for backward compat")
+	}
+
+	// GetLastBackupTime should return zero
+	stateMgr := NewManager(dir)
+	lastBackup := stateMgr.GetLastBackupTime()
+	if !lastBackup.IsZero() {
+		t.Error("expected zero time for backward compat")
 	}
 }

@@ -83,3 +83,19 @@ func InsertServerEvent(db *sql.DB, id, serverID, eventType, checkName, message, 
 	)
 	return err
 }
+
+func GetServerByID(db *sql.DB, serverID string) (name, ipAddress string, err error) {
+	err = db.QueryRow(
+		"SELECT name, ip_address FROM servers WHERE id = ?",
+		serverID,
+	).Scan(&name, &ipAddress)
+	return
+}
+
+func GetDeploymentByServerAndApp(db *sql.DB, serverID, appName string) (id string, err error) {
+	err = db.QueryRow(
+		"SELECT id FROM deployments WHERE server_id = ? AND app_name = ? AND status != 'stopped' LIMIT 1",
+		serverID, appName,
+	).Scan(&id)
+	return
+}

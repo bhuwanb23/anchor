@@ -115,21 +115,53 @@ func run(configPath string) {
 		UseStaging: cfg.CaddyUseStaging,
 		CertDir:    cfg.CaddyCertDir,
 	}, caddyManager)
-	backupManager := backup.NewManager(cfg.BackupDest)
+
+	// Create backup manager with full configuration
+	backupManager := backup.NewManagerWithConfig(backup.BackupConfig{
+		Destination:     cfg.BackupDest,
+		DataDir:         "/var/lib/yourplatform",
+		ServerID:        cfg.ServerID,
+		ControlPlaneURL: cfg.ControlPlaneURL,
+		AgentID:         cfg.AgentID,
+		AgentSecret:     cfg.AgentSecret,
+	})
 
 	// Create state manager for persistence across restarts
 	stateManager := state.NewManager("")
 
+	// Error handling components
+	rateLimitTracker := caddy.NewRateLimitTracker(cfg.CaddyDataDir)
+	routeQueue := caddy.NewRouteQueue(cfg.CaddyDataDir, caddyManager)
+	eventRecorder := caddy.NewEventRecorder(cfg.CaddyDataDir)
+
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
+
+	// Create log monitor (wired to stderr after Caddy starts)
+	var logMonitor *caddy.LogMonitor
 
 	// Start Caddy reverse proxy
 	if err := caddyProcess.Start(ctx); err != nil {
 		slog.Warn("failed to start caddy, continuing without reverse proxy", "error", err)
 	} else {
+		// Set up on-demand TLS ask endpoint
+		if err := caddyManager.SetAskRoute(caddyProcess.Authorizer()); err != nil {
+			slog.Warn("failed to set up ask endpoint", "error", err)
+		}
+
 		// Reconcile routes from state into Caddy after startup
 		if _, _, err := state.ReconcileCaddy(ctx, stateManager, caddyManager); err != nil {
 			slog.Warn("caddy route reconciliation failed", "error", err)
+		}
+
+		// Check for port mismatches after reconciliation
+		if _, err := state.CheckPortMismatches(ctx, stateManager, caddyManager); err != nil {
+			slog.Warn("port mismatch check failed", "error", err)
+		}
+
+		// Apply any queued routes that were deferred
+		if applied := routeQueue.ApplyPending(ctx); applied > 0 {
+			slog.Info("applied queued routes after caddy start", "count", applied)
 		}
 
 		caddyProcess.Monitor(ctx, func() {
@@ -138,11 +170,30 @@ func run(configPath string) {
 			if _, _, err := state.ReconcileCaddy(ctx, stateManager, caddyManager); err != nil {
 				slog.Warn("failed to restore routes after caddy restart", "error", err)
 			}
+			// Apply queued routes after recovery
+			if applied := routeQueue.ApplyPending(ctx); applied > 0 {
+				slog.Info("applied queued routes after caddy recovery", "count", applied)
+			}
 		})
 	}
 
 	wsURL := cfg.ControlPlaneURL + "/ws/agent"
 	wsClient := ws.NewClient(wsURL, cfg.AgentID, cfg.AgentSecret, cfg.WSReconnectSec)
+
+	// Start certificate monitor — checks daily for expiry, sends alerts via WS
+	alertReporter := &caddy.WsAlertReporter{
+		SendFunc: func(v interface{}) error {
+			return wsClient.SendJSON(v)
+		},
+	}
+	certMonitor := caddy.NewCertMonitor(cfg.CaddyDataDir, stateManager, alertReporter)
+	go certMonitor.Run(ctx)
+
+	// Set up log monitor for 502/rate-limit detection
+	logMonitor = caddy.NewLogMonitor(caddy.LogMonitorConfig{}, alertReporter)
+	logMonitor.SetRateLimitTracker(rateLimitTracker)
+	logMonitor.SetEventRecorder(eventRecorder)
+	caddyProcess.SetLogMonitor(logMonitor)
 
 	// Run reconciliation on boot — discover running containers and sync state
 	go func() {
@@ -170,10 +221,31 @@ func run(configPath string) {
 		})
 	}()
 
+	// Create backup alert sender for scheduler
+	backupAlertSender := &wsBackupAlertSender{client: wsClient}
+
+	// Create backup scheduler
+	backupScheduler := backup.NewBackupScheduler(
+		backupManager,
+		"/var/lib/yourplatform",
+		cfg.ServerID,
+		backupAlertSender,
+	)
+	backupScheduler.UpdateConfig(backup.SchedulerConfig{
+		Schedule:         cfg.BackupSchedule,
+		RetentionDaily:   cfg.BackupRetentionDaily,
+		RetentionWeekly:  cfg.BackupRetentionWeekly,
+		RetentionMonthly: cfg.BackupRetentionMonthly,
+		Enabled:          true,
+	})
+
 	exec := executor.New(dockerClient, caddyManager, backupManager).
 		WithImageCache(imageCache).
 		WithProgressReporter(&wsProgressReporter{client: wsClient}).
-		WithStateManager(stateManager)
+		WithStateManager(stateManager).
+		WithAuthorizer(caddyProcess.Authorizer()).
+		WithScheduler(backupScheduler).
+		WithServerID(cfg.ServerID)
 
 	// Create log streamer for container log streaming
 	logStreamer := logstream.NewLogStreamer(
@@ -200,6 +272,9 @@ func run(configPath string) {
 			slog.Info("orphan network cleanup completed")
 		}
 	}()
+
+	// Start backup scheduler
+	go backupScheduler.Start(ctx)
 
 	go wsClient.Run(ctx)
 
@@ -544,4 +619,18 @@ func handleStreamLogs(ctx context.Context, ls *logstream.LogStreamer, dockerClie
 
 		ls.StartStream(ctx, containerID, payload.ProjectName, role, payload.Tail)
 	}
+}
+
+// wsBackupAlertSender sends backup alerts via WebSocket.
+type wsBackupAlertSender struct {
+	client *ws.Client
+}
+
+// SendBackupAlert sends a backup alert to the control plane.
+func (s *wsBackupAlertSender) SendBackupAlert(alert backup.BackupAlert) error {
+	msg := map[string]interface{}{
+		"type":    "backup_alert",
+		"payload": alert,
+	}
+	return s.client.SendJSON(msg)
 }

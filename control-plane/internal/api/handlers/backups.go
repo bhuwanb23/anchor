@@ -1,0 +1,241 @@
+package handlers
+
+import (
+	"database/sql"
+	"encoding/json"
+	"log/slog"
+	"net/http"
+
+	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
+	"github.com/yourname/yourplatform/control-plane/internal/db/queries"
+	"github.com/yourname/yourplatform/control-plane/internal/ws"
+)
+
+type Backup struct {
+	DB  *sql.DB
+	Hub *ws.Hub
+}
+
+// GetBackupConfig returns the backup configuration for a server.
+// GET /api/v1/servers/{serverID}/backup/config
+func (h *Backup) GetBackupConfig(w http.ResponseWriter, r *http.Request) {
+	serverID := chi.URLParam(r, "serverID")
+
+	config, err := queries.GetBackupConfigByServer(h.DB, serverID)
+	if err == sql.ErrNoRows {
+		// Create default config
+		configID := uuid.New().String()
+		if err := queries.InsertBackupConfig(h.DB, configID, serverID); err != nil {
+			slog.Error("insert default backup config", "error", err)
+			http.Error(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
+		config, err = queries.GetBackupConfigByServer(h.DB, serverID)
+		if err != nil {
+			slog.Error("get backup config after insert", "error", err)
+			http.Error(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
+	}
+	if err != nil {
+		slog.Error("get backup config", "error", err)
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(config)
+}
+
+// UpdateBackupConfig updates the backup configuration for a server.
+// PUT /api/v1/servers/{serverID}/backup/config
+func (h *Backup) UpdateBackupConfig(w http.ResponseWriter, r *http.Request) {
+	serverID := chi.URLParam(r, "serverID")
+
+	var req struct {
+		Enabled          bool    `json:"enabled"`
+		Schedule         string  `json:"schedule"`
+		RetentionDaily   int     `json:"retention_daily"`
+		RetentionWeekly  int     `json:"retention_weekly"`
+		RetentionMonthly int     `json:"retention_monthly"`
+		S3Endpoint       *string `json:"s3_endpoint,omitempty"`
+		S3AccessKey      *string `json:"s3_access_key,omitempty"`
+		S3SecretKey      *string `json:"s3_secret_key,omitempty"`
+		S3Bucket         *string `json:"s3_bucket,omitempty"`
+		S3Region         *string `json:"s3_region,omitempty"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	// Ensure config exists
+	_, err := queries.GetBackupConfigByServer(h.DB, serverID)
+	if err == sql.ErrNoRows {
+		configID := uuid.New().String()
+		if err := queries.InsertBackupConfig(h.DB, configID, serverID); err != nil {
+			slog.Error("insert backup config", "error", err)
+			http.Error(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
+	} else if err != nil {
+		slog.Error("get backup config", "error", err)
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	// Update config
+	if err := queries.UpdateBackupConfig(h.DB, serverID, req.Enabled, req.Schedule,
+		req.RetentionDaily, req.RetentionWeekly, req.RetentionMonthly,
+		req.S3Endpoint, req.S3AccessKey, req.S3SecretKey, req.S3Bucket, req.S3Region); err != nil {
+		slog.Error("update backup config", "error", err)
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	// Send config to agent via WebSocket
+	msg := map[string]interface{}{
+		"type": "command",
+		"payload": map[string]interface{}{
+			"id":   uuid.New().String(),
+			"type": "backup_config",
+			"payload": map[string]interface{}{
+				"enabled":           req.Enabled,
+				"schedule":          req.Schedule,
+				"retention_daily":   req.RetentionDaily,
+				"retention_weekly":  req.RetentionWeekly,
+				"retention_monthly": req.RetentionMonthly,
+				"s3_endpoint":       req.S3Endpoint,
+				"s3_access_key":     req.S3AccessKey,
+				"s3_secret_key":     req.S3SecretKey,
+				"s3_bucket":         req.S3Bucket,
+				"s3_region":         req.S3Region,
+			},
+		},
+	}
+
+	msgBytes, _ := json.Marshal(msg)
+	if !h.Hub.SendToAgent(serverID, msgBytes) {
+		slog.Warn("agent not connected, backup config queued", "server_id", serverID)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"status": "updated"})
+}
+
+// GetBackupSnapshots returns recent backup snapshots for a server.
+// GET /api/v1/servers/{serverID}/backup/snapshots
+func (h *Backup) GetBackupSnapshots(w http.ResponseWriter, r *http.Request) {
+	serverID := chi.URLParam(r, "serverID")
+
+	snapshots, err := queries.GetBackupSnapshotsByServer(h.DB, serverID, 50)
+	if err != nil {
+		slog.Error("get backup snapshots", "error", err)
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(snapshots)
+}
+
+// GetBackupJobs returns recent backup jobs for a server.
+// GET /api/v1/servers/{serverID}/backup/jobs
+func (h *Backup) GetBackupJobs(w http.ResponseWriter, r *http.Request) {
+	serverID := chi.URLParam(r, "serverID")
+
+	jobs, err := queries.GetBackupJobsByServer(h.DB, serverID, 20)
+	if err != nil {
+		slog.Error("get backup jobs", "error", err)
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(jobs)
+}
+
+// TriggerBackup sends a backup command to the agent.
+// POST /api/v1/servers/{serverID}/backup/trigger
+func (h *Backup) TriggerBackup(w http.ResponseWriter, r *http.Request) {
+	serverID := chi.URLParam(r, "serverID")
+
+	var req struct {
+		Paths []string `json:"paths"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	if len(req.Paths) == 0 {
+		req.Paths = []string{"/var/lib/yourplatform"}
+	}
+
+	// Create job record
+	jobID := uuid.New().String()
+	if err := queries.InsertBackupJob(h.DB, jobID, serverID); err != nil {
+		slog.Error("insert backup job", "error", err)
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	// Send backup command to agent
+	msg := map[string]interface{}{
+		"type": "command",
+		"payload": map[string]interface{}{
+			"id":   jobID,
+			"type": "backup_trigger",
+			"payload": map[string]interface{}{
+				"job_id": jobID,
+				"paths":  req.Paths,
+			},
+		},
+	}
+
+	msgBytes, _ := json.Marshal(msg)
+	if !h.Hub.SendToAgent(serverID, msgBytes) {
+		slog.Warn("agent not connected, backup queued", "server_id", serverID)
+		_ = queries.UpdateBackupJobStatus(h.DB, jobID, "failed", strPtr("agent not connected"), nil)
+		http.Error(w, "agent not connected", http.StatusServiceUnavailable)
+		return
+	}
+
+	_ = queries.UpdateBackupJobStatus(h.DB, jobID, "running", nil, nil)
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusAccepted)
+	json.NewEncoder(w).Encode(map[string]string{
+		"job_id": jobID,
+		"status": "started",
+	})
+}
+
+// BackupStatus handles backup status updates from the agent.
+func (h *Backup) BackupStatus(serverID string, payload map[string]interface{}) {
+	jobID, _ := payload["job_id"].(string)
+	status, _ := payload["status"].(string)
+	errorMsg, _ := payload["error"].(string)
+	snapshotID, _ := payload["snapshot_id"].(string)
+
+	if jobID == "" || status == "" {
+		return
+	}
+
+	var errPtr, snapPtr *string
+	if errorMsg != "" {
+		errPtr = &errorMsg
+	}
+	if snapshotID != "" {
+		snapPtr = &snapshotID
+	}
+
+	if err := queries.UpdateBackupJobStatus(h.DB, jobID, status, errPtr, snapPtr); err != nil {
+		slog.Error("update backup job status", "job_id", jobID, "error", err)
+	}
+}
+
+func strPtr(s string) *string {
+	return &s
+}

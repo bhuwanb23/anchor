@@ -13,11 +13,15 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/yourname/yourplatform/control-plane/internal/auth"
+	"github.com/yourname/yourplatform/control-plane/internal/config"
 	"github.com/yourname/yourplatform/control-plane/internal/db/queries"
+	"github.com/yourname/yourplatform/control-plane/internal/dns"
 )
 
 type Agent struct {
-	DB *sql.DB
+	DB      *sql.DB
+	DNS     *dns.Client
+	Config  *config.Config
 }
 
 func (a *Agent) Register(w http.ResponseWriter, r *http.Request) {
@@ -115,9 +119,28 @@ func (a *Agent) Register(w http.ResponseWriter, r *http.Request) {
 		req.SystemInfo.DiskUsedPercent,
 	)
 
+	// Create wildcard DNS record if DNS is configured
+	if a.DNS != nil && a.Config != nil && req.IPAddress != "" {
+		subdomain := "srv-" + serverID[:8]
+		if err := a.DNS.UpsertWildcard(r.Context(), subdomain, req.IPAddress); err != nil {
+			slog.Error("create wildcard DNS record", "error", err, "server_id", serverID, "ip", req.IPAddress)
+			// Non-fatal: server registration succeeded, DNS can be retried
+		} else {
+			slog.Info("created wildcard DNS record", "subdomain", subdomain, "ip", req.IPAddress)
+		}
+	}
+
 	// Record auto-fix events
-	for _, fix := range req.AutoFixed {
-		_ = queries.InsertServerEvent(a.DB, uuid.New().String(), serverID, "auto_fixed", fix.Check, fix.Action, "")
+	if len(req.AutoFixed) > 0 {
+		var fixes []struct {
+			Check  string `json:"check"`
+			Action string `json:"action"`
+		}
+		if err := json.Unmarshal(req.AutoFixed, &fixes); err == nil {
+			for _, fix := range fixes {
+				_ = queries.InsertServerEvent(a.DB, uuid.New().String(), serverID, "auto_fixed", fix.Check, fix.Action, "")
+			}
+		}
 	}
 
 	ip := r.Header.Get("X-Real-IP")

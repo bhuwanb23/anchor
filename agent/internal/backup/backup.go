@@ -11,8 +11,25 @@ import (
 )
 
 type BackupManager struct {
-	destination string
-	password    string
+	destination  string
+	password     string
+	restic       *ResticManager
+	repository   *RepositoryManager
+	dataDir      string
+	serverID     string
+	config       *RepositoryConfig
+	stateMgr     StateManager // StateManager interface for manifest-based backups
+	dockerClient DockerClient // DockerClient interface for container operations
+}
+
+// StateManager interface for state operations.
+type StateManager interface {
+	GetState() *StateData
+}
+
+// StateData holds project state for backup manifest building.
+type StateData struct {
+	Projects map[string]interface{}
 }
 
 type Snapshot struct {
@@ -27,7 +44,36 @@ func NewManager(destination string) *BackupManager {
 	return &BackupManager{
 		destination: destination,
 		password:    os.Getenv("RESTIC_PASSWORD"),
+		restic:      NewResticManager(),
+		dataDir:     "/var/lib/yourplatform",
 	}
+}
+
+// NewManagerWithConfig creates a backup manager with full configuration.
+func NewManagerWithConfig(cfg BackupConfig) *BackupManager {
+	m := &BackupManager{
+		destination: cfg.Destination,
+		dataDir:     cfg.DataDir,
+		serverID:    cfg.ServerID,
+		restic:      NewResticManager(),
+	}
+
+	// Load existing config if available
+	if cfg.DataDir != "" {
+		config, err := LoadConfig(cfg.DataDir)
+		if err == nil && config != nil {
+			m.config = config
+			m.password = config.Password
+			m.destination = config.Destination
+		} else {
+			// Create new config
+			m.config = &RepositoryConfig{
+				Destination: cfg.Destination,
+			}
+		}
+	}
+
+	return m
 }
 
 func (b *BackupManager) repoArgs() []string {
@@ -36,6 +82,104 @@ func (b *BackupManager) repoArgs() []string {
 		args = append(args, "--password", b.password)
 	}
 	return args
+}
+
+// Initialize performs first-time backup setup.
+func (b *BackupManager) Initialize(ctx context.Context) error {
+	slog.Info("initializing backup system")
+
+	// Verify restic binary
+	if err := b.restic.EnsureRestic(ctx); err != nil {
+		return fmt.Errorf("restic binary check: %w", err)
+	}
+
+	// Generate password if not set
+	if b.password == "" {
+		pwd, err := GeneratePassword()
+		if err != nil {
+			return fmt.Errorf("generate password: %w", err)
+		}
+		b.password = pwd
+		b.config.Password = pwd
+
+		// Save password securely
+		if err := SavePassword(b.dataDir, pwd); err != nil {
+			return fmt.Errorf("save password: %w", err)
+		}
+	}
+
+	// Initialize repository
+	b.repository = NewRepositoryManager(*b.config, b.restic.BinaryPath(), b.dataDir)
+	if err := b.repository.InitRepository(ctx); err != nil {
+		return fmt.Errorf("init repository: %w", err)
+	}
+
+	// Save config
+	if err := SaveConfig(b.dataDir, b.config); err != nil {
+		return fmt.Errorf("save config: %w", err)
+	}
+
+	slog.Info("backup system initialized", "dest", b.destination)
+	return nil
+}
+
+// CheckHealth verifies the backup system is functional.
+func (b *BackupManager) CheckHealth(ctx context.Context) error {
+	if err := b.restic.EnsureRestic(ctx); err != nil {
+		return fmt.Errorf("restic binary: %w", err)
+	}
+
+	if b.repository == nil {
+		b.repository = NewRepositoryManager(*b.config, b.restic.BinaryPath(), b.dataDir)
+	}
+
+	if err := b.repository.VerifyRepository(ctx); err != nil {
+		return fmt.Errorf("repository: %w", err)
+	}
+
+	return nil
+}
+
+// GetStatus returns the current backup system status.
+func (b *BackupManager) GetStatus(ctx context.Context) (*BackupStatus, error) {
+	status := &BackupStatus{
+		ResticVersion: ResticVersion,
+	}
+
+	if err := b.restic.EnsureRestic(ctx); err != nil {
+		status.RepositoryOK = false
+		status.Error = err.Error()
+		return status, nil
+	}
+
+	if b.repository == nil {
+		b.repository = NewRepositoryManager(*b.config, b.restic.BinaryPath(), b.dataDir)
+	}
+
+	snapshots, err := b.repository.ListSnapshots(ctx)
+	if err != nil {
+		status.RepositoryOK = false
+		status.Error = err.Error()
+		return status, nil
+	}
+
+	status.RepositoryOK = true
+	status.SnapshotCount = len(snapshots)
+
+	if len(snapshots) > 0 {
+		status.LastBackup = snapshots[0].Time
+	}
+
+	return status, nil
+}
+
+// BackupStatus holds the current backup system status.
+type BackupStatus struct {
+	ResticVersion string `json:"restic_version"`
+	RepositoryOK  bool   `json:"repository_ok"`
+	SnapshotCount int    `json:"snapshot_count"`
+	LastBackup    string `json:"last_backup,omitempty"`
+	Error         string `json:"error,omitempty"`
 }
 
 func (b *BackupManager) ensureRepo(ctx context.Context) error {
@@ -131,4 +275,55 @@ func (b *BackupManager) Prune(ctx context.Context) error {
 
 	slog.Info("backup pruning completed")
 	return nil
+}
+
+// BackupConfig holds paths for default backup sources.
+type BackupConfig struct {
+	DataDir        string // agent data directory (state.json, config)
+	CertDir        string // certificate storage directory
+	ProjectsDir    string // project data directory
+	Destination    string // restic repository destination
+	ServerID       string // server ID for control plane
+	ControlPlaneURL string // control plane URL for binary downloads
+	AgentID        string // agent ID for authentication
+	AgentSecret    string // agent secret for authentication
+}
+
+// DefaultBackupPaths returns the default directories to back up,
+// including certificates, state, and project data.
+func DefaultBackupPaths(cfg BackupConfig) []string {
+	var paths []string
+	if cfg.DataDir != "" {
+		paths = append(paths, cfg.DataDir)
+	}
+	if cfg.CertDir != "" {
+		paths = append(paths, cfg.CertDir)
+	}
+	if cfg.ProjectsDir != "" {
+		paths = append(paths, cfg.ProjectsDir)
+	}
+	return paths
+}
+
+// WithStateManager sets the state manager for manifest-based backups.
+func (b *BackupManager) WithStateManager(stateMgr StateManager) *BackupManager {
+	b.stateMgr = stateMgr
+	return b
+}
+
+// WithDockerClient sets the Docker client for manifest-based backups.
+func (b *BackupManager) WithDockerClient(client DockerClient) *BackupManager {
+	b.dockerClient = client
+	return b
+}
+
+// RunManifestBackup executes a manifest-driven backup if state and Docker are available.
+// Falls back to legacy RunBackup if dependencies are not set.
+func (b *BackupManager) RunManifestBackup(ctx context.Context, serverID string) (*BackupRunResult, error) {
+	if b.stateMgr == nil || b.dockerClient == nil {
+		return nil, fmt.Errorf("state manager and docker client required for manifest backup")
+	}
+
+	runner := NewBackupRunner(b, b.dockerClient)
+	return runner.RunManifestBackup(ctx, serverID)
 }
