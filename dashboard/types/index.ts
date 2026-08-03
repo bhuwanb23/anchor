@@ -138,6 +138,9 @@ export interface BackupJob {
   retention_applied?: boolean
   snapshots_pruned?: number
   created_at: string
+  // Verification fields
+  verification_status?: "verified" | "failed" | "skipped" | ""
+  verification_error?: string
 }
 
 export interface BackupSchedule {
@@ -177,4 +180,24 @@ export interface RestoreJob {
   error_message?: string
   duration_seconds?: number
   created_at: string
+}
+
+// Verification types
+export interface VerificationSchedule {
+  config: {
+    id: string
+    server_id: string
+    last_verification_at?: string
+    next_verification_at?: string
+    last_full_verification_at?: string
+    next_full_verification_at?: string
+    verify_interval_hours: number
+    full_verify_interval_hours: number
+    created_at: string
+    updated_at: string
+  }
+  last_verification: {
+    status: string
+    error?: string
+  }
 }
