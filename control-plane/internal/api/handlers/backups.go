@@ -362,3 +362,101 @@ func (h *Backup) GetBackupUsage(w http.ResponseWriter, r *http.Request) {
 func strPtr(s string) *string {
 	return &s
 }
+
+// ---------------------------------------------------------------------------
+// Restore handlers
+// ---------------------------------------------------------------------------
+
+// TriggerRestore sends a restore command to the agent.
+// POST /api/v1/servers/{serverID}/backup/restore
+func (h *Backup) TriggerRestore(w http.ResponseWriter, r *http.Request) {
+	serverID := chi.URLParam(r, "serverID")
+
+	var req struct {
+		SnapshotID  string `json:"snapshot_id"`
+		ProjectName string `json:"project_name"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	if req.SnapshotID == "" || req.ProjectName == "" {
+		http.Error(w, "snapshot_id and project_name are required", http.StatusBadRequest)
+		return
+	}
+
+	// Create restore job record
+	jobID := uuid.New().String()
+	if err := queries.InsertRestoreJob(h.DB, jobID, serverID, req.SnapshotID, req.ProjectName); err != nil {
+		slog.Error("insert restore job", "error", err)
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	// Send restore command to agent
+	msg := map[string]interface{}{
+		"type": "command",
+		"payload": map[string]interface{}{
+			"id":   jobID,
+			"type": "backup_restore",
+			"payload": map[string]interface{}{
+				"job_id":        jobID,
+				"snapshot_id":   req.SnapshotID,
+				"project_name":  req.ProjectName,
+				"server_id":     serverID,
+			},
+		},
+	}
+
+	msgBytes, _ := json.Marshal(msg)
+	if !h.Hub.SendToAgent(serverID, msgBytes) {
+		slog.Warn("agent not connected, restore queued", "server_id", serverID)
+		_ = queries.UpdateRestoreJobStatus(h.DB, jobID, "failed", strPtr("agent not connected"))
+		http.Error(w, "agent not connected", http.StatusServiceUnavailable)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusAccepted)
+	json.NewEncoder(w).Encode(map[string]string{
+		"job_id": jobID,
+		"status": "started",
+	})
+}
+
+// RestoreStatus handles restore status updates from the agent.
+func (h *Backup) RestoreStatus(serverID string, payload map[string]interface{}) {
+	restoreID, _ := payload["restore_id"].(string)
+	status, _ := payload["status"].(string)
+	errorMsg, _ := payload["error"].(string)
+
+	if restoreID == "" || status == "" {
+		return
+	}
+
+	var errPtr *string
+	if errorMsg != "" {
+		errPtr = &errorMsg
+	}
+
+	if err := queries.UpdateRestoreJobStatus(h.DB, restoreID, status, errPtr); err != nil {
+		slog.Error("update restore job status", "restore_id", restoreID, "error", err)
+	}
+}
+
+// GetRestoreHistory returns restore job history for a server.
+// GET /api/v1/servers/{serverID}/backup/restores
+func (h *Backup) GetRestoreHistory(w http.ResponseWriter, r *http.Request) {
+	serverID := chi.URLParam(r, "serverID")
+
+	jobs, err := queries.GetRestoreJobsByServer(h.DB, serverID, 20)
+	if err != nil {
+		slog.Error("get restore history", "error", err)
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(jobs)
+}
