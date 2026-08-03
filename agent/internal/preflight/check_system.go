@@ -9,7 +9,6 @@ import (
 
 	"github.com/shirou/gopsutil/v3/disk"
 	"github.com/shirou/gopsutil/v3/mem"
-	"golang.org/x/sys/unix"
 )
 
 func collectSystemInfo() SystemInfo {
@@ -52,12 +51,11 @@ func collectSystemInfo() SystemInfo {
 
 func checkDisk() CheckResult {
 	getAvailableGB := func(path string) (int, error) {
-		var stat unix.Statfs_t
-		if err := unix.Statfs(path, &stat); err != nil {
+		usage, err := disk.Usage(path)
+		if err != nil {
 			return 0, err
 		}
-		available := int(stat.Bavail * uint64(stat.Bsize) / (1024 * 1024 * 1024))
-		return available, nil
+		return int(usage.Free / 1024 / 1024 / 1024), nil
 	}
 
 	freeGB, err := getAvailableGB("/")
