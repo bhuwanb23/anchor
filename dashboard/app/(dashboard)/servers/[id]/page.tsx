@@ -75,6 +75,12 @@ export default function ServerDetailPage({
       <div className="flex items-center gap-4">
         <h1 className="text-2xl font-bold text-gray-900 dark:text-white">{server.name}</h1>
         <StatusBadge status={server.status} />
+        <Link
+          href={`/servers/${id}/backups`}
+          className="text-sm text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300"
+        >
+          Backups
+        </Link>
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
