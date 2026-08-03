@@ -253,3 +253,135 @@ func TestDumpResult_WithError(t *testing.T) {
 		t.Errorf("Error = %q, want 'dump failed'", result.Error)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Restore tests
+// ---------------------------------------------------------------------------
+
+func TestDumper_RestorePostgres_NoContainer(t *testing.T) {
+	mockDocker := &MockDockerClient{
+		Containers: []types.Container{},
+	}
+
+	dumper := NewDumper(mockDocker, t.TempDir())
+
+	_, err := dumper.RestorePostgres(context.Background(), "nonexistent_postgres", "testdb", "/tmp/test.dump")
+	if err == nil {
+		t.Error("expected error for nonexistent container")
+	}
+}
+
+func TestDumper_RestoreMySQL_NoContainer(t *testing.T) {
+	mockDocker := &MockDockerClient{
+		Containers: []types.Container{},
+	}
+
+	dumper := NewDumper(mockDocker, t.TempDir())
+
+	_, err := dumper.RestoreMySQL(context.Background(), "nonexistent_mysql", "testdb", "/tmp/test.dump")
+	if err == nil {
+		t.Error("expected error for nonexistent container")
+	}
+}
+
+func TestDumper_RestoreRedis_NoContainer(t *testing.T) {
+	mockDocker := &MockDockerClient{
+		Containers: []types.Container{},
+	}
+
+	dumper := NewDumper(mockDocker, t.TempDir())
+
+	_, err := dumper.RestoreRedis(context.Background(), "nonexistent_redis", "/tmp/test.rdb")
+	if err == nil {
+		t.Error("expected error for nonexistent container")
+	}
+}
+
+func TestDumper_RestorePostgres_DumpFileNotFound(t *testing.T) {
+	mockDocker := &MockDockerClient{
+		Containers: []types.Container{
+			{
+				ID:    "abc123def456",
+				Names: []string{"/yourplatform_testproject_postgres"},
+			},
+		},
+	}
+
+	dumper := NewDumper(mockDocker, t.TempDir())
+
+	_, err := dumper.RestorePostgres(context.Background(), "yourplatform_testproject_postgres", "testdb", "/nonexistent/dump.sql")
+	if err == nil {
+		t.Error("expected error for nonexistent dump file")
+	}
+}
+
+func TestDumper_RestoreMySQL_DumpFileNotFound(t *testing.T) {
+	mockDocker := &MockDockerClient{
+		Containers: []types.Container{
+			{
+				ID:    "abc123def456",
+				Names: []string{"/yourplatform_testproject_mysql"},
+			},
+		},
+	}
+
+	dumper := NewDumper(mockDocker, t.TempDir())
+
+	_, err := dumper.RestoreMySQL(context.Background(), "yourplatform_testproject_mysql", "testdb", "/nonexistent/dump.sql")
+	if err == nil {
+		t.Error("expected error for nonexistent dump file")
+	}
+}
+
+func TestDumper_RestoreRedis_DumpFileNotFound(t *testing.T) {
+	mockDocker := &MockDockerClient{
+		Containers: []types.Container{
+			{
+				ID:    "abc123def456",
+				Names: []string{"/yourplatform_testproject_redis"},
+			},
+		},
+	}
+
+	dumper := NewDumper(mockDocker, t.TempDir())
+
+	_, err := dumper.RestoreRedis(context.Background(), "yourplatform_testproject_redis", "/nonexistent/dump.rdb")
+	if err == nil {
+		t.Error("expected error for nonexistent dump file")
+	}
+}
+
+func TestRestoreResult_Structure(t *testing.T) {
+	result := &RestoreResult{
+		ComponentType: ComponentTypePostgresDump,
+		ContainerName: "test_container",
+		Database:      "testdb",
+		Status:        "success",
+	}
+
+	if result.ComponentType != ComponentTypePostgresDump {
+		t.Errorf("ComponentType = %q, want %q", result.ComponentType, ComponentTypePostgresDump)
+	}
+	if result.Status != "success" {
+		t.Errorf("Status = %q, want success", result.Status)
+	}
+	if result.Database != "testdb" {
+		t.Errorf("Database = %q, want testdb", result.Database)
+	}
+}
+
+func TestRestoreResult_WithError(t *testing.T) {
+	result := &RestoreResult{
+		ComponentType: ComponentTypeMysqlDump,
+		ContainerName: "test_container",
+		Status:        "failed",
+		Error:         "restore failed",
+	}
+
+	if result.Error != "restore failed" {
+		t.Errorf("Error = %q, want 'restore failed'", result.Error)
+	}
+	if result.Status != "failed" {
+		t.Errorf("Status = %q, want failed", result.Status)
+	}
+}
