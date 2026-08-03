@@ -263,6 +263,76 @@ func GetBackupConfigWithSchedule(db *sql.DB, serverID string) (*BackupConfig, er
 	return &c, nil
 }
 
+// ---------------------------------------------------------------------------
+// Restore job queries
+// ---------------------------------------------------------------------------
+
+// InsertRestoreJob inserts a restore job record with job_type='restore'.
+func InsertRestoreJob(db *sql.DB, id, serverID, snapshotID, projectName string) error {
+	_, err := db.Exec(
+		"INSERT INTO backup_jobs (id, server_id, job_type, snapshot_id, project_name, status) VALUES (?, ?, 'restore', ?, ?, 'running')",
+		id, serverID, snapshotID, projectName,
+	)
+	return err
+}
+
+// GetRestoreJobsByServer returns restore jobs for a server.
+func GetRestoreJobsByServer(db *sql.DB, serverID string, limit int) ([]BackupJob, error) {
+	if limit <= 0 {
+		limit = 20
+	}
+	rows, err := db.Query(
+		`SELECT id, server_id, status, started_at, completed_at, error_message, snapshot_id, 
+		        duration_seconds, size_new_bytes, size_total_bytes, project_results, 
+		        retention_applied, snapshots_pruned, created_at 
+		 FROM backup_jobs WHERE server_id = ? AND job_type = 'restore' ORDER BY created_at DESC LIMIT ?`,
+		serverID, limit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var jobs []BackupJob
+	for rows.Next() {
+		var j BackupJob
+		if err := rows.Scan(&j.ID, &j.ServerID, &j.Status, &j.StartedAt, &j.CompletedAt, &j.ErrorMessage, &j.SnapshotID, &j.DurationSeconds, &j.SizeNewBytes, &j.SizeTotalBytes, &j.ProjectResults, &j.RetentionApplied, &j.SnapshotsPruned, &j.CreatedAt); err != nil {
+			return nil, err
+		}
+		jobs = append(jobs, j)
+	}
+	return jobs, rows.Err()
+}
+
+// UpdateRestoreJobStatus updates a restore job's status.
+func UpdateRestoreJobStatus(db *sql.DB, jobID, status string, errorMessage *string) error {
+	var completedAt sql.NullString
+	if status == "success" || status == "partial" || status == "failed" {
+		completedAt = sql.NullString{String: time.Now().UTC().Format(time.RFC3339), Valid: true}
+	}
+	_, err := db.Exec(
+		"UPDATE backup_jobs SET status = ?, completed_at = ?, error_message = ? WHERE id = ?",
+		status, completedAt, toNullString(errorMessage), jobID,
+	)
+	return err
+}
+
+// GetRestoreJobByID returns a single restore job.
+func GetRestoreJobByID(db *sql.DB, jobID string) (*BackupJob, error) {
+	var j BackupJob
+	err := db.QueryRow(
+		`SELECT id, server_id, status, started_at, completed_at, error_message, snapshot_id, 
+		        duration_seconds, size_new_bytes, size_total_bytes, project_results, 
+		        retention_applied, snapshots_pruned, created_at 
+		 FROM backup_jobs WHERE id = ? AND job_type = 'restore'`,
+		jobID,
+	).Scan(&j.ID, &j.ServerID, &j.Status, &j.StartedAt, &j.CompletedAt, &j.ErrorMessage, &j.SnapshotID, &j.DurationSeconds, &j.SizeNewBytes, &j.SizeTotalBytes, &j.ProjectResults, &j.RetentionApplied, &j.SnapshotsPruned, &j.CreatedAt)
+	if err != nil {
+		return nil, err
+	}
+	return &j, nil
+}
+
 func toNullString(s *string) sql.NullString {
 	if s == nil {
 		return sql.NullString{}
