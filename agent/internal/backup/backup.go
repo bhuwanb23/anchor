@@ -21,6 +21,7 @@ type BackupManager struct {
 	config       *RepositoryConfig
 	stateMgr     StateManager // StateManager interface for manifest-based backups
 	dockerClient DockerClient // DockerClient interface for container operations
+	verifier     *VerificationManager // Verification manager for backup verification
 }
 
 // StateManager interface for state operations.
@@ -74,6 +75,12 @@ func NewManagerWithConfig(cfg BackupConfig) *BackupManager {
 				Destination: cfg.Destination,
 			}
 		}
+	}
+
+	// Initialize repository and verifier
+	if m.config != nil {
+		m.repository = NewRepositoryManager(*m.config, m.restic.BinaryPath(), m.dataDir)
+		m.verifier = NewVerificationManager(m.repository)
 	}
 
 	return m
