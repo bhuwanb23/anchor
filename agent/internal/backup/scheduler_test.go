@@ -333,3 +333,127 @@ func TestBackupAlert_Retrying(t *testing.T) {
 		t.Errorf("Type = %q, want %q", alert.Type, "backup_retrying")
 	}
 }
+
+// mockStateManagerForScheduler implements StateManager for scheduler testing.
+type mockStateManagerForScheduler struct {
+	lastBackupTime time.Time
+	snapshotID     string
+	duration       time.Duration
+	totalBytes     int64
+}
+
+func (m *mockStateManagerForScheduler) GetState() *StateData {
+	return &StateData{Projects: map[string]interface{}{}}
+}
+
+func (m *mockStateManagerForScheduler) GetLastBackupTime() time.Time {
+	return m.lastBackupTime
+}
+
+func (m *mockStateManagerForScheduler) RecordBackupCompletion(snapshotID string, duration time.Duration, totalBytes int64) error {
+	m.snapshotID = snapshotID
+	m.duration = duration
+	m.totalBytes = totalBytes
+	return nil
+}
+
+func TestScheduler_MissedBackupDetection_NoPreviousBackup(t *testing.T) {
+	executor := &mockBackupExecutor{}
+	alertSender := &mockAlertSender{}
+	stateMgr := &mockStateManagerForScheduler{
+		lastBackupTime: time.Time{}, // Zero time = no backup ever
+	}
+
+	scheduler := NewBackupScheduler(executor, t.TempDir(), "server-1", alertSender).
+		WithStateManager(stateMgr)
+
+	// Start scheduler with a short timeout
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	go scheduler.Start(ctx)
+
+	// Wait for the missed backup to trigger
+	time.Sleep(1 * time.Second)
+
+	// Should have triggered a backup
+	if executor.callCount < 1 {
+		t.Error("expected at least 1 backup call for no previous backup")
+	}
+}
+
+func TestScheduler_MissedBackupDetection_OldBackup(t *testing.T) {
+	executor := &mockBackupExecutor{}
+	alertSender := &mockAlertSender{}
+	stateMgr := &mockStateManagerForScheduler{
+		lastBackupTime: time.Now().Add(-26 * time.Hour), // 26 hours ago
+	}
+
+	scheduler := NewBackupScheduler(executor, t.TempDir(), "server-1", alertSender).
+		WithStateManager(stateMgr)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	go scheduler.Start(ctx)
+
+	time.Sleep(1 * time.Second)
+
+	if executor.callCount < 1 {
+		t.Error("expected at least 1 backup call for old backup (>25h)")
+	}
+}
+
+func TestScheduler_MissedBackupDetection_RecentBackup(t *testing.T) {
+	executor := &mockBackupExecutor{}
+	alertSender := &mockAlertSender{}
+	stateMgr := &mockStateManagerForScheduler{
+		lastBackupTime: time.Now().Add(-1 * time.Hour), // 1 hour ago
+	}
+
+	scheduler := NewBackupScheduler(executor, t.TempDir(), "server-1", alertSender).
+		WithStateManager(stateMgr)
+
+	// Set schedule far in the future so no scheduled backup runs
+	scheduler.UpdateConfig(SchedulerConfig{
+		Schedule: "23:59",
+		Enabled:  true,
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	go scheduler.Start(ctx)
+
+	time.Sleep(1 * time.Second)
+
+	// Should NOT trigger a backup
+	if executor.callCount > 0 {
+		t.Error("expected no backup for recent backup (<25h)")
+	}
+}
+
+func TestScheduler_MissedBackupDetection_NoStateManager(t *testing.T) {
+	executor := &mockBackupExecutor{}
+	alertSender := &mockAlertSender{}
+
+	// No state manager set
+	scheduler := NewBackupScheduler(executor, t.TempDir(), "server-1", alertSender)
+
+	scheduler.UpdateConfig(SchedulerConfig{
+		Schedule: "23:59",
+		Enabled:  true,
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	go scheduler.Start(ctx)
+
+	time.Sleep(1 * time.Second)
+
+	// Should NOT trigger a backup
+	if executor.callCount > 0 {
+		t.Error("expected no backup when state manager is nil")
+	}
+}
