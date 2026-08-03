@@ -956,6 +956,14 @@ func (a *stateManagerAdapter) GetState() *backup.StateData {
 	return sd
 }
 
+func (a *stateManagerAdapter) GetLastBackupTime() time.Time {
+	return a.sm.GetLastBackupTime()
+}
+
+func (a *stateManagerAdapter) RecordBackupCompletion(snapshotID string, duration time.Duration, totalBytes int64) error {
+	return a.sm.RecordBackupCompletion(snapshotID, duration, totalBytes)
+}
+
 // dockerClientAdapter adapts *docker.Client to backup.DockerClient interface.
 type dockerClientAdapter struct {
 	dc *docker.Client

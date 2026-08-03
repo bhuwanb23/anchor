@@ -230,7 +230,7 @@ func run(configPath string) {
 		"/var/lib/yourplatform",
 		cfg.ServerID,
 		backupAlertSender,
-	)
+	).WithStateManager(&mainStateManagerAdapter{sm: stateManager})
 	backupScheduler.UpdateConfig(backup.SchedulerConfig{
 		Schedule:         cfg.BackupSchedule,
 		RetentionDaily:   cfg.BackupRetentionDaily,
@@ -633,4 +633,28 @@ func (s *wsBackupAlertSender) SendBackupAlert(alert backup.BackupAlert) error {
 		"payload": alert,
 	}
 	return s.client.SendJSON(msg)
+}
+
+// mainStateManagerAdapter adapts *state.Manager to backup.StateManager for the scheduler.
+type mainStateManagerAdapter struct {
+	sm *state.Manager
+}
+
+func (a *mainStateManagerAdapter) GetState() *backup.StateData {
+	s := a.sm.GetState()
+	sd := &backup.StateData{
+		Projects: make(map[string]interface{}),
+	}
+	for k, v := range s.Projects {
+		sd.Projects[k] = v
+	}
+	return sd
+}
+
+func (a *mainStateManagerAdapter) GetLastBackupTime() time.Time {
+	return a.sm.GetLastBackupTime()
+}
+
+func (a *mainStateManagerAdapter) RecordBackupCompletion(snapshotID string, duration time.Duration, totalBytes int64) error {
+	return a.sm.RecordBackupCompletion(snapshotID, duration, totalBytes)
 }
