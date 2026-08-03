@@ -69,11 +69,19 @@ func handlePreflightResult(db *sql.DB, serverID string, payload json.RawMessage)
 
 func handleBackupStatus(db *sql.DB, serverID string, payload json.RawMessage) {
 	var result struct {
-		JobID      string `json:"job_id"`
-		Status     string `json:"status"`
-		Error      string `json:"error,omitempty"`
-		SnapshotID string `json:"snapshot_id,omitempty"`
-		SizeBytes  int64  `json:"size_bytes,omitempty"`
+		ServerID         string `json:"server_id"`
+		BackupID         string `json:"backup_id"`
+		ResticSnapshotID string `json:"restic_snapshot_id"`
+		Status           string `json:"status"`
+		StartedAt        string `json:"started_at"`
+		CompletedAt      string `json:"completed_at,omitempty"`
+		DurationSeconds  int64  `json:"duration_seconds"`
+		SizeNewBytes     int64  `json:"size_new_bytes"`
+		SizeTotalBytes   int64  `json:"size_total_bytes"`
+		Projects         json.RawMessage `json:"projects,omitempty"`
+		RetentionApplied bool   `json:"retention_applied"`
+		SnapshotsPruned  int    `json:"snapshots_pruned"`
+		Error            string `json:"error,omitempty"`
 	}
 
 	if err := json.Unmarshal(payload, &result); err != nil {
@@ -81,27 +89,59 @@ func handleBackupStatus(db *sql.DB, serverID string, payload json.RawMessage) {
 		return
 	}
 
-	if result.JobID == "" || result.Status == "" {
+	if result.BackupID == "" || result.Status == "" {
 		return
 	}
 
-	var errPtr, snapPtr *string
+	// Find or create the job record
+	jobID := result.BackupID
+	existingJob, _ := queries.GetBackupJobByID(db, jobID)
+	if existingJob == nil {
+		// Job doesn't exist yet (might be a scheduled backup without pre-created job)
+		_ = queries.InsertBackupJob(db, jobID, serverID)
+	}
+
+	var errPtr, snapPtr, projResultsPtr *string
+	var durPtr, sizeNewPtr, sizeTotalPtr *int64
+	var retPtr *bool
+	var prunedPtr *int
+
 	if result.Error != "" {
 		errPtr = &result.Error
 	}
-	if result.SnapshotID != "" {
-		snapPtr = &result.SnapshotID
+	if result.ResticSnapshotID != "" {
+		snapPtr = &result.ResticSnapshotID
 	}
+	if len(result.Projects) > 0 {
+		projStr := string(result.Projects)
+		projResultsPtr = &projStr
+	}
+	if result.DurationSeconds > 0 {
+		durPtr = &result.DurationSeconds
+	}
+	if result.SizeNewBytes > 0 {
+		sizeNewPtr = &result.SizeNewBytes
+	}
+	if result.SizeTotalBytes > 0 {
+		sizeTotalPtr = &result.SizeTotalBytes
+	}
+	retPtr = &result.RetentionApplied
+	prunedPtr = &result.SnapshotsPruned
 
-	_ = queries.UpdateBackupJobStatus(db, result.JobID, result.Status, errPtr, snapPtr)
+	_ = queries.UpdateBackupJobFull(db, jobID, result.Status, durPtr, sizeNewPtr, sizeTotalPtr, projResultsPtr, retPtr, prunedPtr, errPtr, snapPtr)
 
 	// If completed with snapshot, record snapshot
-	if result.Status == "completed" && result.SnapshotID != "" {
+	if (result.Status == "success" || result.Status == "completed") && result.ResticSnapshotID != "" {
 		snapshotID := uuid.New().String()
-		_ = queries.InsertBackupSnapshot(db, snapshotID, serverID, result.SnapshotID, "/var/lib/yourplatform", result.SizeBytes)
+		_ = queries.InsertBackupSnapshot(db, snapshotID, serverID, result.ResticSnapshotID, "/var/lib/yourplatform", result.SizeNewBytes)
 	}
 
-	slog.Info("backup status", "server_id", serverID, "job_id", result.JobID, "status", result.Status)
+	// Update last backup time on success
+	if result.Status == "success" || result.Status == "completed" {
+		_ = queries.UpdateLastBackupTime(db, serverID)
+	}
+
+	slog.Info("backup status", "server_id", serverID, "backup_id", result.BackupID, "status", result.Status)
 }
 
 func HandleAgentWS(hub *Hub, db *sql.DB, baseDomain string) http.HandlerFunc {
@@ -213,6 +253,8 @@ func HandleAgentWS(hub *Hub, db *sql.DB, baseDomain string) http.HandlerFunc {
 			case "backup_status":
 				// Handle backup status updates from agent
 				handleBackupStatus(db, serverID, msg.Payload)
+				// Forward to browsers for real-time updates
+				hub.ForwardToBrowsers(serverID, data)
 			case "log_line", "log_history", "pull_progress", "docker_status", "reconciliation_result":
 				// Forward streaming messages to all browsers watching this server
 				hub.ForwardToBrowsers(serverID, data)
