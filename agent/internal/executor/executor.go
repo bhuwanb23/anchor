@@ -365,6 +365,9 @@ func (e *Executor) executeDeployInternal(ctx context.Context, cmd Command, resul
 	if err := validateDeployPayload(p); err != nil {
 		return err
 	}
+	if e.docker == nil {
+		return fmt.Errorf("docker client not configured")
+	}
 
 	SendProgress(e.progressSender, cmd.ID, "pulling", "Pulling image...", 10)
 
@@ -634,7 +637,7 @@ func (e *Executor) tailLogs(ctx context.Context, containerID string, lines int) 
 
 // rollbackToPrevious redeploys the previous deployment image; returns the record if successful.
 func (e *Executor) rollbackToPrevious(ctx context.Context, appName string) *state.DeploymentRecord {
-	if e.stateManager == nil {
+	if e.stateManager == nil || e.docker == nil {
 		return nil
 	}
 	prev := e.stateManager.GetPreviousDeployment(appName)
