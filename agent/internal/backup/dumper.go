@@ -280,6 +280,182 @@ func (d *Dumper) findContainerByName(ctx context.Context, name string) (string, 
 	return "", fmt.Errorf("container %s not found", name)
 }
 
+// ---------------------------------------------------------------------------
+// Restore methods
+// ---------------------------------------------------------------------------
+
+// RestoreResult holds the result of a database restore operation.
+type RestoreResult struct {
+	ComponentType string `json:"component_type"`
+	ContainerName string `json:"container_name"`
+	Database      string `json:"database,omitempty"`
+	Status        string `json:"status"` // "success" | "failed"
+	Error         string `json:"error,omitempty"`
+}
+
+// RestorePostgres restores a Postgres database from a custom-format dump file.
+// It drops and recreates the database, then runs pg_restore.
+func (d *Dumper) RestorePostgres(ctx context.Context, containerName, database, dumpPath string) (*RestoreResult, error) {
+	result := &RestoreResult{
+		ComponentType: ComponentTypePostgresDump,
+		ContainerName: containerName,
+		Database:      database,
+		Status:        "success",
+	}
+
+	containerID, err := d.findContainerByName(ctx, containerName)
+	if err != nil {
+		result.Status = "failed"
+		result.Error = fmt.Sprintf("find container: %v", err)
+		return result, fmt.Errorf("find container %s: %w", containerName, err)
+	}
+
+	// Verify dump file exists
+	if _, err := os.Stat(dumpPath); os.IsNotExist(err) {
+		result.Status = "failed"
+		result.Error = fmt.Sprintf("dump file not found: %s", dumpPath)
+		return result, fmt.Errorf("dump file not found: %w", err)
+	}
+
+	// Step 1: Terminate existing connections
+	terminateCmd := []string{"sh", "-c",
+		fmt.Sprintf("psql -U yourplatform -d postgres -c \"SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '%s' AND pid <> pg_backend_pid();\"", database)}
+	_, _ = d.dockerClient.ExecInContainer(ctx, containerID, terminateCmd)
+
+	// Step 2: Drop database
+	dropCmd := []string{"sh", "-c",
+		fmt.Sprintf("psql -U yourplatform -d postgres -c \"DROP DATABASE IF EXISTS %s;\"", database)}
+	if _, err := d.dockerClient.ExecInContainer(ctx, containerID, dropCmd); err != nil {
+		result.Status = "failed"
+		result.Error = fmt.Sprintf("drop database: %v", err)
+		return result, fmt.Errorf("drop database: %w", err)
+	}
+
+	// Step 3: Create database
+	createCmd := []string{"sh", "-c",
+		fmt.Sprintf("psql -U yourplatform -d postgres -c \"CREATE DATABASE %s;\"", database)}
+	if _, err := d.dockerClient.ExecInContainer(ctx, containerID, createCmd); err != nil {
+		result.Status = "failed"
+		result.Error = fmt.Sprintf("create database: %v", err)
+		return result, fmt.Errorf("create database: %w", err)
+	}
+
+	// Step 4: Restore from dump (pg_restore reports warnings to stderr, use || true)
+	restoreCmd := []string{"sh", "-c",
+		fmt.Sprintf("pg_restore -U yourplatform -d %s %s 2>&1 || true", database, dumpPath)}
+	output, err := d.dockerClient.ExecInContainer(ctx, containerID, restoreCmd)
+	if err != nil {
+		result.Status = "failed"
+		result.Error = fmt.Sprintf("pg_restore: %v", err)
+		return result, fmt.Errorf("pg_restore: %w", err)
+	}
+
+	slog.Info("postgres restore completed",
+		"container", containerName,
+		"database", database,
+		"output", output)
+
+	return result, nil
+}
+
+// RestoreMySQL restores a MySQL database from a SQL dump file.
+// It drops and recreates the database, then imports the dump.
+func (d *Dumper) RestoreMySQL(ctx context.Context, containerName, database, dumpPath string) (*RestoreResult, error) {
+	result := &RestoreResult{
+		ComponentType: ComponentTypeMysqlDump,
+		ContainerName: containerName,
+		Database:      database,
+		Status:        "success",
+	}
+
+	containerID, err := d.findContainerByName(ctx, containerName)
+	if err != nil {
+		result.Status = "failed"
+		result.Error = fmt.Sprintf("find container: %v", err)
+		return result, fmt.Errorf("find container %s: %w", containerName, err)
+	}
+
+	// Verify dump file exists
+	if _, err := os.Stat(dumpPath); os.IsNotExist(err) {
+		result.Status = "failed"
+		result.Error = fmt.Sprintf("dump file not found: %s", dumpPath)
+		return result, fmt.Errorf("dump file not found: %w", err)
+	}
+
+	// Step 1: Drop database
+	dropCmd := []string{"sh", "-c",
+		fmt.Sprintf("mysql -u root -e \"DROP DATABASE IF EXISTS %s;\"", database)}
+	if _, err := d.dockerClient.ExecInContainer(ctx, containerID, dropCmd); err != nil {
+		result.Status = "failed"
+		result.Error = fmt.Sprintf("drop database: %v", err)
+		return result, fmt.Errorf("drop database: %w", err)
+	}
+
+	// Step 2: Create database
+	createCmd := []string{"sh", "-c",
+		fmt.Sprintf("mysql -u root -e \"CREATE DATABASE %s;\"", database)}
+	if _, err := d.dockerClient.ExecInContainer(ctx, containerID, createCmd); err != nil {
+		result.Status = "failed"
+		result.Error = fmt.Sprintf("create database: %v", err)
+		return result, fmt.Errorf("create database: %w", err)
+	}
+
+	// Step 3: Restore from dump
+	restoreCmd := []string{"sh", "-c",
+		fmt.Sprintf("mysql -u root %s < %s 2>&1 || true", database, dumpPath)}
+	output, err := d.dockerClient.ExecInContainer(ctx, containerID, restoreCmd)
+	if err != nil {
+		result.Status = "failed"
+		result.Error = fmt.Sprintf("mysql restore: %v", err)
+		return result, fmt.Errorf("mysql restore: %w", err)
+	}
+
+	slog.Info("mysql restore completed",
+		"container", containerName,
+		"database", database,
+		"output", output)
+
+	return result, nil
+}
+
+// RestoreRedis restores Redis data by replacing the RDB dump file.
+// The container should be stopped before calling this method.
+func (d *Dumper) RestoreRedis(ctx context.Context, containerName, dumpPath string) (*RestoreResult, error) {
+	result := &RestoreResult{
+		ComponentType: ComponentTypeRedisDump,
+		ContainerName: containerName,
+		Status:        "success",
+	}
+
+	containerID, err := d.findContainerByName(ctx, containerName)
+	if err != nil {
+		result.Status = "failed"
+		result.Error = fmt.Sprintf("find container: %v", err)
+		return result, fmt.Errorf("find container %s: %w", containerName, err)
+	}
+
+	// Verify dump file exists
+	if _, err := os.Stat(dumpPath); os.IsNotExist(err) {
+		result.Status = "failed"
+		result.Error = fmt.Sprintf("dump file not found: %s", dumpPath)
+		return result, fmt.Errorf("dump file not found: %w", err)
+	}
+
+	// Copy RDB file into the container
+	copyCmd := []string{"sh", "-c", fmt.Sprintf("cp %s /data/dump.rdb", dumpPath)}
+	if _, err := d.dockerClient.ExecInContainer(ctx, containerID, copyCmd); err != nil {
+		result.Status = "failed"
+		result.Error = fmt.Sprintf("copy rdb: %v", err)
+		return result, fmt.Errorf("copy rdb: %w", err)
+	}
+
+	slog.Info("redis restore completed",
+		"container", containerName,
+		"dump_path", dumpPath)
+
+	return result, nil
+}
+
 // DumpContainer executes a command in a container and returns the output.
 // This is a helper for external callers.
 func DumpContainer(ctx context.Context, dockerClient DockerClient, containerID string, cmd []string) (string, error) {
