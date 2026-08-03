@@ -224,6 +224,129 @@ func handleBackupVerification(db *sql.DB, serverID string, payload json.RawMessa
 		"files", result.FilesCount)
 }
 
+// healthReportContainer mirrors the agent's ContainerMetrics JSON fields.
+type healthReportContainer struct {
+	Project      string  `json:"project"`
+	Role         string  `json:"role"`
+	ContainerID  string  `json:"container_id"`
+	Status       string  `json:"status"`
+	Health       *string `json:"health"`
+	CPUPercent   float64 `json:"cpu_percent"`
+	RAMUsedMB    int64   `json:"ram_used_mb"`
+	RAMLimitMB   int64   `json:"ram_limit_mb"`
+	RAMPercent   float64 `json:"ram_percent"`
+	RestartCount int     `json:"restart_count"`
+	UptimeSecs   int64   `json:"uptime_seconds"`
+	ExitCode     *int    `json:"exit_code,omitempty"`
+	NetRxBytes   uint64  `json:"net_rx_bytes,omitempty"`
+	NetTxBytes   uint64  `json:"net_tx_bytes,omitempty"`
+}
+
+// healthReportServer mirrors the agent's ServerMetrics JSON fields.
+type healthReportServer struct {
+	CPUPercent    float64 `json:"cpu_percent"`
+	RAMUsedMB     int64   `json:"ram_used_mb"`
+	RAMTotalMB    int64   `json:"ram_total_mb"`
+	RAMPercent    float64 `json:"ram_percent"`
+	DiskUsedGB    float64 `json:"disk_used_gb"`
+	DiskTotalGB   float64 `json:"disk_total_gb"`
+	DiskPercent   float64 `json:"disk_percent"`
+	Load1Min      float64 `json:"load_1min"`
+	LoadPerCore   float64 `json:"load_per_core"`
+}
+
+// healthReportPlatform mirrors the agent's PlatformMetrics JSON fields.
+type healthReportPlatform struct {
+	CaddyRunning     bool   `json:"caddy_running"`
+	CaddyRoutesCount int    `json:"caddy_routes_count"`
+	LastBackupAt     string `json:"last_backup_at,omitempty"`
+	LastBackupAgeSec int64  `json:"last_backup_age_seconds"`
+}
+
+// healthReportPayload mirrors the agent's HealthReport JSON shape.
+type healthReportPayload struct {
+	Type          string                `json:"type"`
+	ServerID      string                `json:"server_id"`
+	Timestamp     string                `json:"timestamp"`
+	CollectedInMS int64                 `json:"collected_in_ms"`
+	Server        healthReportServer    `json:"server"`
+	Containers    []healthReportContainer `json:"containers"`
+	Platform      healthReportPlatform  `json:"platform"`
+}
+
+// healthReportBatchPayload wraps a batch of reports sent on reconnect.
+type healthReportBatchPayload struct {
+	Type     string              `json:"type"`
+	ServerID string              `json:"server_id"`
+	Reports  []healthReportPayload `json:"reports"`
+}
+
+func handleHealthReport(db *sql.DB, serverID string, payload json.RawMessage) {
+	var r healthReportPayload
+	if err := json.Unmarshal(payload, &r); err != nil {
+		slog.Warn("failed to parse health_report", "server_id", serverID, "error", err)
+		return
+	}
+	if r.ServerID != "" && r.ServerID != serverID {
+		slog.Warn("health_report server_id mismatch", "wanted", serverID, "got", r.ServerID)
+		return
+	}
+
+	// Update server last_seen and status
+	_ = queries.UpdateServerConnection(db, serverID, "connected")
+
+	// Upsert container statuses
+	for _, c := range r.Containers {
+		_ = queries.UpsertContainerStatus(db, serverID,
+			c.Project, c.Role, c.ContainerID, c.Status, c.Health,
+			c.CPUPercent, c.RAMUsedMB, c.RAMLimitMB, c.RAMPercent,
+			c.RestartCount, c.UptimeSecs, c.ExitCode,
+			c.NetRxBytes, c.NetTxBytes)
+	}
+
+	// Insert metrics summary
+	ts := r.Timestamp
+	if ts == "" {
+		ts = time.Now().UTC().Format(time.RFC3339)
+	}
+	mid := uuid.New().String()
+	srv := r.Server
+	plat := r.Platform
+	var backupAge *int64
+	if plat.LastBackupAgeSec > 0 {
+		backupAge = &plat.LastBackupAgeSec
+	}
+	_ = queries.InsertMetric(db, mid, serverID, ts, r.CollectedInMS,
+		srv.CPUPercent, srv.RAMUsedMB, srv.RAMTotalMB, srv.RAMPercent,
+		srv.DiskUsedGB, srv.DiskTotalGB, srv.DiskPercent,
+		srv.Load1Min, srv.LoadPerCore,
+		plat.CaddyRunning, plat.CaddyRoutesCount, backupAge,
+		len(r.Containers))
+
+	slog.Debug("health_report processed", "server_id", serverID, "containers", len(r.Containers))
+}
+
+func handleHealthReportBatch(db *sql.DB, serverID string, payload json.RawMessage) {
+	var batch healthReportBatchPayload
+	if err := json.Unmarshal(payload, &batch); err != nil {
+		slog.Warn("failed to parse health_report_batch", "server_id", serverID, "error", err)
+		return
+	}
+	if batch.ServerID != "" && batch.ServerID != serverID {
+		slog.Warn("health_report_batch server_id mismatch", "wanted", serverID, "got", batch.ServerID)
+		return
+	}
+	for _, r := range batch.Reports {
+		// Re-marshal each report as if it were a single health_report
+		raw, err := json.Marshal(r)
+		if err != nil {
+			continue
+		}
+		handleHealthReport(db, serverID, raw)
+	}
+	slog.Info("health_report_batch processed", "server_id", serverID, "count", len(batch.Reports))
+}
+
 func HandleAgentWS(hub *Hub, db *sql.DB, baseDomain string) http.HandlerFunc {
 	upgrader := websocket.Upgrader{
 		ReadBufferSize:  1024,
