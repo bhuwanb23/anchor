@@ -927,24 +927,7 @@ func (e *Executor) executeBackupVerify(ctx context.Context, cmd Command, result 
 
 	// Report verification result
 	if e.backupReporter != nil {
-		msg := map[string]interface{}{
-			"type": "backup_verification",
-			"payload": map[string]interface{}{
-				"server_id":        e.serverID,
-				"backup_id":        cmd.ID,
-				"snapshot_id":      status.SnapshotID,
-				"status":           status.Status,
-				"subset":           status.Subset,
-				"started_at":       status.StartedAt,
-				"completed_at":     status.CompletedAt,
-				"duration_seconds": int64(status.Duration.Seconds()),
-				"files_count":      status.FilesCount,
-				"error":            status.Error,
-			},
-		}
-		if err := e.backupReporter.wsClient.SendJSON(msg); err != nil {
-			slog.Warn("failed to send verification result", "error", err)
-		}
+		e.backupReporter.SendVerificationResult(e.serverID, cmd.ID, status)
 	}
 
 	result.Status = "success"

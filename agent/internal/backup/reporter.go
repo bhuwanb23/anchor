@@ -277,6 +277,33 @@ func GenerateRestoreID() string {
 	return "rst-" + time.Now().Format("20060102150405") + "-" + randomHex(6)
 }
 
+// SendVerificationResult sends a backup verification result to the control plane.
+func (r *BackupReporter) SendVerificationResult(serverID, backupID string, result *VerificationStatus) {
+	if r.wsClient == nil {
+		return
+	}
+
+	msg := map[string]interface{}{
+		"type": "backup_verification",
+		"payload": map[string]interface{}{
+			"server_id":        serverID,
+			"backup_id":        backupID,
+			"snapshot_id":      result.SnapshotID,
+			"status":           result.Status,
+			"subset":           result.Subset,
+			"started_at":       result.StartedAt,
+			"completed_at":     result.CompletedAt,
+			"duration_seconds": int64(result.Duration.Seconds()),
+			"files_count":      result.FilesCount,
+			"error":            result.Error,
+		},
+	}
+
+	if err := r.wsClient.SendJSON(msg); err != nil {
+		slog.Warn("failed to send verification result", "error", err)
+	}
+}
+
 // randomHex returns a random hex string of the given length.
 func randomHex(n int) string {
 	const hexChars = "0123456789abcdef"
