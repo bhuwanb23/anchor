@@ -218,9 +218,8 @@ func runAgent(args []string) int {
 	go updater.Start(ctx)
 
 	slog.Info("startup step 6: starting connection manager")
-	go connMgr.Run(ctx)
 
-	// Step 8: Layer 4C metrics collector (host, container, platform).
+	// Layer 4C metrics collector (host, container, platform).
 	metricsReporter := metrics.NewReporter(wsClient, metrics.DefaultBufferCapacity())
 	metricsMgr := metrics.NewManager(
 		cfg.ServerID,
@@ -228,8 +227,17 @@ func runAgent(args []string) int {
 		metrics.NewDockerCollector(dockerClient),
 		metricsReporter,
 	)
+	// On WS reconnect, flush buffered health reports to the control plane.
+	connMgr.OnConnect = func() {
+		reports := metricsReporter.Recent(100)
+		if len(reports) > 0 {
+			metricsReporter.SendBatch(cfg.ServerID, reports)
+		}
+	}
 	go metricsMgr.Run(ctx)
 	slog.Info("startup step 8 complete: metrics collector started")
+
+	go connMgr.Run(ctx)
 
 	slog.Info("startup step 8-10 complete: agent operational", "version", version.Version)
 
