@@ -144,6 +144,43 @@ func handleBackupStatus(db *sql.DB, serverID string, payload json.RawMessage) {
 	slog.Info("backup status", "server_id", serverID, "backup_id", result.BackupID, "status", result.Status)
 }
 
+// handleRestoreStatus processes restore status updates from the agent.
+func handleRestoreStatus(db *sql.DB, serverID string, payload json.RawMessage) {
+	var result struct {
+		ServerID        string `json:"server_id"`
+		RestoreID       string `json:"restore_id"`
+		SnapshotID      string `json:"snapshot_id"`
+		ProjectName     string `json:"project_name"`
+		Status          string `json:"status"`
+		StartedAt       string `json:"started_at"`
+		CompletedAt     string `json:"completed_at,omitempty"`
+		DurationSeconds int64  `json:"duration_seconds"`
+		Error           string `json:"error,omitempty"`
+	}
+
+	if err := json.Unmarshal(payload, &result); err != nil {
+		slog.Warn("failed to parse restore_status", "server_id", serverID, "error", err)
+		return
+	}
+
+	if result.RestoreID == "" || result.Status == "" {
+		return
+	}
+
+	var errPtr *string
+	if result.Error != "" {
+		errPtr = &result.Error
+	}
+
+	_ = queries.UpdateRestoreJobStatus(db, result.RestoreID, result.Status, errPtr)
+
+	slog.Info("restore status",
+		"server_id", serverID,
+		"restore_id", result.RestoreID,
+		"project", result.ProjectName,
+		"status", result.Status)
+}
+
 func HandleAgentWS(hub *Hub, db *sql.DB, baseDomain string) http.HandlerFunc {
 	upgrader := websocket.Upgrader{
 		ReadBufferSize:  1024,
@@ -253,6 +290,11 @@ func HandleAgentWS(hub *Hub, db *sql.DB, baseDomain string) http.HandlerFunc {
 			case "backup_status":
 				// Handle backup status updates from agent
 				handleBackupStatus(db, serverID, msg.Payload)
+				// Forward to browsers for real-time updates
+				hub.ForwardToBrowsers(serverID, data)
+			case "restore_status":
+				// Handle restore status updates from agent
+				handleRestoreStatus(db, serverID, msg.Payload)
 				// Forward to browsers for real-time updates
 				hub.ForwardToBrowsers(serverID, data)
 			case "log_line", "log_history", "pull_progress", "docker_status", "reconciliation_result":
