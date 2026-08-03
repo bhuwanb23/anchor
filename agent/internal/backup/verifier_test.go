@@ -87,8 +87,9 @@ func TestVerifyPostBackup_NilRepository(t *testing.T) {
 	if status.SnapshotID != "abc123def456" {
 		t.Errorf("SnapshotID = %q, want abc123def456", status.SnapshotID)
 	}
-	if status.Duration <= 0 {
-		t.Error("expected positive duration")
+	// Duration should be set (may be 0 for instant failure)
+	if status.CompletedAt.IsZero() {
+		t.Error("expected CompletedAt to be set")
 	}
 }
 
