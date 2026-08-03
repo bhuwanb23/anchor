@@ -127,6 +127,12 @@ export function BackupHistory({ jobs, onRestore }: BackupHistoryProps) {
               {job.status === "pending" && (
                 <Badge variant="default">Pending</Badge>
               )}
+              {job.status === "success" && job.verification_status === "verified" && (
+                <Badge variant="success" className="ml-1">Verified</Badge>
+              )}
+              {job.status === "success" && job.verification_status === "failed" && (
+                <Badge variant="danger" className="ml-1">Unverified</Badge>
+              )}
               {job.status === "success" && job.snapshot_id && onRestore && (
                 <Button
                   variant="secondary"
