@@ -472,6 +472,12 @@ func HandleAgentWS(hub *Hub, db *sql.DB, baseDomain string) http.HandlerFunc {
 			hub.ForwardToBrowsers(serverID, data)
 		case "log_line", "log_history", "pull_progress", "docker_status", "reconciliation_result":
 				hub.ForwardToBrowsers(serverID, data)
+			case "health_report":
+				handleHealthReport(db, serverID, msg.Payload)
+				hub.ForwardToBrowsers(serverID, data)
+			case "health_report_batch":
+				handleHealthReportBatch(db, serverID, msg.Payload)
+				hub.ForwardToBrowsers(serverID, data)
 			default:
 				slog.Debug("agent message", "type", msg.Type, "server_id", serverID)
 			}
