@@ -8,13 +8,15 @@ import {
   useBackupUsage,
   useTriggerBackup,
   useTriggerRestore,
+  useBackupVerification,
+  useTriggerVerification,
 } from "@/hooks/use-backup";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { BackupHistory } from "@/components/dashboard/backup-history";
 import { BackupScheduleComponent } from "@/components/dashboard/backup-schedule";
 import { RestoreDialog } from "@/components/dashboard/restore-dialog";
-import { ArrowLeft, Server, HardDrive, RefreshCw } from "lucide-react";
+import { ArrowLeft, Server, HardDrive, RefreshCw, Shield } from "lucide-react";
 import Link from "next/link";
 import type { BackupJob } from "@/types";
 
@@ -42,6 +44,8 @@ export default function BackupsPage({
   const { usage, isLoading: usageLoading, refetch: refetchUsage } = useBackupUsage(id);
   const { triggerBackup, isTriggering } = useTriggerBackup(id);
   const { triggerRestore, isTriggering: isRestoring } = useTriggerRestore(id);
+  const { verification, isLoading: verificationLoading, refetch: refetchVerification } = useBackupVerification(id);
+  const { triggerVerification, isTriggering: isVerifying } = useTriggerVerification(id);
 
   const [restoreDialogOpen, setRestoreDialogOpen] = useState(false);
   const [selectedBackupJob, setSelectedBackupJob] = useState<BackupJob | null>(null);
@@ -173,6 +177,63 @@ export default function BackupsPage({
             onUpdate={updateSchedule}
             isLoading={scheduleLoading}
           />
+        </CardContent>
+      </Card>
+
+      {/* Verification */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-lg flex items-center gap-2">
+            <Shield className="h-5 w-5" />
+            Verification
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {verificationLoading ? (
+            <div className="text-sm text-muted-foreground">Loading...</div>
+          ) : (
+            <div className="space-y-3">
+              <div className="text-sm">
+                <span className="text-muted-foreground">Last verification: </span>
+                {verification?.last_verification?.status ? (
+                  <span className={verification.last_verification.status === "verified" ? "text-green-600" : "text-red-600"}>
+                    {verification.last_verification.status === "verified" ? "Passed" : "Failed"}
+                  </span>
+                ) : (
+                  <span className="text-muted-foreground">Never</span>
+                )}
+              </div>
+              <div className="text-sm">
+                <span className="text-muted-foreground">Weekly deep verification: </span>
+                <span>{verification?.config?.verify_interval_hours ? `${verification.config.verify_interval_hours / 24} days` : "7 days"}</span>
+              </div>
+              <div className="text-sm">
+                <span className="text-muted-foreground">Monthly full verification: </span>
+                <span>{verification?.config?.full_verify_interval_hours ? `${verification.config.full_verify_interval_hours / 24} days` : "30 days"}</span>
+              </div>
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={async () => {
+                  await triggerVerification();
+                  setTimeout(() => refetchVerification(), 2000);
+                }}
+                disabled={isVerifying}
+              >
+                {isVerifying ? (
+                  <>
+                    <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+                    Verifying...
+                  </>
+                ) : (
+                  <>
+                    <Shield className="h-4 w-4 mr-2" />
+                    Verify Now
+                  </>
+                )}
+              </Button>
+            </div>
+          )}
         </CardContent>
       </Card>
 
