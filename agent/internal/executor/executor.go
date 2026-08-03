@@ -78,8 +78,11 @@ type BackupInitPayload struct {
 }
 
 type BackupRestorePayload struct {
-	SnapshotID string `json:"snapshot_id"`
-	TargetPath string `json:"target_path"`
+	SnapshotID  string `json:"snapshot_id"`
+	TargetPath  string `json:"target_path,omitempty"`
+	ProjectName string `json:"project_name,omitempty"`
+	JobID       string `json:"job_id,omitempty"`
+	ServerID    string `json:"server_id,omitempty"`
 }
 
 type BackupConfigPayload struct {
@@ -103,17 +106,18 @@ type UpdateDomainsPayload struct {
 }
 
 type Executor struct {
-	docker       *docker.Client
-	caddy        *caddy.Manager
-	backup       *backup.BackupManager
-	scheduler    *backup.BackupScheduler
-	imageCache   *docker.ImageCache
-	reporter     ProgressReporter
-	envManager   *env.Manager
-	logStreamer  *logstream.LogStreamer
-	stateManager *state.Manager
-	authorizer   *caddy.DomainAuthorizer
-	serverID     string
+	docker         *docker.Client
+	caddy          *caddy.Manager
+	backup         *backup.BackupManager
+	scheduler      *backup.BackupScheduler
+	imageCache     *docker.ImageCache
+	reporter       ProgressReporter
+	envManager     *env.Manager
+	logStreamer    *logstream.LogStreamer
+	stateManager   *state.Manager
+	authorizer     *caddy.DomainAuthorizer
+	serverID       string
+	backupReporter *backup.BackupReporter
 }
 
 // ProgressReporter sends image pull progress updates to the control plane.
@@ -169,6 +173,12 @@ func (e *Executor) WithScheduler(s *backup.BackupScheduler) *Executor {
 // WithServerID sets the server ID for backup operations.
 func (e *Executor) WithServerID(id string) *Executor {
 	e.serverID = id
+	return e
+}
+
+// WithBackupReporter attaches a backup reporter for restore status updates.
+func (e *Executor) WithBackupReporter(r *backup.BackupReporter) *Executor {
+	e.backupReporter = r
 	return e
 }
 
@@ -784,12 +794,61 @@ func (e *Executor) executeBackupRestore(ctx context.Context, cmd Command, result
 		return fmt.Errorf("invalid backup_restore payload: %w", err)
 	}
 
+	// If project_name is provided, use manifest-aware restore
+	if p.ProjectName != "" {
+		return e.executeManifestRestore(ctx, p, result)
+	}
+
+	// Legacy raw restic restore
 	if err := e.backup.Restore(ctx, p.SnapshotID, p.TargetPath); err != nil {
 		return fmt.Errorf("restore: %w", err)
 	}
 
 	result.Status = "success"
 	result.Output = fmt.Sprintf("restored snapshot %s to %s", p.SnapshotID, p.TargetPath)
+	return nil
+}
+
+// executeManifestRestore performs a manifest-aware restore for a single project.
+func (e *Executor) executeManifestRestore(ctx context.Context, p BackupRestorePayload, result *Result) error {
+	// Report restore start
+	if e.backupReporter != nil {
+		serverID := p.ServerID
+		if serverID == "" {
+			serverID = e.serverID
+		}
+		e.backupReporter.ReportRestoreRunning(serverID, p.JobID, p.SnapshotID, p.ProjectName)
+	}
+
+	// Run the restore
+	restoreResult, err := e.backup.RunRestore(ctx, p.SnapshotID, p.ProjectName, nil)
+	if err != nil {
+		// Report failure
+		if e.backupReporter != nil {
+			serverID := p.ServerID
+			if serverID == "" {
+				serverID = e.serverID
+			}
+			e.backupReporter.ReportRestoreFailed(serverID, p.JobID, p.SnapshotID, p.ProjectName, time.Now(), err)
+		}
+		return fmt.Errorf("manifest restore: %w", err)
+	}
+
+	// Report result
+	if e.backupReporter != nil {
+		serverID := p.ServerID
+		if serverID == "" {
+			serverID = e.serverID
+		}
+		e.backupReporter.ReportRestoreResult(serverID, p.JobID, restoreResult)
+	}
+
+	result.Status = "success"
+	if restoreResult.ProjectResult != nil && restoreResult.ProjectResult.Status == "partial" {
+		result.Status = "partial"
+	}
+	result.Output = fmt.Sprintf("restored project %s from snapshot %s (status: %s)",
+		p.ProjectName, p.SnapshotID[:12], restoreResult.ProjectResult.Status)
 	return nil
 }
 
