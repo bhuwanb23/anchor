@@ -37,6 +37,7 @@ func main() {
 
 	hub := ws.NewHub()
 	go hub.StartHeartbeat(database)
+	go pruneMetrics(database)
 
 	router := api.NewRouter(database, cfg, hub)
 
@@ -46,5 +47,19 @@ func main() {
 	if err := http.ListenAndServe(addr, router); err != nil {
 		slog.Error("server failed", "error", err)
 		os.Exit(1)
+	}
+}
+
+// pruneMetrics runs every 6 hours and deletes raw metrics older than 7 days.
+func pruneMetrics(db *sql.DB) {
+	ticker := time.NewTicker(6 * time.Hour)
+	defer ticker.Stop()
+	for range ticker.C {
+		cutoff := time.Now().Add(-7 * 24 * time.Hour).UTC().Format(time.RFC3339)
+		if err := queries.DeleteMetricsBefore(db, "", cutoff); err != nil {
+			slog.Warn("failed to prune metrics_history", "error", err)
+		} else {
+			slog.Info("pruned metrics_history before", "cutoff", cutoff)
+		}
 	}
 }
