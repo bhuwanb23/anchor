@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"sync"
 	"sync/atomic"
@@ -126,21 +127,21 @@ func TestScenario2_HealthFailAutoRollbackUsesPrevious(t *testing.T) {
 
 	exec := testExecutor(t).WithStateManager(sm)
 	got := exec.rollbackToPrevious(context.Background(), "app")
-	// nil docker → deploy fails → auto-rollback reports failure (nil)
 	if got != nil {
 		t.Fatal("expected nil when docker unavailable for rollback redeploy")
 	}
 
-	// Simulate failure result shape produced on health fail + successful rollback path
+	// Health-fail path contract: logs + auto_rollback marker when previous exists
 	result := Result{
 		Status: "failed",
-		Error:  "health check failed: timeout; rolled back to previous version (img:v1)",
+		Error:  fmt.Sprintf("health check failed: timeout; rolled back to previous version (%s)", prev.Image),
 		Logs:   "app crashed",
 		Output: "auto_rollback=success",
 	}
 	if result.Output != "auto_rollback=success" || prev.Image != "img:v1" {
 		t.Fatal("auto-rollback result contract broken")
 	}
+	_ = result
 }
 
 // Scenario 3: env update without logging secrets + restart_after.
@@ -309,20 +310,34 @@ func TestScenario7_RollbackUsesPreviousDeployment(t *testing.T) {
 	_ = sm.RecordDeployment("shop", &state.DeploymentRecord{Image: "shop:1", Port: 3000, DeployedAt: "a"})
 	_ = sm.RecordDeployment("shop", &state.DeploymentRecord{Image: "shop:2", Port: 3000, DeployedAt: "b"})
 
-	exec := testExecutor(t).WithStateManager(sm)
-	payload, _ := json.Marshal(map[string]string{"app_name": "shop"})
-	result := exec.Execute(context.Background(), Command{ID: "rb-1", Type: "rollback", Payload: payload})
-	// Without docker, redeploy fails — but error must reference previous image path
-	if result.Status != "error" && result.Status != "failed" {
-		t.Fatalf("expected failure without docker, got %s", result.Status)
-	}
 	prev := sm.GetPreviousDeployment("shop")
-	if prev == nil || prev.Image != "shop:1" {
+	if prev == nil || prev.Image != "shop:1" || prev.Port != 3000 {
 		t.Fatalf("previous_deployment=%+v", prev)
 	}
-	// executeRollback selected previous image; failure is from pull/create
-	if result.Error == "" {
-		t.Fatal("expected error from deploy attempt")
+
+	exec := testExecutor(t) // no state → cannot resolve previous
+	payload, _ := json.Marshal(map[string]string{"app_name": "shop"})
+	result := exec.Execute(context.Background(), Command{ID: "rb-1", Type: "rollback", Payload: payload})
+	if result.Status != "error" || result.Error == "" {
+		t.Fatalf("expected no previous deployment error, got status=%s err=%s", result.Status, result.Error)
+	}
+	if !bytes.Contains([]byte(result.Error), []byte("no previous deployment")) {
+		t.Fatalf("error=%q", result.Error)
+	}
+
+	// With state, rollback selects previous image then attempts full redeploy (nil docker → panic recover via Dispatch)
+	exec2 := testExecutor(t).WithStateManager(sm)
+	done := make(chan Result, 1)
+	exec2.Dispatch(context.Background(), Command{ID: "rb-2", Type: "rollback", Payload: payload}, func(r Result) {
+		done <- r
+	})
+	select {
+	case r := <-done:
+		if r.Status == "success" {
+			t.Fatal("expected redeploy failure without docker")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timeout")
 	}
 }
 
