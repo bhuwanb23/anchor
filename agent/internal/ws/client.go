@@ -6,12 +6,20 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"math/rand"
 	"net"
 	"net/http"
 	"sync"
 	"time"
 
 	"github.com/gorilla/websocket"
+)
+
+const (
+	defaultReconnectSec = 5
+	maxBackoff          = 60 * time.Second
+	authFailBackoff     = 5 * time.Minute
+	sendBufferSize      = 256
 )
 
 type Client struct {
@@ -25,12 +33,16 @@ type Client struct {
 	recvChan     chan Message
 	disconnected chan struct{}
 	mu           sync.Mutex
+	authFailed   bool
+	onConnect    func()
+	onDisconnect func()
+	attempt      int
 }
 
 type Message struct {
-	Type    string          `json:"type"`
-	ServerID string         `json:"server_id"`
-	Payload json.RawMessage `json:"payload"`
+	Type     string          `json:"type"`
+	ServerID string          `json:"server_id"`
+	Payload  json.RawMessage `json:"payload"`
 }
 
 type CommandPayload struct {
@@ -47,15 +59,26 @@ type ResultPayload struct {
 }
 
 func NewClient(url, agentID, agentSecret string, reconnectSec int) *Client {
+	if reconnectSec <= 0 {
+		reconnectSec = defaultReconnectSec
+	}
 	return &Client{
 		url:          url,
 		agentID:      agentID,
 		agentSecret:  agentSecret,
 		reconnectSec: reconnectSec,
-		sendChan:     make(chan []byte, 256),
-		recvChan:     make(chan Message, 256),
+		sendChan:     make(chan []byte, sendBufferSize),
+		recvChan:     make(chan Message, sendBufferSize),
 		disconnected: make(chan struct{}, 1),
 	}
+}
+
+// SetConnectHooks registers callbacks for connect/disconnect events.
+func (c *Client) SetConnectHooks(onConnect, onDisconnect func()) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.onConnect = onConnect
+	c.onDisconnect = onDisconnect
 }
 
 func (c *Client) Connect(ctx context.Context) error {
@@ -73,13 +96,23 @@ func (c *Client) Connect(ctx context.Context) error {
 	credentials := base64.StdEncoding.EncodeToString([]byte(c.agentID + ":" + c.agentSecret))
 	header.Set("Authorization", "Basic "+credentials)
 
-	conn, _, err := dialer.DialContext(ctx, c.url, header)
+	conn, resp, err := dialer.DialContext(ctx, c.url, header)
 	if err != nil {
+		if resp != nil && (resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden) {
+			c.mu.Lock()
+			c.authFailed = true
+			c.mu.Unlock()
+			return &AuthError{StatusCode: resp.StatusCode, Err: err}
+		}
 		return fmt.Errorf("dial websocket: %w", err)
 	}
 
 	c.mu.Lock()
 	c.conn = conn
+	c.authFailed = false
+	c.attempt = 0
+	onConnect := c.onConnect
+	c.disconnected = make(chan struct{}, 1)
 	c.mu.Unlock()
 
 	conn.SetPongHandler(func(string) error {
@@ -88,6 +121,10 @@ func (c *Client) Connect(ctx context.Context) error {
 	})
 
 	slog.Info("connected to control plane")
+
+	if onConnect != nil {
+		onConnect()
+	}
 
 	go c.readLoop(ctx)
 	go c.writeLoop(ctx)
@@ -100,11 +137,16 @@ func (c *Client) readLoop(ctx context.Context) {
 		c.mu.Lock()
 		if c.conn != nil {
 			c.conn.Close()
+			c.conn = nil
 		}
-		c.mu.Unlock()
+		onDisconnect := c.onDisconnect
 		select {
 		case c.disconnected <- struct{}{}:
 		default:
+		}
+		c.mu.Unlock()
+		if onDisconnect != nil {
+			onDisconnect()
 		}
 	}()
 
@@ -139,7 +181,11 @@ func (c *Client) readLoop(ctx context.Context) {
 			continue
 		}
 
-		c.recvChan <- msg
+		select {
+		case c.recvChan <- msg:
+		default:
+			slog.Warn("recv channel full, dropping message", "type", msg.Type)
+		}
 	}
 }
 
@@ -177,7 +223,8 @@ func (c *Client) writeLoop(ctx context.Context) {
 			conn := c.conn
 			c.mu.Unlock()
 			if conn == nil {
-				return
+				// Offline: message already buffered in sendChan (drop-oldest on Send)
+				continue
 			}
 			if err := conn.WriteMessage(websocket.TextMessage, msg); err != nil {
 				slog.Warn("websocket write error", "error", err)
@@ -187,11 +234,21 @@ func (c *Client) writeLoop(ctx context.Context) {
 	}
 }
 
+// Send queues a message. If the buffer is full, drops the oldest message.
 func (c *Client) Send(msg []byte) {
 	select {
 	case c.sendChan <- msg:
 	default:
-		slog.Warn("send channel full, dropping message")
+		// Drop oldest, then enqueue
+		select {
+		case <-c.sendChan:
+		default:
+		}
+		select {
+		case c.sendChan <- msg:
+		default:
+			slog.Warn("send channel full, dropping message")
+		}
 	}
 }
 
@@ -215,24 +272,84 @@ func (c *Client) Disconnected() <-chan struct{} {
 func (c *Client) Run(ctx context.Context) {
 	for {
 		if err := c.Connect(ctx); err != nil {
-			slog.Error("failed to connect", "error", err)
+			wait := c.nextBackoff(err)
+			slog.Error("failed to connect", "error", err, "retry_in", wait)
 			select {
 			case <-ctx.Done():
 				return
-			case <-time.After(time.Duration(c.reconnectSec) * time.Second):
+			case <-time.After(wait):
 				continue
 			}
 		}
 
-		<-c.disconnected
-
-		slog.Info("connection lost, reconnecting...", "wait_sec", c.reconnectSec)
 		select {
 		case <-ctx.Done():
 			return
-		case <-time.After(time.Duration(c.reconnectSec) * time.Second):
+		case <-c.disconnected:
+		}
+
+		wait := c.nextBackoff(nil)
+		slog.Info("connection lost, reconnecting...", "wait", wait)
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(wait):
 		}
 	}
+}
+
+func (c *Client) nextBackoff(err error) time.Duration {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if err != nil {
+		if _, ok := err.(*AuthError); ok || c.authFailed {
+			return authFailBackoff
+		}
+	}
+
+	c.attempt++
+	base := time.Duration(c.reconnectSec) * time.Second
+	if base < time.Second {
+		base = time.Second
+	}
+	// Exponential: base * 2^(attempt-1), capped at 60s
+	wait := base << (c.attempt - 1)
+	if wait > maxBackoff || wait <= 0 {
+		wait = maxBackoff
+	}
+	return ApplyJitter(wait)
+}
+
+// ApplyJitter adds ±20% jitter to a duration.
+func ApplyJitter(d time.Duration) time.Duration {
+	if d <= 0 {
+		return d
+	}
+	// ±20%
+	jitter := float64(d) * 0.2
+	offset := (rand.Float64()*2 - 1) * jitter
+	out := time.Duration(float64(d) + offset)
+	if out < time.Second {
+		return time.Second
+	}
+	return out
+}
+
+// BackoffDuration returns the backoff for attempt n (1-based) before jitter.
+func BackoffDuration(reconnectSec, attempt int) time.Duration {
+	if attempt < 1 {
+		attempt = 1
+	}
+	base := time.Duration(reconnectSec) * time.Second
+	if base < time.Second {
+		base = time.Second
+	}
+	wait := base << (attempt - 1)
+	if wait > maxBackoff || wait <= 0 {
+		return maxBackoff
+	}
+	return wait
 }
 
 func (c *Client) Close() {
@@ -241,6 +358,16 @@ func (c *Client) Close() {
 	if c.conn != nil {
 		c.conn.Close()
 	}
-	close(c.sendChan)
-	close(c.recvChan)
 }
+
+// AuthError indicates the control plane rejected agent credentials.
+type AuthError struct {
+	StatusCode int
+	Err        error
+}
+
+func (e *AuthError) Error() string {
+	return fmt.Sprintf("authentication failed (HTTP %d): %v", e.StatusCode, e.Err)
+}
+
+func (e *AuthError) Unwrap() error { return e.Err }
