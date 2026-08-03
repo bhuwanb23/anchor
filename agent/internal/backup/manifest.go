@@ -101,6 +101,8 @@ type DockerClient interface {
 	PrepareVolumeForBackup(ctx context.Context, info DockerBackupInfo) error
 	FinishVolumeForBackup(ctx context.Context, info DockerBackupInfo) error
 	ExecInContainer(ctx context.Context, containerID string, cmd []string) (string, error)
+	StopContainer(ctx context.Context, id string) error
+	StartContainer(ctx context.Context, id string) error
 }
 
 // DockerBackupInfo mirrors docker.BackupInfo for the backup package.
