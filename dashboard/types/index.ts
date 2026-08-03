@@ -159,3 +159,22 @@ export interface BackupUsage {
   total_bytes: number
   snapshot_count: number
 }
+
+// Restore types
+export interface RestoreRequest {
+  snapshot_id: string
+  project_name: string
+}
+
+export interface RestoreJob {
+  id: string
+  server_id: string
+  status: "pending" | "running" | "success" | "partial" | "failed"
+  snapshot_id?: string
+  project_name?: string
+  started_at?: string
+  completed_at?: string
+  error_message?: string
+  duration_seconds?: number
+  created_at: string
+}
