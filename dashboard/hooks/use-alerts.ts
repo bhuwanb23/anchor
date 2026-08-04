@@ -39,6 +39,26 @@ export function useAlerts(serverId: string, enabled = true) {
       });
   }, [enabled, serverId]);
 
+  /** Marks an active alert as acknowledged (Layer 4C Step 6). */
+  const acknowledge = useCallback(
+    async (id: string) => {
+      try {
+        await api.post(`/servers/${serverId}/alerts/${id}/ack`);
+        const now = new Date().toISOString();
+        setAlerts((prev) =>
+          prev.map((a) =>
+            a.id === id && a.status === "active"
+              ? { ...a, status: "acknowledged", acknowledged_at: now }
+              : a
+          )
+        );
+      } catch {
+        // Ignore: alert list will reconcile on next fetch.
+      }
+    },
+    [serverId]
+  );
+
   const handleMessage = useCallback((msg: WSMessage) => {
     if (msg.type !== "anomaly_alert" && msg.type !== "error_alert") return;
     const a = msg.payload as Partial<Alert>;
@@ -59,13 +79,15 @@ export function useAlerts(serverId: string, enabled = true) {
       level,
       severity: (a.severity === "critical" ? "critical" : "warning") as "critical" | "warning",
       type: a.type ?? "alert",
-      status: (level === "resolved" ? "resolved" : "active") as "active" | "resolved",
+      status: (level === "resolved" ? "resolved" : "active") as AlertItem["status"],
       title: a.title || a.message || "Alert",
       message: a.message || a.title || "",
       detail: a.detail,
       action: a.action,
       fired_at: a.fired_at || new Date().toISOString(),
       resolved_at: a.resolved_at ?? null,
+      read_at: null,
+      acknowledged_at: null,
       at: new Date().toISOString(),
     };
 
@@ -92,5 +114,5 @@ export function useAlerts(serverId: string, enabled = true) {
     };
   }, [enabled, serverId, handleMessage]);
 
-  return { alerts };
+  return { alerts, acknowledge };
 }
