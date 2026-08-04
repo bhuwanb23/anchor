@@ -15,6 +15,7 @@ export class WSClient {
   private reconnectSec: number;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private serverId: string;
+  private onConnectCallback: (() => void) | null = null;
 
   constructor(
     serverId: string,
@@ -36,6 +37,7 @@ export class WSClient {
 
     this.ws.onopen = () => {
       console.log("WebSocket connected to server", this.serverId);
+      this.onConnectCallback?.();
     };
 
     this.ws.onmessage = (event) => {
@@ -61,6 +63,17 @@ export class WSClient {
     this.handlers.push(handler);
     return () => {
       this.handlers = this.handlers.filter((h) => h !== handler);
+    };
+  }
+
+  /**
+   * Registers a callback fired every time the WebSocket (re)opens.
+   * Useful for re-sending stream commands after a browser reconnect.
+   */
+  onConnect(cb: () => void): () => void {
+    this.onConnectCallback = cb;
+    return () => {
+      if (this.onConnectCallback === cb) this.onConnectCallback = null;
     };
   }
 
