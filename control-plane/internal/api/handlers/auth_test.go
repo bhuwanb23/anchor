@@ -314,7 +314,7 @@ func TestLogin_CaseInsensitiveEmail(t *testing.T) {
 	if resp["token_type"] != "Bearer" {
 		t.Errorf("token_type = %v, want Bearer", resp["token_type"])
 	}
-	if resp["expires_in"] != 86400 {
+	if int(resp["expires_in"].(float64)) != 86400 {
 		t.Errorf("expires_in = %v, want 86400", resp["expires_in"])
 	}
 	user := resp["user"].(map[string]interface{})

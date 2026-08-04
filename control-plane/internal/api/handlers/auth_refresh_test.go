@@ -3,6 +3,7 @@ package handlers_test
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -12,6 +13,15 @@ import (
 	"github.com/yourname/yourplatform/control-plane/internal/api/handlers"
 	"github.com/yourname/yourplatform/control-plane/internal/auth"
 )
+
+// uniqueSuffix returns a distinct value per call so repeated registrations in
+// one test never collide on email.
+var suffixCounter int
+
+func uniqueSuffix() string {
+	suffixCounter++
+	return fmt.Sprintf("%d-%d", time.Now().UnixNano(), suffixCounter)
+}
 
 // loginHelper registers a fresh user with a unique email (so it can be called
 // several times per test) and returns the login response.
@@ -79,8 +89,8 @@ func TestRefresh_Success(t *testing.T) {
 	if err != nil {
 		t.Fatalf("validate new access token: %v", err)
 	}
-	if claims.UserID() == "" || claims.Email != "alice@example.com" || claims.Name != "Alice Smith" {
-		t.Errorf("claims = {sub:%s email:%s name:%s}, want alice@example.com / Alice Smith", claims.UserID(), claims.Email, claims.Name)
+	if claims.UserID() == "" || !strings.HasSuffix(claims.Email, "@example.com") || claims.Name != "Alice Smith" {
+		t.Errorf("claims = {sub:%s email:%s name:%s}, want @example.com / Alice Smith", claims.UserID(), claims.Email, claims.Name)
 	}
 	if claims.Type != auth.TokenTypeAccess {
 		t.Errorf("claim type = %q, want access", claims.Type)
