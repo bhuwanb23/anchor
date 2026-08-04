@@ -3,6 +3,7 @@
 import { use, useState } from "react";
 import { useServer } from "@/hooks/use-server";
 import { useLogStream } from "@/hooks/use-log-stream";
+import { useAlerts } from "@/hooks/use-alerts";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { StatusBadge } from "@/components/ui/badge";
 import { LogViewer } from "@/components/dashboard/log-viewer";
@@ -30,6 +31,8 @@ export default function ServerDetailPage({
     projectName,
     enabled: showLogs && !!projectName,
   });
+
+  const { alerts } = useAlerts(id);
 
   if (isLoading) {
     return (
@@ -233,6 +236,55 @@ export default function ServerDetailPage({
         </CardHeader>
         <CardContent>
           <LogViewer logs={logs} showContainerPrefix />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-sm font-medium">Live Alerts</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {alerts.length === 0 ? (
+            <p className="text-sm text-gray-500">
+              No alerts — all systems normal.
+            </p>
+          ) : (
+            <div className="max-h-72 space-y-2 overflow-y-auto pr-1">
+              {alerts.map((a, i) => (
+                <div
+                  key={i}
+                  className={`rounded-r border-l-4 p-2 ${
+                    a.level === "critical"
+                      ? "border-red-500 bg-red-50 dark:bg-red-950/40"
+                      : a.level === "resolved"
+                      ? "border-green-500 bg-green-50 dark:bg-green-950/40"
+                      : "border-amber-500 bg-amber-50 dark:bg-amber-950/40"
+                  }`}
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <span
+                      className={`text-xs font-semibold uppercase tracking-wide ${
+                        a.level === "critical"
+                          ? "text-red-600 dark:text-red-400"
+                          : a.level === "resolved"
+                          ? "text-green-600 dark:text-green-400"
+                          : "text-amber-600 dark:text-amber-400"
+                      }`}
+                    >
+                      {a.level === "resolved" ? "✓ Resolved" : a.level}
+                      {a.project ? ` · ${a.project}${a.container ? ` (${a.container})` : ""}` : ""}
+                    </span>
+                    <span className="shrink-0 text-xs text-gray-400">
+                      {new Date(a.at).toLocaleTimeString()}
+                    </span>
+                  </div>
+                  <p className="mt-1 text-sm text-gray-700 dark:text-gray-300">
+                    {a.message}
+                  </p>
+                </div>
+              ))}
+            </div>
+          )}
         </CardContent>
       </Card>
     </div>
