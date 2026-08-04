@@ -1,0 +1,177 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="860" viewBox="0 0 1400 860">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#F6F8FA"/>
+      <stop offset="100%" stop-color="#EAF0F6"/>
+    </linearGradient>
+    <marker id="dot" markerWidth="8" markerHeight="8"
+            refX="4" refY="4" orient="auto">
+      <circle cx="4" cy="4" r="3" fill="#1F6FEB"/>
+    </marker>
+  </defs>
+
+  <rect width="1400" height="860" fill="url(#bg)" rx="14"/>
+
+  <!-- Title -->
+  <text x="700" y="60" text-anchor="middle"
+        font-family="system-ui,-apple-system,'Segoe UI',sans-serif"
+        font-size="32" font-weight="700" fill="#0B1B2B">
+    The Agent — Anchor's Mental Model
+  </text>
+  <text x="700" y="92" text-anchor="middle"
+        font-family="system-ui,-apple-system,'Segoe UI',sans-serif"
+        font-size="16" fill="#57606A">
+    One Go binary, six focused responsibilities
+  </text>
+
+  <!-- ══ LAYER 4: AGENT CORE ══ -->
+  <text x="700" y="150" text-anchor="middle"
+        font-family="system-ui,-apple-system,'Segoe UI',sans-serif"
+        font-size="14" font-weight="700" fill="#57606A" letter-spacing="2">LAYER 4 — AGENT CORE</text>
+
+  <g>
+    <!-- 4A -->
+    <rect x="120" y="170" width="380" height="120" rx="10"
+          fill="#FFFFFF" stroke="#0B1B2B" stroke-width="1.2"/>
+    <text x="310" y="200" text-anchor="middle"
+          font-family="system-ui,-apple-system,'Segoe UI',sans-serif"
+          font-size="16" font-weight="700" fill="#0B1B2B">4A — Agent Lifecycle</text>
+    <text x="310" y="225" text-anchor="middle"
+          font-family="system-ui,-apple-system,'Segoe UI',sans-serif"
+          font-size="12" fill="#0B1B2B">Installs itself · reconnects on crash ·</text>
+    <text x="310" y="243" text-anchor="middle"
+          font-family="system-ui,-apple-system,'Segoe UI',sans-serif"
+          font-size="12" fill="#0B1B2B">self-updates · survives reboots via systemd</text>
+    <text x="310" y="270" text-anchor="middle"
+          font-family="system-ui,-apple-system,'Segoe UI',sans-serif"
+          font-size="11" fill="#1F6FEB">Keeps the agent alive and current</text>
+
+    <!-- 4B -->
+    <rect x="510" y="170" width="380" height="120" rx="10"
+          fill="#FFFFFF" stroke="#0B1B2B" stroke-width="1.2"/>
+    <text x="700" y="200" text-anchor="middle"
+          font-family="system-ui,-apple-system,'Segoe UI',sans-serif"
+          font-size="16" font-weight="700" fill="#0B1B2B">4B — Command Executor</text>
+    <text x="700" y="225" text-anchor="middle"
+          font-family="system-ui,-apple-system,'Segoe UI',sans-serif"
+          font-size="12" fill="#0B1B2B">Deploy · restart · rollback · backup on demand</text>
+    <text x="700" y="243" text-anchor="middle"
+          font-family="system-ui,-apple-system,'Segoe UI',sans-serif"
+          font-size="12" fill="#0B1B2B">Commands queued while offline, replayed on reconnect</text>
+    <text x="700" y="270" text-anchor="middle"
+          font-family="system-ui,-apple-system,'Segoe UI',sans-serif"
+          font-size="11" fill="#1F6FEB">Every command acknowledged and reported</text>
+
+    <!-- 4C -->
+    <rect x="900" y="170" width="380" height="120" rx="10"
+          fill="#FFFFFF" stroke="#0B1B2B" stroke-width="1.2"/>
+    <text x="1090" y="200" text-anchor="middle"
+          font-family="system-ui,-apple-system,'Segoe UI',sans-serif"
+          font-size="16" font-weight="700" fill="#0B1B2B">4C — Health &amp; Log Reporter</text>
+    <text x="1090" y="225" text-anchor="middle"
+          font-family="system-ui,-apple-system,'Segoe UI',sans-serif"
+          font-size="12" fill="#0B1B2B">Every 30s: CPU · RAM · disk · containers</text>
+    <text x="1090" y="243" text-anchor="middle"
+          font-family="system-ui,-apple-system,'Segoe UI',sans-serif"
+          font-size="12" fill="#0B1B2B">Live log streams · anomaly detection</text>
+    <text x="1090" y="270" text-anchor="middle"
+          font-family="system-ui,-apple-system,'Segoe UI',sans-serif"
+          font-size="11" fill="#1F6FEB">Reports back to the control plane</text>
+  </g>
+
+  <!-- Connector -->
+  <line x1="700" y1="300" x2="700" y2="340"
+        stroke="#1F6FEB" stroke-width="1.5" marker-end="url(#dot)"/>
+
+  <!-- ══ LAYER 3: MANAGED SERVICES ══ -->
+  <text x="700" y="378" text-anchor="middle"
+        font-family="system-ui,-apple-system,'Segoe UI',sans-serif"
+        font-size="14" font-weight="700" fill="#57606A" letter-spacing="2">LAYER 3 — MANAGED SERVICES</text>
+
+  <g>
+    <!-- 3A -->
+    <rect x="120" y="400" width="380" height="120" rx="10"
+          fill="#FFFFFF" stroke="#0B1B2B" stroke-width="1.2"/>
+    <text x="310" y="430" text-anchor="middle"
+          font-family="system-ui,-apple-system,'Segoe UI',sans-serif"
+          font-size="16" font-weight="700" fill="#0B1B2B">3A — Docker Management</text>
+    <text x="310" y="455" text-anchor="middle"
+          font-family="system-ui,-apple-system,'Segoe UI',sans-serif"
+          font-size="12" fill="#0B1B2B">Pulls images · creates containers ·</text>
+    <text x="310" y="473" text-anchor="middle"
+          font-family="system-ui,-apple-system,'Segoe UI',sans-serif"
+          font-size="12" fill="#0B1B2B">manages networking and resource limits</text>
+    <text x="310" y="500" text-anchor="middle"
+          font-family="system-ui,-apple-system,'Segoe UI',sans-serif"
+          font-size="11" fill="#1F6FEB">All Docker API calls in one place</text>
+
+    <!-- 3B -->
+    <rect x="510" y="400" width="380" height="120" rx="10"
+          fill="#FFFFFF" stroke="#0B1B2B" stroke-width="1.2"/>
+    <text x="700" y="430" text-anchor="middle"
+          font-family="system-ui,-apple-system,'Segoe UI',sans-serif"
+          font-size="16" font-weight="700" fill="#0B1B2B">3B — Caddy Reverse Proxy</text>
+    <text x="700" y="455" text-anchor="middle"
+          font-family="system-ui,-apple-system,'Segoe UI',sans-serif"
+          font-size="12" fill="#0B1B2B">Auto-assigns subdomains · auto-renews TLS</text>
+    <text x="700" y="473" text-anchor="middle"
+          font-family="system-ui,-apple-system,'Segoe UI',sans-serif"
+          font-size="12" fill="#0B1B2B">Routes traffic to the right container</text>
+    <text x="700" y="500" text-anchor="middle"
+          font-family="system-ui,-apple-system,'Segoe UI',sans-serif"
+          font-size="11" fill="#1F6FEB">HTTPS is never your problem</text>
+
+    <!-- 3C -->
+    <rect x="900" y="400" width="380" height="120" rx="10"
+          fill="#FFFFFF" stroke="#0B1B2B" stroke-width="1.2"/>
+    <text x="1090" y="430" text-anchor="middle"
+          font-family="system-ui,-apple-system,'Segoe UI',sans-serif"
+          font-size="16" font-weight="700" fill="#0B1B2B">3C — Backups</text>
+    <text x="1090" y="455" text-anchor="middle"
+          font-family="system-ui,-apple-system,'Segoe UI',sans-serif"
+          font-size="12" fill="#0B1B2B">Scheduled restic snapshots off box</text>
+    <text x="1090" y="473" text-anchor="middle"
+          font-family="system-ui,-apple-system,'Segoe UI',sans-serif"
+          font-size="12" fill="#0B1B2B">S3 · B2 · MinIO · any S3-compatible store</text>
+    <text x="1090" y="500" text-anchor="middle"
+          font-family="system-ui,-apple-system,'Segoe UI',sans-serif"
+          font-size="11" fill="#1F6FEB">One click: "restore to yesterday"</text>
+  </g>
+
+  <!-- Footer note -->
+  <rect x="240" y="580" width="920" height="120" rx="10"
+        fill="#EAF1FE" stroke="#1F6FEB" stroke-width="1.2"/>
+  <text x="700" y="612" text-anchor="middle"
+        font-family="system-ui,-apple-system,'Segoe UI',sans-serif"
+        font-size="15" font-weight="700" fill="#0B1B2B">
+    The agent never needs hand-holding
+  </text>
+  <text x="700" y="640" text-anchor="middle"
+        font-family="system-ui,-apple-system,'Segoe UI',sans-serif"
+        font-size="13" fill="#0B1B2B">
+    It installs itself on a fresh server, picks up queued commands when it reconnects,
+  </text>
+  <text x="700" y="660" text-anchor="middle"
+        font-family="system-ui,-apple-system,'Segoe UI',sans-serif"
+        font-size="13" fill="#0B1B2B">
+    recovers from crashes without user input, and reports problems in plain English.
+  </text>
+  <text x="700" y="688" text-anchor="middle"
+        font-family="system-ui,-apple-system,'Segoe UI',sans-serif"
+        font-size="12" fill="#57606A">
+    Layers 1 (install) and 2 (preflight) precede 3 and 4 — every box is a Go module in agent/.
+  </text>
+
+  <!-- Bottom footer -->
+  <text x="700" y="770" text-anchor="middle"
+        font-family="system-ui,-apple-system,'Segoe UI',sans-serif"
+        font-size="12" fill="#57606A">
+    Full layer-by-layer reference: docs/layers.md
+  </text>
+  <text x="700" y="795" text-anchor="middle"
+        font-family="system-ui,-apple-system,'Segoe UI',sans-serif"
+        font-size="12" fill="#6B7280">
+    Out of scope by design: hypervisors, multi-region automation, Kubernetes-style orchestration
+  </text>
+</svg>

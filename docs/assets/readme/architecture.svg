@@ -1,0 +1,264 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="900" viewBox="0 0 1400 900">
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10"
+            refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L9,3 L0,6 z" fill="#1F6FEB"/>
+    </marker>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#F6F8FA"/>
+      <stop offset="100%" stop-color="#EAF0F6"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="1400" height="900" fill="url(#bg)" rx="14"/>
+
+  <!-- Title -->
+  <text x="700" y="60" text-anchor="middle"
+        font-family="system-ui,-apple-system,'Segoe UI',sans-serif"
+        font-size="34" font-weight="700" fill="#0B1B2B">
+    Anchor — System Architecture
+  </text>
+  <text x="700" y="92" text-anchor="middle"
+        font-family="system-ui,-apple-system,'Segoe UI',sans-serif"
+        font-size="17" fill="#57606A">
+    Your servers stay yours. The control plane only orchestrates.
+  </text>
+
+  <!-- ══════════ LEFT: User's VPS ══════════ -->
+  <g>
+    <rect x="70" y="140" width="380" height="620" rx="14"
+          fill="#FFFFFF" stroke="#0B1B2B" stroke-width="1.5"/>
+    <text x="260" y="180" text-anchor="middle"
+          font-family="system-ui,-apple-system,'Segoe UI',sans-serif"
+          font-size="22" font-weight="700" fill="#0B1B2B">Your Server (VPS)</text>
+    <text x="260" y="205" text-anchor="middle"
+          font-family="system-ui,-apple-system,'Segoe UI',sans-serif"
+          font-size="13" fill="#57606A">A $5–$40 box you already own</text>
+
+    <!-- Anchor Agent box -->
+    <rect x="100" y="230" width="320" height="140" rx="10"
+          fill="#EAF1FE" stroke="#1F6FEB" stroke-width="1.5"/>
+    <text x="260" y="258" text-anchor="middle"
+          font-family="system-ui,-apple-system,'Segoe UI',sans-serif"
+          font-size="17" font-weight="700" fill="#0B1B2B">Anchor Agent</text>
+    <text x="260" y="282" text-anchor="middle"
+          font-family="system-ui,-apple-system,'Segoe UI',sans-serif"
+          font-size="12" fill="#0B1B2B">Single Go binary · systemd service</text>
+    <text x="260" y="302" text-anchor="middle"
+          font-family="system-ui,-apple-system,'Segoe UI',sans-serif"
+          font-size="12" fill="#57606A">Watches · reports · executes</text>
+    <text x="260" y="322" text-anchor="middle"
+          font-family="system-ui,-apple-system,'Segoe UI',sans-serif"
+          font-size="12" fill="#57606A">Self-updating · crash-recovering</text>
+
+    <!-- Docker -->
+    <rect x="100" y="395" width="150" height="90" rx="8"
+          fill="#FFFFFF" stroke="#0B1B2B" stroke-width="1"/>
+    <text x="175" y="428" text-anchor="middle"
+          font-family="system-ui,-apple-system,'Segoe UI',sans-serif"
+          font-size="14" font-weight="700" fill="#0B1B2B">Docker</text>
+    <text x="175" y="450" text-anchor="middle"
+          font-family="system-ui,-apple-system,'Segoe UI',sans-serif"
+          font-size="11" fill="#57606A">Container runtime</text>
+    <text x="175" y="468" text-anchor="middle"
+          font-family="system-ui,-apple-system,'Segoe UI',sans-serif"
+          font-size="11" fill="#57606A">Your apps, isolated</text>
+
+    <!-- Caddy -->
+    <rect x="270" y="395" width="150" height="90" rx="8"
+          fill="#FFFFFF" stroke="#0B1B2B" stroke-width="1"/>
+    <text x="345" y="428" text-anchor="middle"
+          font-family="system-ui,-apple-system,'Segoe UI',sans-serif"
+          font-size="14" font-weight="700" fill="#0B1B2B">Caddy</text>
+    <text x="345" y="450" text-anchor="middle"
+          font-family="system-ui,-apple-system,'Segoe UI',sans-serif"
+          font-size="11" fill="#57606A">Reverse proxy</text>
+    <text x="345" y="468" text-anchor="middle"
+          font-family="system-ui,-apple-system,'Segoe UI',sans-serif"
+          font-size="11" fill="#57606A">Auto HTTPS / TLS</text>
+
+    <!-- restic -->
+    <rect x="100" y="510" width="320" height="90" rx="8"
+          fill="#FFFFFF" stroke="#0B1B2B" stroke-width="1"/>
+    <text x="260" y="540" text-anchor="middle"
+          font-family="system-ui,-apple-system,'Segoe UI',sans-serif"
+          font-size="14" font-weight="700" fill="#0B1B2B">restic backups</text>
+    <text x="260" y="562" text-anchor="middle"
+          font-family="system-ui,-apple-system,'Segoe UI',sans-serif"
+          font-size="11" fill="#57606A">Nightly encrypted snapshots</text>
+    <text x="260" y="580" text-anchor="middle"
+          font-family="system-ui,-apple-system,'Segoe UI',sans-serif"
+          font-size="11" fill="#57606A">Shipped off-box to S3 / B2</text>
+
+    <!-- Apps note -->
+    <text x="260" y="638" text-anchor="middle"
+          font-family="system-ui,-apple-system,'Segoe UI',sans-serif"
+          font-size="12" fill="#57606A">Your apps (Docker images, Git repos)</text>
+    <rect x="100" y="645" width="320" height="70" rx="8"
+          fill="#F6F8FA" stroke="#6FA8FF" stroke-width="1" stroke-dasharray="4 3"/>
+    <text x="260" y="673" text-anchor="middle"
+          font-family="system-ui,-apple-system,'Segoe UI',sans-serif"
+          font-size="12" fill="#0B1B2B">WordPress · Next.js · Django · static sites</text>
+    <text x="260" y="693" text-anchor="middle"
+          font-family="system-ui,-apple-system,'Segoe UI',sans-serif"
+          font-size="12" fill="#0B1B2B">Any Docker-compatible workload</text>
+
+    <!-- Bottom label -->
+    <text x="260" y="742" text-anchor="middle"
+          font-family="system-ui,-apple-system,'Segoe UI',sans-serif"
+          font-size="12" fill="#57606A">Single Linux box (amd64 / arm64)</text>
+  </g>
+
+  <!-- ══════════ MIDDLE: Control plane ══════════ -->
+  <g>
+    <rect x="510" y="140" width="380" height="620" rx="14"
+          fill="#FFFFFF" stroke="#0B1B2B" stroke-width="1.5"/>
+    <text x="700" y="180" text-anchor="middle"
+          font-family="system-ui,-apple-system,'Segoe UI',sans-serif"
+          font-size="22" font-weight="700" fill="#0B1B2B">Control Plane</text>
+    <text x="700" y="205" text-anchor="middle"
+          font-family="system-ui,-apple-system,'Segoe UI',sans-serif"
+          font-size="13" fill="#57606A">Self-hosted or managed by Anchor</text>
+
+    <!-- Go API server -->
+    <rect x="540" y="230" width="320" height="110" rx="10"
+          fill="#EAF1FE" stroke="#1F6FEB" stroke-width="1.5"/>
+    <text x="700" y="258" text-anchor="middle"
+          font-family="system-ui,-apple-system,'Segoe UI',sans-serif"
+          font-size="17" font-weight="700" fill="#0B1B2B">Go HTTP API</text>
+    <text x="700" y="282" text-anchor="middle"
+          font-family="system-ui,-apple-system,'Segoe UI',sans-serif"
+          font-size="12" fill="#0B1B2B">State · Auth · Commands</text>
+    <text x="700" y="302" text-anchor="middle"
+          font-family="system-ui,-apple-system,'Segoe UI',sans-serif"
+          font-size="12" fill="#57606A">RBAC · Teams · Subscriptions</text>
+
+    <!-- WebSocket hub -->
+    <rect x="540" y="365" width="320" height="90" rx="8"
+          fill="#FFFFFF" stroke="#0B1B2B" stroke-width="1"/>
+    <text x="700" y="395" text-anchor="middle"
+          font-family="system-ui,-apple-system,'Segoe UI',sans-serif"
+          font-size="14" font-weight="700" fill="#0B1B2B">WebSocket Hub</text>
+    <text x="700" y="417" text-anchor="middle"
+          font-family="system-ui,-apple-system,'Segoe UI',sans-serif"
+          font-size="11" fill="#57606A">Agent ⇄ browser bridging · live log streams</text>
+    <text x="700" y="435" text-anchor="middle"
+          font-family="system-ui,-apple-system,'Segoe UI',sans-serif"
+          font-size="11" fill="#57606A">Realtime health · alerts</text>
+
+    <!-- DB -->
+    <rect x="540" y="480" width="320" height="90" rx="8"
+          fill="#FFFFFF" stroke="#0B1B2B" stroke-width="1"/>
+    <text x="700" y="510" text-anchor="middle"
+          font-family="system-ui,-apple-system,'Segoe UI',sans-serif"
+          font-size="14" font-weight="700" fill="#0B1B2B">PostgreSQL</text>
+    <text x="700" y="532" text-anchor="middle"
+          font-family="system-ui,-apple-system,'Segoe UI',sans-serif"
+          font-size="11" fill="#57606A">Applications, deployments, backups,</text>
+    <text x="700" y="550" text-anchor="middle"
+          font-family="system-ui,-apple-system,'Segoe UI',sans-serif"
+          font-size="11" fill="#57606A">server inventory, alert history</text>
+
+    <!-- Note -->
+    <text x="700" y="608" text-anchor="middle"
+          font-family="system-ui,-apple-system,'Segoe UI',sans-serif"
+          font-size="12" fill="#57606A">No user data flows through the control plane —</text>
+    <text x="700" y="626" text-anchor="middle"
+          font-family="system-ui,-apple-system,'Segoe UI',sans-serif"
+          font-size="12" fill="#57606A">commands and metadata only.</text>
+
+    <text x="700" y="666" text-anchor="middle"
+          font-family="system-ui,-apple-system,'Segoe UI',sans-serif"
+          font-size="12" fill="#1F6FEB">
+      Deployed as a Go binary + Postgres
+    </text>
+    <text x="700" y="686" text-anchor="middle"
+          font-family="system-ui,-apple-system,'Segoe UI',sans-serif"
+          font-size="12" fill="#1F6FEB">on any $5+/mo VPS</text>
+
+    <!-- Bottom label -->
+    <text x="700" y="742" text-anchor="middle"
+          font-family="system-ui,-apple-system,'Segoe UI',sans-serif"
+          font-size="12" fill="#57606A">Runs anywhere Docker or Go runs</text>
+  </g>
+
+  <!-- ══════════ RIGHT: Dashboard ══════════ -->
+  <g>
+    <rect x="950" y="140" width="380" height="620" rx="14"
+          fill="#FFFFFF" stroke="#0B1B2B" stroke-width="1.5"/>
+    <text x="1140" y="180" text-anchor="middle"
+          font-family="system-ui,-apple-system,'Segoe UI',sans-serif"
+          font-size="22" font-weight="700" fill="#0B1B2B">Dashboard</text>
+    <text x="1140" y="205" text-anchor="middle"
+          font-family="system-ui,-apple-system,'Segoe UI',sans-serif"
+          font-size="13" fill="#57606A">The only thing you ever touch</text>
+
+    <rect x="980" y="230" width="320" height="140" rx="10"
+          fill="#EAF1FE" stroke="#1F6FEB" stroke-width="1.5"/>
+    <text x="1140" y="258" text-anchor="middle"
+          font-family="system-ui,-apple-system,'Segoe UI',sans-serif"
+          font-size="17" font-weight="700" fill="#0B1B2B">Next.js 16 Web UI</text>
+    <text x="1140" y="282" text-anchor="middle"
+          font-family="system-ui,-apple-system,'Segoe UI',sans-serif"
+          font-size="12" fill="#0B1B2B">One-click deploys · Live logs</text>
+    <text x="1140" y="302" text-anchor="middle"
+          font-family="system-ui,-apple-system,'Segoe UI',sans-serif"
+          font-size="12" fill="#57606A">Server health · Backups · Alerts</text>
+    <text x="1140" y="322" text-anchor="middle"
+          font-family="system-ui,-apple-system,'Segoe UI',sans-serif"
+          font-size="12" fill="#57606A">No SSH, no terminal</text>
+
+    <!-- Feature bullets -->
+    <text x="995" y="412"
+          font-family="system-ui,-apple-system,'Segoe UI',sans-serif"
+          font-size="13" fill="#0B1B2B" font-weight="600">What you do here</text>
+    <text x="995" y="440"
+          font-family="system-ui,-apple-system,'Segoe UI',sans-serif"
+          font-size="12" fill="#0B1B2B">• Connect a server (one command)</text>
+    <text x="995" y="462"
+          font-family="system-ui,-apple-system,'Segoe UI',sans-serif"
+          font-size="12" fill="#0B1B2B">• Pick a template or a Docker image</text>
+    <text x="995" y="484"
+          font-family="system-ui,-apple-system,'Segoe UI',sans-serif"
+          font-size="12" fill="#0B1B2B">• Watch it go live with a real URL</text>
+    <text x="995" y="506"
+          font-family="system-ui,-apple-system,'Segoe UI',sans-serif"
+          font-size="12" fill="#0B1B2B">• See plain-English alerts if anything breaks</text>
+    <text x="995" y="528"
+          font-family="system-ui,-apple-system,'Segoe UI',sans-serif"
+          font-size="12" fill="#0B1B2B">• Restore last night's backup in one click</text>
+
+    <!-- Bottom label -->
+    <text x="1140" y="742" text-anchor="middle"
+          font-family="system-ui,-apple-system,'Segoe UI',sans-serif"
+          font-size="12" fill="#57606A">React 19 · TypeScript · Tailwind</text>
+  </g>
+
+  <!-- ══════════ Arrows ══════════ -->
+  <!-- Agent → Control plane (WebSocket) -->
+  <g font-family="system-ui,-apple-system,'Segoe UI',sans-serif" font-size="12" fill="#1F6FEB">
+    <line x1="450" y1="300" x2="510" y2="300"
+          stroke="#1F6FEB" stroke-width="1.6" marker-end="url(#arrow)"/>
+    <text x="480" y="287" text-anchor="middle">WebSocket</text>
+    <text x="480" y="320" text-anchor="middle">health · metrics · logs</text>
+
+    <!-- Dashboard → Control plane (HTTPS) -->
+    <line x1="950" y1="300" x2="890" y2="300"
+          stroke="#1F6FEB" stroke-width="1.6" marker-end="url(#arrow)"/>
+    <text x="920" y="287" text-anchor="middle">HTTPS</text>
+    <text x="920" y="320" text-anchor="middle">REST · WebSocket</text>
+  </g>
+
+  <!-- Footer -->
+  <text x="700" y="850" text-anchor="middle"
+        font-family="system-ui,-apple-system,'Segoe UI',sans-serif"
+        font-size="13" fill="#57606A">
+    Agent runs on your server · Control plane only orchestrates · Dashboard is the only interface you touch
+  </text>
+  <text x="700" y="872" text-anchor="middle"
+        font-family="system-ui,-apple-system,'Segoe UI',sans-serif"
+        font-size="12" fill="#6B7280">
+    Self-host everything, or let Anchor host the control plane — your call
+  </text>
+</svg>
