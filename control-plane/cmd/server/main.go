@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"log/slog"
@@ -9,10 +10,12 @@ import (
 	"time"
 
 	"github.com/joho/godotenv"
+	"github.com/yourname/yourplatform/control-plane/internal/alerts"
 	"github.com/yourname/yourplatform/control-plane/internal/api"
 	"github.com/yourname/yourplatform/control-plane/internal/config"
 	"github.com/yourname/yourplatform/control-plane/internal/db"
 	"github.com/yourname/yourplatform/control-plane/internal/db/queries"
+	"github.com/yourname/yourplatform/control-plane/internal/mailer"
 	"github.com/yourname/yourplatform/control-plane/internal/ws"
 )
 
@@ -39,7 +42,13 @@ func main() {
 	go hub.StartHeartbeat(database)
 	go pruneMetrics(database)
 
-	router := api.NewRouter(database, cfg, hub)
+	// Layer 4C Step 6 — alert email delivery. Runs in the background and
+	// never blocks the agent/metrics paths.
+	sender := mailer.NewFromConfig(cfg)
+	delivery := alerts.NewDelivery(database, sender, cfg)
+	go delivery.Run(context.Background())
+
+	router := api.NewRouter(database, cfg, hub, delivery)
 
 	addr := fmt.Sprintf(":%s", cfg.Port)
 	slog.Info("control plane starting", "addr", addr, "env", cfg.Env)
