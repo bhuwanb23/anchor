@@ -158,6 +158,14 @@ var alertTemplates = map[string]map[string]alertTemplate{
 			Action:  "This is being handled automatically. If your apps do not come back online within 2 minutes, please contact support.",
 		},
 	},
+	"agent_memory": {
+		"warning": {
+			Title:   "YourPlatform agent is using a lot of memory",
+			Message: "The monitoring agent on your server is using {mb}MB of memory. It is monitoring stability and has flushed log buffers to free memory.",
+			Detail:  "Agent memory: {mb}MB.",
+			Action:  "This is being handled automatically. If memory stays high, consider reducing the number of active log streams.",
+		},
+	},
 }
 
 // renderAlert turns an alertSpec into a fully-populated Alert using the
