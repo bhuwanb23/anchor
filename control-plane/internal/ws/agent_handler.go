@@ -224,23 +224,85 @@ func handleBackupVerification(db *sql.DB, serverID string, payload json.RawMessa
 		"files", result.FilesCount)
 }
 
-// handleAnomalyAlert persists a Layer 4C Step 4 anomaly alert as a server
-// event and lets the caller forward it to browsers for live display.
+// handleAnomalyAlert persists a Layer 4C Step 4/5 anomaly alert: it upserts
+// the rich Step 5 alert into the alerts table (deduped by id, escalation and
+// resolution reuse the id), keeps a server_events row for backward compat,
+// and lets the caller forward it to browsers for live display.
 func handleAnomalyAlert(db *sql.DB, serverID string, payload json.RawMessage) {
 	var a struct {
-		Level     string `json:"level"`
-		Type      string `json:"type"`
-		Project   string `json:"project,omitempty"`
-		Container string `json:"container,omitempty"`
-		Message   string `json:"message"`
+		ID         string                 `json:"id"`
+		Project    string                 `json:"project,omitempty"`
+		Container  string                 `json:"container,omitempty"`
+		Level      string                 `json:"level"`
+		Severity   string                 `json:"severity"`
+		Type       string                 `json:"type"`
+		Status     string                 `json:"status"`
+		Title      string                 `json:"title"`
+		Message    string                 `json:"message"`
+		Detail     string                 `json:"detail,omitempty"`
+		Action     string                 `json:"action,omitempty"`
+		FiredAt    string                 `json:"fired_at"`
+		ResolvedAt *string                `json:"resolved_at,omitempty"`
+		Metrics    map[string]interface{} `json:"metrics,omitempty"`
 	}
 	if err := json.Unmarshal(payload, &a); err != nil {
 		slog.Warn("failed to parse anomaly_alert", "server_id", serverID, "error", err)
 		return
 	}
-	if a.Message == "" {
+	if a.Message == "" && a.Title == "" {
 		return
 	}
+
+	// Step 5: persist the rich alert (upsert by id so escalations/resolutions
+	// update the same row).
+	title := a.Title
+	if title == "" {
+		title = a.Message
+	}
+	severity := a.Severity
+	if severity == "" {
+		severity = a.Level
+	}
+	status := a.Status
+	if status == "" {
+		if a.Level == "resolved" {
+			status = "resolved"
+		} else {
+			status = "active"
+		}
+	}
+	alertID := a.ID
+	if alertID == "" {
+		alertID = uuid.New().String()
+	}
+	metricsJSON := ""
+	if len(a.Metrics) > 0 {
+		if b, err := json.Marshal(a.Metrics); err == nil {
+			metricsJSON = string(b)
+		}
+	}
+	resolvedAt := ""
+	if a.ResolvedAt != nil {
+		resolvedAt = *a.ResolvedAt
+	}
+	_ = queries.UpsertAlert(db, queries.AlertRecord{
+		ID:          alertID,
+		ServerID:    serverID,
+		Project:     a.Project,
+		Container:   a.Container,
+		Severity:    severity,
+		Type:        a.Type,
+		Status:      status,
+		Title:       title,
+		Message:     a.Message,
+		Detail:      a.Detail,
+		Action:      a.Action,
+		MetricsJSON: metricsJSON,
+		FiredAt:     a.FiredAt,
+		ResolvedAt:  resolvedAt,
+	})
+
+	// Backward-compatible server event row.
 	eventType := "warning"
 	switch a.Level {
 	case "critical", "resolved":
@@ -250,8 +312,8 @@ func handleAnomalyAlert(db *sql.DB, serverID string, payload json.RawMessage) {
 	if a.Project != "" {
 		checkName = a.Project + "/" + a.Type
 	}
-	_ = queries.InsertServerEvent(db, uuid.New().String(), serverID, eventType, checkName, a.Message, a.Container)
-	slog.Info("anomaly alert", "server_id", serverID, "level", a.Level, "type", a.Type)
+	_ = queries.InsertServerEvent(db, uuid.New().String(), serverID, eventType, checkName, title, a.Container)
+	slog.Info("anomaly alert", "server_id", serverID, "level", a.Level, "type", a.Type, "status", status)
 }
 
 // healthReportContainer mirrors the agent's ContainerMetrics JSON fields.
