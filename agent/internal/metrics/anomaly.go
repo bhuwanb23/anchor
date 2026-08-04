@@ -2,6 +2,7 @@ package metrics
 
 import (
 	"fmt"
+	"runtime"
 	"time"
 )
 
@@ -63,6 +64,11 @@ const (
 	crashLoopWindow = 5 * time.Minute
 
 	oomExitCode = 137
+
+	// Step 7 Case 4 — the agent's own memory usage. Warn above 200MB (of its
+	// ~256MB budget), resolve below 180MB.
+	agentMemWarnMB    = 200
+	agentMemResolveMB = 180
 )
 
 type alertSeverity int
@@ -105,7 +111,8 @@ type AnomalyDetector struct {
 	machines map[string]*metricState
 	crashes  map[string]*crashTracker
 	rates    map[string]*rateBucket
-	now      func() time.Time // test seam
+	now      func() time.Time         // test seam
+	memStats func() *runtime.MemStats // test seam (default: runtime.ReadMemStats)
 }
 
 // NewAnomalyDetector creates a detector that sends alerts via sender.
@@ -125,6 +132,41 @@ func (d *AnomalyDetector) Evaluate(r HealthReport) {
 	d.evalServer(r.Server)
 	d.evalContainers(r.Containers)
 	d.evalPlatform(r.Platform)
+	d.evalAgentMemory()
+}
+
+// evalAgentMemory monitors the agent's own process memory (Step 7 Case 4).
+// It is a plain threshold machine with hysteresis: warning above
+// agentMemWarnMB, resolved below agentMemResolveMB. The auto-remediation
+// manager performs the actual flush + GC; this machine just alerts.
+func (d *AnomalyDetector) evalAgentMemory() {
+	var ms *runtime.MemStats
+	if d.memStats != nil {
+		ms = d.memStats()
+	} else {
+		var m runtime.MemStats
+		runtime.ReadMemStats(&m)
+		ms = &m
+	}
+	mb := float64(ms.Alloc) / (1 << 20)
+
+	key := "agent_memory"
+	st := d.machine(key)
+	target := st.sev
+	switch {
+	case mb >= agentMemWarnMB:
+		target = sevWarning
+	case st.sev != sevNormal && mb < agentMemResolveMB:
+		target = sevNormal
+	}
+	d.transition(key, st, target, func(lvl alertSeverity) alertSpec {
+		return alertSpec{
+			typ:     "agent_memory",
+			subject: "YourPlatform agent memory usage",
+			params:  map[string]string{"mb": fmt.Sprintf("%.0f", mb)},
+			metrics: map[string]interface{}{"agent_memory_mb": int64(mb)},
+		}
+	})
 }
 
 func (d *AnomalyDetector) machine(key string) *metricState {
@@ -246,9 +288,9 @@ func (d *AnomalyDetector) evalServer(s ServerMetrics) {
 			}
 		},
 		map[string]interface{}{
-			"ram_used_mb":   s.RAMUsedMB,
-			"ram_total_mb":  s.RAMTotalMB,
-			"ram_percent":   s.RAMPercent,
+			"ram_used_mb":      s.RAMUsedMB,
+			"ram_total_mb":     s.RAMTotalMB,
+			"ram_percent":      s.RAMPercent,
 			"ram_available_mb": ramAvail,
 		})
 
@@ -275,9 +317,9 @@ func (d *AnomalyDetector) evalServer(s ServerMetrics) {
 			}
 		},
 		map[string]interface{}{
-			"disk_used_gb":    s.DiskUsedGB,
-			"disk_total_gb":   s.DiskTotalGB,
-			"disk_percent":    s.DiskPercent,
+			"disk_used_gb":      s.DiskUsedGB,
+			"disk_total_gb":     s.DiskTotalGB,
+			"disk_percent":      s.DiskPercent,
 			"disk_available_gb": diskAvail,
 		})
 
