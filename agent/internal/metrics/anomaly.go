@@ -2,8 +2,6 @@ package metrics
 
 import (
 	"fmt"
-	"log/slog"
-	"strings"
 	"time"
 )
 
@@ -14,6 +12,12 @@ import (
 // metric (Step 4B), and emits an alert only on a state transition — so a
 // persistent problem alerts once, alerts again on escalation or resolution,
 // and never spams duplicates.
+//
+// Layer 4C Step 5 — Alert Generation.
+//
+// The detector emits rich, plain-English Alert structs (Step 5A/5B), dedupes
+// them via the state machines (Step 5C), and rate limits them per project /
+// per server (Step 5D).
 
 // Alert severity levels carried on the wire.
 const (
@@ -27,11 +31,11 @@ const (
 	// CPU: sustained-duration thresholds — 10 consecutive 30s samples above
 	// 80% (5 minutes) for warning, 4 consecutive samples above 95% (2 minutes)
 	// for critical. Resolution below 70%.
-	cpuWarnPct      = 80.0
-	cpuCritPct      = 95.0
-	cpuResolvePct   = 70.0
-	cpuWarnSamples  = 10
-	cpuCritSamples  = 4
+	cpuWarnPct     = 80.0
+	cpuCritPct     = 95.0
+	cpuResolvePct  = 70.0
+	cpuWarnSamples = 10
+	cpuCritSamples = 4
 
 	ramWarnPct    = 80.0
 	ramCritPct    = 90.0
@@ -61,16 +65,6 @@ const (
 	oomExitCode = 137
 )
 
-// AnomalyAlert is the payload sent to the control plane as an
-// {"type":"anomaly_alert","payload":{...}} message.
-type AnomalyAlert struct {
-	Level     string `json:"level"`               // "warning" | "critical" | "resolved"
-	Type      string `json:"type"`                // e.g. "cpu", "ram", "container_oom", "caddy_down"
-	Project   string `json:"project,omitempty"`   // container alerts only
-	Container string `json:"container,omitempty"` // container role (app, postgres, ...)
-	Message   string `json:"message"`             // plain-English explanation
-}
-
 type alertSeverity int
 
 const (
@@ -80,13 +74,19 @@ const (
 )
 
 // metricState is one alert state machine (Step 4B). It also carries the CPU
-// sustained-duration sample counters (Step 4C).
+// sustained-duration sample counters (Step 4C) and the id of the most recent
+// active alert (Step 5C) so escalations and resolutions update the same row
+// in the control plane's alerts table instead of leaking stale active rows.
 type metricState struct {
 	sev alertSeverity
 
 	// CPU sustained-duration counters (consecutive 30s samples).
 	warnSamples int
 	critSamples int
+
+	// alertID is the id of the currently-active alert for this machine. It is
+	// reused by the next escalation or resolution event (Step 5C rules 4-5).
+	alertID string
 }
 
 // crashTracker remembers restart events per container so crash-loop detection
@@ -101,17 +101,21 @@ type crashTracker struct {
 // the same contract as SystemCollector — so no locking is needed.
 type AnomalyDetector struct {
 	sender   WSSender
+	serverID string
 	machines map[string]*metricState
 	crashes  map[string]*crashTracker
+	rates    map[string]*rateBucket
 	now      func() time.Time // test seam
 }
 
 // NewAnomalyDetector creates a detector that sends alerts via sender.
-func NewAnomalyDetector(sender WSSender) *AnomalyDetector {
+func NewAnomalyDetector(sender WSSender, serverID string) *AnomalyDetector {
 	return &AnomalyDetector{
 		sender:   sender,
+		serverID: serverID,
 		machines: make(map[string]*metricState),
 		crashes:  make(map[string]*crashTracker),
+		rates:    make(map[string]*rateBucket),
 		now:      time.Now,
 	}
 }
@@ -144,12 +148,13 @@ func (d *AnomalyDetector) crash(key string) *crashTracker {
 // transition drives a single state machine toward target. Alerts fire only on
 // transitions per Step 4B: NORMAL→WARNING, NORMAL→CRITICAL (skips warning),
 // WARNING→CRITICAL (escalation), and any non-NORMAL→NORMAL (resolved).
-// De-escalation (CRITICAL→WARNING) is silent. build produces the alert message
+// De-escalation (CRITICAL→WARNING) is silent. build produces the alert spec
 // for a given target level (sevNormal = resolved message).
-func (d *AnomalyDetector) transition(key string, st *metricState, target alertSeverity, build func(alertSeverity) AnomalyAlert) {
+func (d *AnomalyDetector) transition(key string, st *metricState, target alertSeverity, build func(alertSeverity) alertSpec) {
 	if target == st.sev {
 		return // no transition → no duplicate alert
 	}
+	prevSev := st.sev
 
 	switch {
 	case target == sevNormal:
@@ -163,7 +168,24 @@ func (d *AnomalyDetector) transition(key string, st *metricState, target alertSe
 	}
 
 	st.sev = target
-	d.send(build(target))
+	d.fire(st, build(target), target, prevSev)
+}
+
+// fire renders, rate limits, and emits one alert for the given target state.
+// Escalations and resolutions reuse the machine's active alert id so the
+// control plane updates the same row (Step 5C rules 4-5).
+func (d *AnomalyDetector) fire(st *metricState, spec alertSpec, target alertSeverity, prevSev alertSeverity) {
+	a := d.renderAlert(spec, target, st.alertID, prevSev)
+	if !d.rateLimited(a) {
+		return
+	}
+	d.emit(a)
+	if a.Status == "active" {
+		st.alertID = a.ID
+	} else {
+		// Resolved: the condition cleared, so the id is no longer active.
+		st.alertID = ""
+	}
 }
 
 // evalServer evaluates host-level metrics: CPU (sustained), RAM, disk, load.
@@ -200,29 +222,75 @@ func (d *AnomalyDetector) evalServer(s ServerMetrics) {
 			target = sevNormal
 		}
 	}
-	d.transition(key, st, target, func(lvl alertSeverity) AnomalyAlert {
-		switch lvl {
-		case sevWarning:
-			return AnomalyAlert{Level: sevNameWarning, Type: "cpu",
-				Message: fmt.Sprintf("CPU usage has been above %.0f%% for 5 minutes (currently %.1f%%)", cpuWarnPct, v)}
-		case sevCritical:
-			return AnomalyAlert{Level: sevNameCritical, Type: "cpu",
-				Message: fmt.Sprintf("CPU usage has been above %.0f%% for 2 minutes (currently %.1f%%)", cpuCritPct, v)}
-		default:
-			return AnomalyAlert{Level: sevNameResolved, Type: "cpu",
-				Message: fmt.Sprintf("CPU usage is back to normal (currently %.1f%%)", v)}
+	d.transition(key, st, target, func(lvl alertSeverity) alertSpec {
+		return alertSpec{
+			typ:     "cpu",
+			subject: "your server's CPU usage",
+			params:  map[string]string{"percent": fmt.Sprintf("%.1f", v)},
+			metrics: map[string]interface{}{"cpu_percent": v},
 		}
 	})
 
 	// --- RAM, disk, load: immediate thresholds with hysteresis ---
-	d.evalThreshold("ram", "ram", s.RAMPercent, ramWarnPct, ramCritPct, ramResolvePct, "RAM usage", "%")
-	d.evalThreshold("disk", "disk", s.DiskPercent, diskWarnPct, diskCritPct, diskResolvePct, "Disk usage", "%")
-	d.evalThreshold("load", "load", s.LoadPerCore, loadWarn, loadCrit, loadResolve, "System load per core", "")
+	ramAvail := s.RAMTotalMB - s.RAMUsedMB
+	if ramAvail < 0 {
+		ramAvail = 0
+	}
+	d.evalThreshold("ram", "ram", "your server's memory usage", s.RAMPercent, ramWarnPct, ramCritPct, ramResolvePct,
+		func() map[string]string {
+			return map[string]string{
+				"percent":   fmt.Sprintf("%.1f", s.RAMPercent),
+				"used":      fmt.Sprintf("%d", s.RAMUsedMB),
+				"total":     fmt.Sprintf("%d", s.RAMTotalMB),
+				"available": fmt.Sprintf("%d", ramAvail),
+			}
+		},
+		map[string]interface{}{
+			"ram_used_mb":   s.RAMUsedMB,
+			"ram_total_mb":  s.RAMTotalMB,
+			"ram_percent":   s.RAMPercent,
+			"ram_available_mb": ramAvail,
+		})
+
+	diskAvail := s.DiskTotalGB - s.DiskUsedGB
+	if diskAvail < 0 {
+		diskAvail = 0
+	}
+	days := 0.0
+	if s.DiskUsedGB > 0 && s.DiskPercent > 0 {
+		// Rough projection: linear extrapolation from the current usage level.
+		remainingPct := 100.0 - s.DiskPercent
+		if remainingPct > 0 {
+			days = remainingPct / (s.DiskPercent / 30.0) // assumes ~30d to reach current fill
+		}
+	}
+	d.evalThreshold("disk", "disk", "your server's disk", s.DiskPercent, diskWarnPct, diskCritPct, diskResolvePct,
+		func() map[string]string {
+			return map[string]string{
+				"percent":   fmt.Sprintf("%.1f", s.DiskPercent),
+				"used":      fmt.Sprintf("%.1f", s.DiskUsedGB),
+				"total":     fmt.Sprintf("%.1f", s.DiskTotalGB),
+				"available": fmt.Sprintf("%.1f", diskAvail),
+				"days":      fmt.Sprintf("%.0f", days),
+			}
+		},
+		map[string]interface{}{
+			"disk_used_gb":    s.DiskUsedGB,
+			"disk_total_gb":   s.DiskTotalGB,
+			"disk_percent":    s.DiskPercent,
+			"disk_available_gb": diskAvail,
+		})
+
+	d.evalThreshold("load", "load", "your server's load", s.LoadPerCore, loadWarn, loadCrit, loadResolve,
+		func() map[string]string {
+			return map[string]string{"value": fmt.Sprintf("%.2f", s.LoadPerCore)}
+		},
+		map[string]interface{}{"load_per_core": s.LoadPerCore})
 }
 
-// evalThreshold is the generic immediate-threshold machine. `unit` is "%" for
-// percentages or "" for ratios such as load.
-func (d *AnomalyDetector) evalThreshold(key, typ string, value, warn, crit, resolve float64, name, unit string) {
+// evalThreshold is the generic immediate-threshold machine. buildParams
+// returns the template parameters for the current value.
+func (d *AnomalyDetector) evalThreshold(key, typ, subject string, value, warn, crit, resolve float64, buildParams func() map[string]string, metrics map[string]interface{}) {
 	st := d.machine(key)
 
 	target := sevNormal
@@ -238,17 +306,12 @@ func (d *AnomalyDetector) evalThreshold(key, typ string, value, warn, crit, reso
 		target = st.sev
 	}
 
-	d.transition(key, st, target, func(lvl alertSeverity) AnomalyAlert {
-		switch lvl {
-		case sevWarning:
-			return AnomalyAlert{Level: sevNameWarning, Type: typ,
-				Message: fmt.Sprintf("%s is at %.1f%s (warning threshold: %.1f%s)", name, value, unit, warn, unit)}
-		case sevCritical:
-			return AnomalyAlert{Level: sevNameCritical, Type: typ,
-				Message: fmt.Sprintf("%s is at %.1f%s (critical threshold: %.1f%s)", name, value, unit, crit, unit)}
-		default:
-			return AnomalyAlert{Level: sevNameResolved, Type: typ,
-				Message: fmt.Sprintf("%s is back to normal (currently %.1f%s)", name, value, unit)}
+	d.transition(key, st, target, func(lvl alertSeverity) alertSpec {
+		return alertSpec{
+			typ:     typ,
+			subject: subject,
+			params:  buildParams(),
+			metrics: metrics,
 		}
 	})
 }
@@ -262,6 +325,7 @@ func (d *AnomalyDetector) evalContainers(containers []ContainerMetrics) {
 		}
 		key := "container:" + c.Project + ":" + c.Role
 		now := d.now()
+		subject := fmt.Sprintf("%s (%s)", c.Project, c.Role)
 
 		// --- Crash detection (Step 4D) ---
 		ct := d.crash(key)
@@ -294,17 +358,27 @@ func (d *AnomalyDetector) evalContainers(containers []ContainerMetrics) {
 		if oom {
 			oomTarget = sevCritical
 		}
-		d.transition(oomKey, d.machine(oomKey), oomTarget, func(lvl alertSeverity) AnomalyAlert {
-			switch lvl {
-			case sevCritical:
-				msg := fmt.Sprintf("%s (%s) ran out of memory and was killed (exit code %d).", c.Project, c.Role, oomExitCode)
-				if c.RAMLimitMB > 0 {
-					msg += fmt.Sprintf(" Memory limit: %dMB, current usage: %dMB.", c.RAMLimitMB, c.RAMUsedMB)
-				}
-				return AnomalyAlert{Level: sevNameCritical, Type: "container_oom", Project: c.Project, Container: c.Role, Message: msg}
-			default:
-				return AnomalyAlert{Level: sevNameResolved, Type: "container_oom", Project: c.Project, Container: c.Role,
-					Message: fmt.Sprintf("%s (%s) is running normally again", c.Project, c.Role)}
+		d.transition(oomKey, d.machine(oomKey), oomTarget, func(lvl alertSeverity) alertSpec {
+			exitCode := 0
+			if c.ExitCode != nil {
+				exitCode = *c.ExitCode
+			}
+			return alertSpec{
+				typ:       "container_oom",
+				project:   c.Project,
+				container: c.Role,
+				subject:   subject,
+				params: map[string]string{
+					"project":   c.Project,
+					"limit":     fmt.Sprintf("%d", c.RAMLimitMB),
+					"used":      fmt.Sprintf("%d", c.RAMUsedMB),
+					"exit_code": fmt.Sprintf("%d", exitCode),
+				},
+				metrics: map[string]interface{}{
+					"ram_used_mb":  c.RAMUsedMB,
+					"ram_limit_mb": c.RAMLimitMB,
+					"exit_code":    exitCode,
+				},
 			}
 		})
 
@@ -328,17 +402,25 @@ func (d *AnomalyDetector) evalContainers(containers []ContainerMetrics) {
 			// 1–2 crashes still inside the window: hold until the window passes
 			// or more crashes arrive.
 		}
-		d.transition(crashKey, st, target, func(lvl alertSeverity) AnomalyAlert {
-			switch lvl {
-			case sevCritical:
-				return AnomalyAlert{Level: sevNameCritical, Type: "container_crash", Project: c.Project, Container: c.Role,
-					Message: fmt.Sprintf("%s (%s) is repeatedly crashing (%d restarts in the last 5 minutes). Check the logs for errors.", c.Project, c.Role, len(ct.events))}
-			case sevWarning:
-				return AnomalyAlert{Level: sevNameWarning, Type: "container_crash", Project: c.Project, Container: c.Role,
-					Message: fmt.Sprintf("%s (%s) crashed and was automatically restarted (restart #%d).", c.Project, c.Role, c.RestartCount)}
-			default:
-				return AnomalyAlert{Level: sevNameResolved, Type: "container_crash", Project: c.Project, Container: c.Role,
-					Message: fmt.Sprintf("%s (%s) is stable again — no crashes in the last 5 minutes", c.Project, c.Role)}
+		d.transition(crashKey, st, target, func(lvl alertSeverity) alertSpec {
+			exitCode := 0
+			if c.ExitCode != nil {
+				exitCode = *c.ExitCode
+			}
+			return alertSpec{
+				typ:       "container_crash",
+				project:   c.Project,
+				container: c.Role,
+				subject:   subject,
+				params: map[string]string{
+					"project":   c.Project,
+					"count":     fmt.Sprintf("%d", len(ct.events)),
+					"exit_code": fmt.Sprintf("%d", exitCode),
+				},
+				metrics: map[string]interface{}{
+					"restart_count": c.RestartCount,
+					"exit_code":     exitCode,
+				},
 			}
 		})
 
@@ -355,14 +437,17 @@ func (d *AnomalyDetector) evalContainers(containers []ContainerMetrics) {
 		if stopped {
 			stoppedTarget = sevWarning
 		}
-		d.transition(stoppedKey, d.machine(stoppedKey), stoppedTarget, func(lvl alertSeverity) AnomalyAlert {
-			switch lvl {
-			case sevWarning:
-				return AnomalyAlert{Level: sevNameWarning, Type: "container_stopped", Project: c.Project, Container: c.Role,
-					Message: fmt.Sprintf("%s (%s) has stopped (exit code %d).", c.Project, c.Role, *c.ExitCode)}
-			default:
-				return AnomalyAlert{Level: sevNameResolved, Type: "container_stopped", Project: c.Project, Container: c.Role,
-					Message: fmt.Sprintf("%s (%s) is running again", c.Project, c.Role)}
+		d.transition(stoppedKey, d.machine(stoppedKey), stoppedTarget, func(lvl alertSeverity) alertSpec {
+			return alertSpec{
+				typ:       "container_stopped",
+				project:   c.Project,
+				container: c.Role,
+				subject:   subject,
+				params: map[string]string{
+					"project":   c.Project,
+					"exit_code": fmt.Sprintf("%d", *c.ExitCode),
+				},
+				metrics: map[string]interface{}{"exit_code": *c.ExitCode},
 			}
 		})
 
@@ -373,22 +458,34 @@ func (d *AnomalyDetector) evalContainers(containers []ContainerMetrics) {
 		if unhealthy {
 			unhealthyTarget = sevWarning
 		}
-		d.transition(unhealthyKey, d.machine(unhealthyKey), unhealthyTarget, func(lvl alertSeverity) AnomalyAlert {
-			switch lvl {
-			case sevWarning:
-				return AnomalyAlert{Level: sevNameWarning, Type: "container_unhealthy", Project: c.Project, Container: c.Role,
-					Message: fmt.Sprintf("%s (%s) health check is failing.", c.Project, c.Role)}
-			default:
-				return AnomalyAlert{Level: sevNameResolved, Type: "container_unhealthy", Project: c.Project, Container: c.Role,
-					Message: fmt.Sprintf("%s (%s) health check is passing again", c.Project, c.Role)}
+		d.transition(unhealthyKey, d.machine(unhealthyKey), unhealthyTarget, func(lvl alertSeverity) alertSpec {
+			return alertSpec{
+				typ:       "container_unhealthy",
+				project:   c.Project,
+				container: c.Role,
+				subject:   subject,
+				params:    map[string]string{"project": c.Project},
 			}
 		})
 
 		// Container memory pressure relative to its limit.
 		if c.RAMLimitMB > 0 {
-			d.evalThreshold(key+":ram", "container_ram", c.RAMPercent,
+			ramSubject := fmt.Sprintf("%s (%s) memory usage", c.Project, c.Role)
+			d.evalThreshold(key+":ram", "container_ram", ramSubject, c.RAMPercent,
 				containerRAMWarnPct, containerRAMCritPct, containerRAMResolvePct,
-				fmt.Sprintf("%s (%s) memory usage", c.Project, c.Role), "%")
+				func() map[string]string {
+					return map[string]string{
+						"project": c.Project,
+						"used":    fmt.Sprintf("%d", c.RAMUsedMB),
+						"limit":   fmt.Sprintf("%d", c.RAMLimitMB),
+						"percent": fmt.Sprintf("%.1f", c.RAMPercent),
+					}
+				},
+				map[string]interface{}{
+					"ram_used_mb":  c.RAMUsedMB,
+					"ram_limit_mb": c.RAMLimitMB,
+					"ram_percent":  c.RAMPercent,
+				})
 		}
 	}
 }
@@ -402,14 +499,10 @@ func (d *AnomalyDetector) evalPlatform(p PlatformMetrics) {
 	if !p.CaddyRunning {
 		target = sevCritical
 	}
-	d.transition(key, d.machine(key), target, func(lvl alertSeverity) AnomalyAlert {
-		switch lvl {
-		case sevCritical:
-			return AnomalyAlert{Level: sevNameCritical, Type: "caddy_down",
-				Message: "Caddy is not running — all apps are unreachable. Check the agent logs; it will try to restart Caddy automatically."}
-		default:
-			return AnomalyAlert{Level: sevNameResolved, Type: "caddy_down",
-				Message: "Caddy is back online — all apps are reachable again"}
+	d.transition(key, d.machine(key), target, func(lvl alertSeverity) alertSpec {
+		return alertSpec{
+			typ:     "caddy_down",
+			subject: "your web traffic (Caddy)",
 		}
 	})
 
@@ -423,37 +516,24 @@ func (d *AnomalyDetector) evalPlatform(p PlatformMetrics) {
 	case p.LastBackupAgeSec > 0 && ageH >= backupOverdueWarnHours:
 		target = sevWarning
 	}
-	d.transition(key, d.machine(key), target, func(lvl alertSeverity) AnomalyAlert {
-		switch lvl {
-		case sevWarning:
-			return AnomalyAlert{Level: sevNameWarning, Type: "backup_overdue",
-				Message: fmt.Sprintf("Backup is overdue — the last backup was %.0f hours ago.", ageH)}
-		case sevCritical:
-			return AnomalyAlert{Level: sevNameCritical, Type: "backup_overdue",
-				Message: fmt.Sprintf("Backup has not run in %.0f hours (more than 2 days). Your data is at risk.", ageH)}
-		default:
-			return AnomalyAlert{Level: sevNameResolved, Type: "backup_overdue",
-				Message: "Backup is up to date"}
+	d.transition(key, d.machine(key), target, func(lvl alertSeverity) alertSpec {
+		lastBackup := p.LastBackupAt
+		if lastBackup == "" {
+			lastBackup = "never"
+		}
+		status := p.LastBackupStatus
+		if status == "" {
+			status = "unknown"
+		}
+		return alertSpec{
+			typ:     "backup_overdue",
+			subject: "your backups",
+			params: map[string]string{
+				"hours":          fmt.Sprintf("%.0f", ageH),
+				"last_backup_at": lastBackup,
+				"status":         status,
+			},
+			metrics: map[string]interface{}{"last_backup_age_seconds": p.LastBackupAgeSec},
 		}
 	})
-}
-
-// send emits one anomaly alert to the control plane.
-func (d *AnomalyDetector) send(a AnomalyAlert) {
-	if d.sender == nil {
-		return
-	}
-	msg := map[string]interface{}{
-		"type":    "anomaly_alert",
-		"payload": a,
-	}
-	if err := d.sender.SendJSON(msg); err != nil {
-		slog.Warn("failed to send anomaly alert", "type", a.Type, "level", a.Level, "error", err)
-		return
-	}
-	// Drop the resolved noise from logs; keep warning/critical visible.
-	if a.Level != sevNameResolved {
-		slog.Info("anomaly alert", "level", a.Level, "type", a.Type,
-			"project", strings.TrimSpace(a.Project), "container", strings.TrimSpace(a.Container))
-	}
 }
