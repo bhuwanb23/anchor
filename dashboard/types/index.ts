@@ -1,6 +1,7 @@
 export interface User {
   id: string
   email: string
+  name: string
 }
 
 export interface Server {
@@ -106,6 +107,17 @@ export interface DeployRequest {
 export interface LoginRequest {
   email: string
   password: string
+}
+
+// Layer 5A Step 1C: registration takes a display name and returns no token.
+export interface RegisterRequest {
+  name: string
+  email: string
+  password: string
+}
+
+export interface RegisterResponse {
+  message: string
 }
 
 export interface AuthResponse {

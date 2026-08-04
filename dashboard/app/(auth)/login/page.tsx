@@ -13,7 +13,7 @@ import { useAuth } from "@/hooks/use-auth";
 
 const loginSchema = z.object({
   email: z.string().email("Invalid email address"),
-  password: z.string().min(6, "Password must be at least 6 characters"),
+  password: z.string().min(8, "Password must be at least 8 characters"),
 });
 
 type LoginForm = z.infer<typeof loginSchema>;
@@ -38,7 +38,10 @@ export default function LoginPage() {
       toast.success("Logged in successfully");
       router.push("/overview");
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Login failed");
+      const message =
+        (e as { response?: { data?: { error?: string } } })?.response?.data?.error ??
+        (e instanceof Error ? e.message : "Login failed");
+      toast.error(message);
     } finally {
       setIsLoading(false);
     }

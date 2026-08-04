@@ -13,8 +13,9 @@ import { register as authRegister } from "@/lib/auth";
 
 const registerSchema = z
   .object({
+    name: z.string().min(2, "Name must be at least 2 characters").max(100, "Name must be at most 100 characters"),
     email: z.string().email("Invalid email address"),
-    password: z.string().min(6, "Password must be at least 6 characters"),
+    password: z.string().min(8, "Password must be at least 8 characters"),
     confirmPassword: z.string(),
   })
   .refine((data) => data.password === data.confirmPassword, {
@@ -39,11 +40,14 @@ export default function RegisterPage() {
   async function onSubmit(data: RegisterForm) {
     setIsLoading(true);
     try {
-      await authRegister({ email: data.email, password: data.password });
-      toast.success("Account created successfully");
-      router.push("/overview");
+      await authRegister({ name: data.name, email: data.email, password: data.password });
+      toast.success("Account created successfully — please sign in");
+      router.push("/login");
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Registration failed");
+      const message =
+        (e as { response?: { data?: { error?: string } } })?.response?.data?.error ??
+        (e instanceof Error ? e.message : "Registration failed");
+      toast.error(message);
     } finally {
       setIsLoading(false);
     }
@@ -57,6 +61,13 @@ export default function RegisterPage() {
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+            <Input
+              label="Name"
+              type="text"
+              placeholder="Jane Doe"
+              error={errors.name?.message}
+              {...register("name")}
+            />
             <Input
               label="Email"
               type="email"
