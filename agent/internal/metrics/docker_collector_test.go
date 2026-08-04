@@ -3,6 +3,7 @@ package metrics
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/docker/docker/api/types"
 	"github.com/yourname/yourplatform/agent/internal/docker"
@@ -85,8 +86,8 @@ func TestDockerCollector_BasicLifecycle(t *testing.T) {
 	if app.Status != "running" {
 		t.Errorf("app status = %s, want running", app.Status)
 	}
-	if app.Health != "healthy" {
-		t.Errorf("app health = %s, want healthy", app.Health)
+	if app.Health == nil || *app.Health != "healthy" {
+		t.Errorf("app health = %v, want healthy", app.Health)
 	}
 	if app.RestartCount != 2 {
 		t.Errorf("app restart count = %d, want 2", app.RestartCount)
@@ -117,10 +118,47 @@ func TestDockerCollector_BasicLifecycle(t *testing.T) {
 	if db.ExitCode == nil || *db.ExitCode != 137 {
 		t.Errorf("db exit code = %v, want 137", db.ExitCode)
 	}
+	if db.Health != nil {
+		t.Errorf("exited container should have nil health, got %v", *db.Health)
+	}
 	if db.RestartCount != 5 {
 		t.Errorf("db restart count = %d, want 5", db.RestartCount)
 	}
 	if db.RAMUsedMB != 0 {
 		t.Errorf("db ram used for empty stats = %d, want 0", db.RAMUsedMB)
+	}
+}
+
+func TestDockerCollector_RunningWithoutHealthCheck(t *testing.T) {
+	// A running container with no health check configured should be reported
+	// as healthy and carry an uptime derived from StartedAt.
+	f := &fakeContainerLister{
+		containers: []types.Container{
+			{ID: "cccccccccccc", State: "running", Labels: map[string]string{
+				"yourplatform.project": "myshop",
+				"yourplatform.role":    "app",
+			}},
+		},
+		inspected: map[string]types.ContainerJSON{
+			"cccccccccccc": {ContainerJSONBase: &types.ContainerJSONBase{
+				RestartCount: 0,
+				State: &types.ContainerState{
+					Running:   true,
+					StartedAt: time.Now().Add(-time.Minute).UTC().Format(time.RFC3339),
+				},
+			}},
+		},
+		stats: map[string]docker.ContainerStats{"cccccccccccc": {}},
+	}
+
+	got := NewDockerCollector(f).Collect(context.Background())
+	if len(got) != 1 {
+		t.Fatalf("collected %d containers, want 1", len(got))
+	}
+	if got[0].Health == nil || *got[0].Health != "healthy" {
+		t.Errorf("health = %v, want healthy (no health check configured)", got[0].Health)
+	}
+	if got[0].UptimeSecs < 50 || got[0].UptimeSecs > 70 {
+		t.Errorf("uptime = %d, want ~60", got[0].UptimeSecs)
 	}
 }
