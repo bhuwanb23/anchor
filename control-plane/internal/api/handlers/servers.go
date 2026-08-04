@@ -180,6 +180,74 @@ func (s *Server) ListAlerts(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(alerts)
 }
 
+// ListAllAlerts returns recent alerts across every server the user owns plus
+// the unread count for the notification center bell.
+func (s *Server) ListAllAlerts(w http.ResponseWriter, r *http.Request) {
+	userID, ok := r.Context().Value("user_id").(string)
+	if !ok || userID == "" {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	alerts, err := queries.ListRecentAlertsForUser(s.DB, userID, 50)
+	if err != nil {
+		slog.Error("query recent alerts", "error", err)
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+	unread, err := queries.UnreadAlertCountForUser(s.DB, userID)
+	if err != nil {
+		slog.Error("count unread alerts", "error", err)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"alerts":       alerts,
+		"unread_count": unread,
+	})
+}
+
+// MarkAllAlertsRead stamps read_at on the user's active alerts (called when
+// the notification center is opened).
+func (s *Server) MarkAllAlertsRead(w http.ResponseWriter, r *http.Request) {
+	userID, ok := r.Context().Value("user_id").(string)
+	if !ok || userID == "" {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	if err := queries.MarkAlertsReadForUser(s.DB, userID); err != nil {
+		slog.Error("mark alerts read", "error", err)
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// AcknowledgeAlert marks an active alert as acknowledged by the user.
+func (s *Server) AcknowledgeAlert(w http.ResponseWriter, r *http.Request) {
+	serverID := chi.URLParam(r, "serverID")
+	alertID := chi.URLParam(r, "alertID")
+	if serverID == "" || alertID == "" {
+		http.Error(w, "server and alert IDs required", http.StatusBadRequest)
+		return
+	}
+	userID, ok := r.Context().Value("user_id").(string)
+	if !ok || userID == "" {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	if !s.serverOwnedBy(userID, serverID) {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+	if err := queries.AcknowledgeAlert(s.DB, alertID, serverID, userID); err != nil {
+		slog.Error("acknowledge alert", "error", err)
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 // serverOwnedBy reports whether the given user owns the server.
 func (s *Server) serverOwnedBy(userID, serverID string) bool {
 	var count int
