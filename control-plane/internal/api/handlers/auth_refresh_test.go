@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -209,6 +210,44 @@ func TestRefresh_SlidingExpiry(t *testing.T) {
 	newExp, _ := time.Parse(time.RFC3339, newExpiresAt)
 	if days := time.Until(newExp).Hours() / 24; days < 29 || days > 31 {
 		t.Errorf("rotated expiry = %v (%.0f days), want ~30 days", newExp, days)
+	}
+}
+
+func TestRefresh_ConcurrentRotationOnlyOneWinner(t *testing.T) {
+	db := setupAuthTestDB(t)
+	defer db.Close()
+	h := newAuthHandler(db)
+
+	loginResp := loginHelper(t, h)
+	token := loginResp["refresh_token"].(string)
+
+	// Fire several refreshes with the SAME token at once. Because rotation is
+	// atomic (conditional revoke), exactly one may win; all others must get 401.
+	const attempts = 5
+	codes := make([]int, attempts)
+	var wg sync.WaitGroup
+	for i := 0; i < attempts; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			codes[i] = refreshHelper(h, token).Code
+		}(i)
+	}
+	wg.Wait()
+
+	var wins int
+	for _, c := range codes {
+		if c == http.StatusOK {
+			wins++
+		}
+	}
+	if wins != 1 {
+		t.Errorf("concurrent rotation: %d/%d refreshes succeeded, want exactly 1 (codes=%v)", wins, attempts, codes)
+	}
+
+	// And the winning session is the only live one — the old token is dead.
+	if w := refreshHelper(h, token); w.Code != http.StatusUnauthorized {
+		t.Errorf("old token after race: expected 401, got %d", w.Code)
 	}
 }
 
