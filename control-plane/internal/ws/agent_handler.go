@@ -70,19 +70,19 @@ func handlePreflightResult(db *sql.DB, serverID string, payload json.RawMessage)
 
 func handleBackupStatus(db *sql.DB, serverID string, payload json.RawMessage) {
 	var result struct {
-		ServerID         string `json:"server_id"`
-		BackupID         string `json:"backup_id"`
-		ResticSnapshotID string `json:"restic_snapshot_id"`
-		Status           string `json:"status"`
-		StartedAt        string `json:"started_at"`
-		CompletedAt      string `json:"completed_at,omitempty"`
-		DurationSeconds  int64  `json:"duration_seconds"`
-		SizeNewBytes     int64  `json:"size_new_bytes"`
-		SizeTotalBytes   int64  `json:"size_total_bytes"`
+		ServerID         string          `json:"server_id"`
+		BackupID         string          `json:"backup_id"`
+		ResticSnapshotID string          `json:"restic_snapshot_id"`
+		Status           string          `json:"status"`
+		StartedAt        string          `json:"started_at"`
+		CompletedAt      string          `json:"completed_at,omitempty"`
+		DurationSeconds  int64           `json:"duration_seconds"`
+		SizeNewBytes     int64           `json:"size_new_bytes"`
+		SizeTotalBytes   int64           `json:"size_total_bytes"`
 		Projects         json.RawMessage `json:"projects,omitempty"`
-		RetentionApplied bool   `json:"retention_applied"`
-		SnapshotsPruned  int    `json:"snapshots_pruned"`
-		Error            string `json:"error,omitempty"`
+		RetentionApplied bool            `json:"retention_applied"`
+		SnapshotsPruned  int             `json:"snapshots_pruned"`
+		Error            string          `json:"error,omitempty"`
 	}
 
 	if err := json.Unmarshal(payload, &result); err != nil {
@@ -192,16 +192,16 @@ func handleRestoreStatus(db *sql.DB, serverID string, payload json.RawMessage) {
 // handleBackupVerification processes backup verification updates from the agent.
 func handleBackupVerification(db *sql.DB, serverID string, payload json.RawMessage) {
 	var result struct {
-		ServerID         string `json:"server_id"`
-		BackupID         string `json:"backup_id"`
-		SnapshotID       string `json:"snapshot_id"`
-		Status           string `json:"status"`
-		Subset           string `json:"subset"`
-		StartedAt        string `json:"started_at"`
-		CompletedAt      string `json:"completed_at,omitempty"`
-		DurationSeconds  int64  `json:"duration_seconds"`
-		FilesCount       int    `json:"files_count"`
-		Error            string `json:"error,omitempty"`
+		ServerID        string `json:"server_id"`
+		BackupID        string `json:"backup_id"`
+		SnapshotID      string `json:"snapshot_id"`
+		Status          string `json:"status"`
+		Subset          string `json:"subset"`
+		StartedAt       string `json:"started_at"`
+		CompletedAt     string `json:"completed_at,omitempty"`
+		DurationSeconds int64  `json:"duration_seconds"`
+		FilesCount      int    `json:"files_count"`
+		Error           string `json:"error,omitempty"`
 	}
 
 	if err := json.Unmarshal(payload, &result); err != nil {
@@ -323,6 +323,27 @@ func handleAnomalyAlert(db *sql.DB, serverID string, payload json.RawMessage, de
 	slog.Info("anomaly alert", "server_id", serverID, "level", a.Level, "type", a.Type, "status", status)
 }
 
+// handleRemediationReport records a Layer 4C Step 7 automatic action as an
+// "auto_remediation" server event so the dashboard can show what the agent
+// did on its own (e.g. "freed 2.1 GB by pruning Docker images").
+func handleRemediationReport(db *sql.DB, serverID string, payload json.RawMessage) {
+	var r struct {
+		Action  string `json:"action"`
+		Success bool   `json:"success"`
+		Message string `json:"message"`
+		At      string `json:"at"`
+	}
+	if err := json.Unmarshal(payload, &r); err != nil {
+		slog.Warn("failed to parse remediation_report", "server_id", serverID, "error", err)
+		return
+	}
+	if r.Message == "" {
+		r.Message = r.Action
+	}
+	_ = queries.InsertServerEvent(db, uuid.New().String(), serverID, "auto_remediation", r.Action, r.Message, string(payload))
+	slog.Info("auto remediation", "server_id", serverID, "action", r.Action, "success", r.Success)
+}
+
 // healthReportContainer mirrors the agent's ContainerMetrics JSON fields.
 type healthReportContainer struct {
 	Project      string  `json:"project"`
@@ -343,15 +364,15 @@ type healthReportContainer struct {
 
 // healthReportServer mirrors the agent's ServerMetrics JSON fields.
 type healthReportServer struct {
-	CPUPercent    float64 `json:"cpu_percent"`
-	RAMUsedMB     int64   `json:"ram_used_mb"`
-	RAMTotalMB    int64   `json:"ram_total_mb"`
-	RAMPercent    float64 `json:"ram_percent"`
-	DiskUsedGB    float64 `json:"disk_used_gb"`
-	DiskTotalGB   float64 `json:"disk_total_gb"`
-	DiskPercent   float64 `json:"disk_percent"`
-	Load1Min      float64 `json:"load_1min"`
-	LoadPerCore   float64 `json:"load_per_core"`
+	CPUPercent  float64 `json:"cpu_percent"`
+	RAMUsedMB   int64   `json:"ram_used_mb"`
+	RAMTotalMB  int64   `json:"ram_total_mb"`
+	RAMPercent  float64 `json:"ram_percent"`
+	DiskUsedGB  float64 `json:"disk_used_gb"`
+	DiskTotalGB float64 `json:"disk_total_gb"`
+	DiskPercent float64 `json:"disk_percent"`
+	Load1Min    float64 `json:"load_1min"`
+	LoadPerCore float64 `json:"load_per_core"`
 }
 
 // healthReportPlatform mirrors the agent's PlatformMetrics JSON fields.
@@ -364,19 +385,19 @@ type healthReportPlatform struct {
 
 // healthReportPayload mirrors the agent's HealthReport JSON shape.
 type healthReportPayload struct {
-	Type          string                `json:"type"`
-	ServerID      string                `json:"server_id"`
-	Timestamp     string                `json:"timestamp"`
-	CollectedInMS int64                 `json:"collected_in_ms"`
-	Server        healthReportServer    `json:"server"`
+	Type          string                  `json:"type"`
+	ServerID      string                  `json:"server_id"`
+	Timestamp     string                  `json:"timestamp"`
+	CollectedInMS int64                   `json:"collected_in_ms"`
+	Server        healthReportServer      `json:"server"`
 	Containers    []healthReportContainer `json:"containers"`
-	Platform      healthReportPlatform  `json:"platform"`
+	Platform      healthReportPlatform    `json:"platform"`
 }
 
 // healthReportBatchPayload wraps a batch of reports sent on reconnect.
 type healthReportBatchPayload struct {
-	Type     string              `json:"type"`
-	ServerID string              `json:"server_id"`
+	Type     string                `json:"type"`
+	ServerID string                `json:"server_id"`
 	Reports  []healthReportPayload `json:"reports"`
 }
 
@@ -542,51 +563,54 @@ func HandleAgentWS(hub *Hub, db *sql.DB, baseDomain string, delivery *alerts.Del
 					continue
 				}
 
-			switch msg.Type {
-			case "hello":
-				sendHelloAck(conn, db, serverID)
-			case "result":
-				slog.Info("command result", "server_id", serverID, "payload", string(msg.Payload))
-				hub.ForwardToBrowsers(serverID, data)
-			case "command_ack":
-				hub.ForwardToBrowsers(serverID, data)
-				slog.Debug("command_ack", "server_id", serverID, "payload", string(msg.Payload))
-			case "command_progress":
-				hub.ForwardToBrowsers(serverID, data)
-			case "preflight_result":
-				handlePreflightResult(db, serverID, msg.Payload)
-			case "certificate_alert":
-				hub.ForwardToBrowsers(serverID, data)
-				slog.Warn("certificate alert", "server_id", serverID, "payload", string(msg.Payload))
-		case "error_alert":
-			hub.ForwardToBrowsers(serverID, data)
-			slog.Warn("error alert", "server_id", serverID, "payload", string(msg.Payload))
-		case "anomaly_alert":
-			handleAnomalyAlert(db, serverID, msg.Payload, delivery)
-			hub.ForwardToBrowsers(serverID, data)
-			case "server_event":
-				hub.ForwardToBrowsers(serverID, data)
-				slog.Info("server event", "server_id", serverID, "payload", string(msg.Payload))
-			case "backup_status":
-				handleBackupStatus(db, serverID, msg.Payload)
-				hub.ForwardToBrowsers(serverID, data)
-		case "restore_status":
-			handleRestoreStatus(db, serverID, msg.Payload)
-			hub.ForwardToBrowsers(serverID, data)
-		case "backup_verification":
-			handleBackupVerification(db, serverID, msg.Payload)
-			hub.ForwardToBrowsers(serverID, data)
-		case "log_line", "log_lines", "log_history", "stream_ended", "pull_progress", "docker_status", "reconciliation_result":
-				hub.ForwardToBrowsers(serverID, data)
-			case "health_report":
-				handleHealthReport(db, serverID, msg.Payload)
-				hub.ForwardToBrowsers(serverID, data)
-			case "health_report_batch":
-				handleHealthReportBatch(db, serverID, msg.Payload)
-				hub.ForwardToBrowsers(serverID, data)
-			default:
-				slog.Debug("agent message", "type", msg.Type, "server_id", serverID)
-			}
+				switch msg.Type {
+				case "hello":
+					sendHelloAck(conn, db, serverID)
+				case "result":
+					slog.Info("command result", "server_id", serverID, "payload", string(msg.Payload))
+					hub.ForwardToBrowsers(serverID, data)
+				case "command_ack":
+					hub.ForwardToBrowsers(serverID, data)
+					slog.Debug("command_ack", "server_id", serverID, "payload", string(msg.Payload))
+				case "command_progress":
+					hub.ForwardToBrowsers(serverID, data)
+				case "preflight_result":
+					handlePreflightResult(db, serverID, msg.Payload)
+				case "certificate_alert":
+					hub.ForwardToBrowsers(serverID, data)
+					slog.Warn("certificate alert", "server_id", serverID, "payload", string(msg.Payload))
+				case "error_alert":
+					hub.ForwardToBrowsers(serverID, data)
+					slog.Warn("error alert", "server_id", serverID, "payload", string(msg.Payload))
+				case "anomaly_alert":
+					handleAnomalyAlert(db, serverID, msg.Payload, delivery)
+					hub.ForwardToBrowsers(serverID, data)
+				case "remediation_report":
+					handleRemediationReport(db, serverID, msg.Payload)
+					hub.ForwardToBrowsers(serverID, data)
+				case "server_event":
+					hub.ForwardToBrowsers(serverID, data)
+					slog.Info("server event", "server_id", serverID, "payload", string(msg.Payload))
+				case "backup_status":
+					handleBackupStatus(db, serverID, msg.Payload)
+					hub.ForwardToBrowsers(serverID, data)
+				case "restore_status":
+					handleRestoreStatus(db, serverID, msg.Payload)
+					hub.ForwardToBrowsers(serverID, data)
+				case "backup_verification":
+					handleBackupVerification(db, serverID, msg.Payload)
+					hub.ForwardToBrowsers(serverID, data)
+				case "log_line", "log_lines", "log_history", "stream_ended", "pull_progress", "docker_status", "reconciliation_result":
+					hub.ForwardToBrowsers(serverID, data)
+				case "health_report":
+					handleHealthReport(db, serverID, msg.Payload)
+					hub.ForwardToBrowsers(serverID, data)
+				case "health_report_batch":
+					handleHealthReportBatch(db, serverID, msg.Payload)
+					hub.ForwardToBrowsers(serverID, data)
+				default:
+					slog.Debug("agent message", "type", msg.Type, "server_id", serverID)
+				}
 			}
 		}()
 
@@ -617,8 +641,8 @@ func sendHelloAck(conn *websocket.Conn, db *sql.DB, serverID string) {
 	ack := map[string]interface{}{
 		"type": "hello_ack",
 		"payload": map[string]interface{}{
-			"server_id":         serverID,
-			"pending_commands":  pending,
+			"server_id":        serverID,
+			"pending_commands": pending,
 		},
 	}
 	if err := conn.WriteJSON(ack); err != nil {
