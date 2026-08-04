@@ -21,8 +21,8 @@ const testSecret = "a-test-secret-that-is-long-enough"
 
 // testEnv wires a fresh in-memory DB with one user and a protected handler.
 type testEnv struct {
-	db       *sql.DB
-	userID   string
+	db        *sql.DB
+	userID    string
 	protected http.Handler
 }
 
