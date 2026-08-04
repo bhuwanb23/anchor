@@ -42,6 +42,26 @@ export interface AnomalyAlert {
   message: string
 }
 
+// Layer 4C Step 5 — rich alert emitted by the agent and persisted by the
+// control plane. `level` is retained for backward compatibility.
+export interface Alert {
+  id: string
+  server_id: string
+  project?: string
+  container?: string
+  level: "warning" | "critical" | "resolved"
+  severity: "warning" | "critical"
+  type: string
+  status: "active" | "resolved"
+  title: string
+  message: string
+  detail?: string
+  action?: string
+  fired_at: string
+  resolved_at?: string | null
+  metrics?: Record<string, number | string | boolean>
+}
+
 export interface Deployment {
   id: string
   server_id: string
