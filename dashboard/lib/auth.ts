@@ -57,7 +57,19 @@ export async function refreshAccessToken(): Promise<AuthResponse> {
   return res.data;
 }
 
+// Layer 5A Step 4A Level 1: revoke THIS device's session server-side so the
+// refresh token can never mint new access tokens, then clear local storage.
+// The API call is best-effort — if it fails (offline, already-expired token)
+// local cleanup still happens; the access token expires on its own in 24h.
 export async function logout(): Promise<void> {
+  const refreshToken = getRefreshToken();
+  if (refreshToken) {
+    try {
+      await api.post("/api/v1/auth/logout", { refresh_token: refreshToken });
+    } catch {
+      // Swallow — revocation failure must not block local logout.
+    }
+  }
   removeToken();
 }
 
