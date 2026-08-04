@@ -42,6 +42,7 @@ func runMigrations(db *sql.DB, dir string) error {
 		"008_backups.sql", "009_backup_metadata.sql", "010_restore_jobs.sql",
 		"011_backup_verification.sql", "012_backup_storage.sql", "013_pending_commands.sql",
 		"014_metrics.sql", "015_alerts.sql", "016_alert_delivery.sql", "017_users_auth.sql",
+		"018_refresh_tokens.sql",
 	}
 	for _, m := range migs {
 		var applied int
