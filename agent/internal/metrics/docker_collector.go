@@ -62,6 +62,7 @@ func (c *DockerCollector) collectOne(ctx context.Context, cont types.Container) 
 	// Inspect for richer state: health, exit code, uptime, restart count.
 	if inspect, err := c.client.InspectContainer(ctx, cont.ID); err == nil {
 		if st := inspect.State; st != nil {
+			cm.OOMKilled = st.OOMKilled
 			if st.StartedAt != "" {
 				if t, terr := time.Parse(time.RFC3339, st.StartedAt); terr == nil && st.Running {
 					cm.UptimeSecs = int64(time.Since(t).Seconds())
@@ -72,9 +73,11 @@ func (c *DockerCollector) collectOne(ctx context.Context, cont types.Container) 
 				cm.ExitCode = &code
 			}
 			if st.Health != nil {
-				cm.Health = string(st.Health.Status)
+				h := string(st.Health.Status)
+				cm.Health = &h
 			} else if st.Running {
-				cm.Health = "healthy" // no health check configured; running is healthy
+				h := "healthy" // no health check configured; running is healthy
+				cm.Health = &h
 			}
 		}
 		cm.RestartCount = inspect.RestartCount
