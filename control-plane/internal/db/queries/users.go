@@ -4,26 +4,44 @@ import (
 	"database/sql"
 )
 
-func InsertUser(db *sql.DB, id, email, passwordHash string) error {
+// User is a row of the users table.
+type User struct {
+	ID           string
+	Email        string
+	Name         string
+	PasswordHash string
+}
+
+func InsertUser(db *sql.DB, id, email, name, passwordHash string) error {
 	_, err := db.Exec(
-		"INSERT INTO users (id, email, password_hash) VALUES (?, ?, ?)",
-		id, email, passwordHash,
+		"INSERT INTO users (id, email, name, password_hash, updated_at) VALUES (?, ?, ?, ?, datetime('now'))",
+		id, email, name, passwordHash,
 	)
 	return err
 }
 
-func GetUserByEmail(db *sql.DB, email string) (id string, passwordHash string, err error) {
-	err = db.QueryRow(
-		"SELECT id, password_hash FROM users WHERE email = ?",
+// GetUserByEmail looks up a user by (already normalized) email.
+func GetUserByEmail(db *sql.DB, email string) (User, error) {
+	var u User
+	err := db.QueryRow(
+		"SELECT id, email, name, password_hash FROM users WHERE email = ?",
 		email,
-	).Scan(&id, &passwordHash)
-	return
+	).Scan(&u.ID, &u.Email, &u.Name, &u.PasswordHash)
+	return u, err
 }
 
-func GetUserByID(db *sql.DB, id string) (email string, err error) {
-	err = db.QueryRow(
-		"SELECT email FROM users WHERE id = ?",
+func GetUserByID(db *sql.DB, id string) (User, error) {
+	var u User
+	err := db.QueryRow(
+		"SELECT id, email, name FROM users WHERE id = ?",
 		id,
-	).Scan(&email)
-	return
+	).Scan(&u.ID, &u.Email, &u.Name)
+	return u, err
+}
+
+// EmailExists reports whether a user with the given (normalized) email exists.
+func EmailExists(db *sql.DB, email string) (bool, error) {
+	var exists int
+	err := db.QueryRow("SELECT COUNT(*) FROM users WHERE email = ?", email).Scan(&exists)
+	return exists > 0, err
 }
