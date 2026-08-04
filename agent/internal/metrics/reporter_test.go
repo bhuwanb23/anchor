@@ -1,6 +1,7 @@
 package metrics
 
 import (
+	"encoding/json"
 	"testing"
 	"time"
 )
@@ -99,5 +100,56 @@ func TestReporter_RecentEmptyWhenNothingBuffered(t *testing.T) {
 	r := NewReporter(offlineSender{}, 4)
 	if got := r.Recent(5); got != nil {
 		t.Fatalf("Recent on empty buffer = %v, want nil", got)
+	}
+}
+
+// rawCaptureSender records every marshaled message sent through SendJSON.
+type rawCaptureSender struct {
+	msgs []json.RawMessage
+}
+
+func (s *rawCaptureSender) SendJSON(v interface{}) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	s.msgs = append(s.msgs, b)
+	return nil
+}
+
+func TestReporter_SendBatchFormat(t *testing.T) {
+	s := &rawCaptureSender{}
+	r := NewReporter(s, 4)
+
+	r.SendBatch("srv-test", []HealthReport{mkReport(1), mkReport(2)})
+
+	if len(s.msgs) != 1 {
+		t.Fatalf("sender received %d messages, want 1", len(s.msgs))
+	}
+	var m map[string]interface{}
+	if err := json.Unmarshal(s.msgs[0], &m); err != nil {
+		t.Fatalf("unmarshal batch: %v", err)
+	}
+	if m["type"] != "health_report_batch" {
+		t.Errorf("batch type = %v, want health_report_batch", m["type"])
+	}
+	if m["server_id"] != "srv-test" {
+		t.Errorf("batch server_id = %v, want srv-test", m["server_id"])
+	}
+	arr, ok := m["reports"].([]interface{})
+	if !ok || len(arr) != 2 {
+		t.Errorf("batch reports = %v, want 2 entries in order", m["reports"])
+	}
+}
+
+func TestReporter_SendBatchEmpty(t *testing.T) {
+	s := &rawCaptureSender{}
+	r := NewReporter(s, 4)
+
+	r.SendBatch("srv-test", nil)
+	r.SendBatch("srv-test", []HealthReport{})
+
+	if len(s.msgs) != 0 {
+		t.Fatalf("expected no message for empty batches, got %d", len(s.msgs))
 	}
 }
