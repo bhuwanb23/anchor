@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -15,6 +16,7 @@ import (
 	"github.com/yourname/yourplatform/agent/internal/docker"
 	"github.com/yourname/yourplatform/agent/internal/executor"
 	"github.com/yourname/yourplatform/agent/internal/lifecycle"
+	"github.com/yourname/yourplatform/agent/internal/logstream"
 	"github.com/yourname/yourplatform/agent/internal/metrics"
 	"github.com/yourname/yourplatform/agent/internal/preflight"
 	"github.com/yourname/yourplatform/agent/internal/state"
@@ -62,6 +64,8 @@ func runPreflight() int {
 }
 
 func runAgent(args []string) int {
+	agentStartedAt := time.Now()
+
 	configPath := ""
 	for i := 0; i < len(args); i++ {
 		if args[i] == "--config" && i+1 < len(args) {
@@ -184,6 +188,18 @@ func runAgent(args []string) int {
 	backupReporter := backup.NewBackupReporter(wsClient)
 	exec.WithBackupReporter(backupReporter)
 
+	// Layer 4C 3: container log streaming (event-driven, separate from metrics).
+	logStreamer := logstream.NewLogStreamer(
+		func(ctx context.Context, containerID string) (io.ReadCloser, error) {
+			return dockerClient.GetContainerLogs(ctx, containerID)
+		},
+		func(ctx context.Context, containerID string, tail int) (string, error) {
+			return dockerClient.GetContainerLogsTail(ctx, containerID, tail)
+		},
+		wsClient,
+	)
+	exec.WithLogStreamer(logStreamer)
+
 	var scheduler *backup.BackupScheduler
 	if cfg.BackupDest != "" && backupMgr != nil {
 		scheduler = backup.NewBackupScheduler(backupMgr, dataDir, cfg.ServerID, nil).
@@ -223,10 +239,14 @@ func runAgent(args []string) int {
 	metricsReporter := metrics.NewReporter(wsClient, metrics.DefaultBufferCapacity())
 	metricsMgr := metrics.NewManager(
 		cfg.ServerID,
-		metrics.NewSystemCollector(caddyMetricsAdapter{caddyMgr}, stateMgr),
+		metrics.NewSystemCollector(caddyMetricsAdapter{caddyMgr}, stateMgr).
+			WithAgentInfo(version.Version, agentStartedAt),
 		metrics.NewDockerCollector(dockerClient),
 		metricsReporter,
 	)
+	// Layer 4C 4: anomaly detection — threshold state machines evaluated after
+	// every collection; alerts flow to the control plane as anomaly_alert.
+	metricsMgr.WithAnomalyDetector(metrics.NewAnomalyDetector(wsClient))
 	// On WS reconnect, flush buffered health reports to the control plane.
 	connMgr.OnConnect = func() {
 		reports := metricsReporter.Recent(100)
@@ -249,6 +269,7 @@ func runAgent(args []string) int {
 	connMgr.NotifyShutdown()
 	lifecycle.ClearConnected(dataDir)
 	_ = stateMgr.MarkCleanShutdown()
+	logStreamer.StopAll()
 	wsClient.Close()
 	if scheduler != nil {
 		scheduler.Stop()
