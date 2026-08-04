@@ -241,7 +241,12 @@ export default function ServerDetailPage({
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-sm font-medium">Live Alerts</CardTitle>
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-sm font-medium">Alerts</CardTitle>
+            <span className="text-xs text-gray-400">
+              {alerts.filter((a) => a.status === "active").length} active
+            </span>
+          </div>
         </CardHeader>
         <CardContent>
           {alerts.length === 0 ? (
@@ -249,38 +254,53 @@ export default function ServerDetailPage({
               No alerts — all systems normal.
             </p>
           ) : (
-            <div className="max-h-72 space-y-2 overflow-y-auto pr-1">
-              {alerts.map((a, i) => (
+            <div className="max-h-96 space-y-2 overflow-y-auto pr-1">
+              {alerts.map((a) => (
                 <div
-                  key={i}
-                  className={`rounded-r border-l-4 p-2 ${
-                    a.level === "critical"
-                      ? "border-red-500 bg-red-50 dark:bg-red-950/40"
-                      : a.level === "resolved"
+                  key={a.id}
+                  className={`rounded-r border-l-4 p-3 ${
+                    a.status === "resolved" || a.level === "resolved"
                       ? "border-green-500 bg-green-50 dark:bg-green-950/40"
+                      : a.severity === "critical" || a.level === "critical"
+                      ? "border-red-500 bg-red-50 dark:bg-red-950/40"
                       : "border-amber-500 bg-amber-50 dark:bg-amber-950/40"
                   }`}
                 >
                   <div className="flex items-center justify-between gap-2">
                     <span
                       className={`text-xs font-semibold uppercase tracking-wide ${
-                        a.level === "critical"
-                          ? "text-red-600 dark:text-red-400"
-                          : a.level === "resolved"
+                        a.status === "resolved" || a.level === "resolved"
                           ? "text-green-600 dark:text-green-400"
+                          : a.severity === "critical" || a.level === "critical"
+                          ? "text-red-600 dark:text-red-400"
                           : "text-amber-600 dark:text-amber-400"
                       }`}
                     >
-                      {a.level === "resolved" ? "✓ Resolved" : a.level}
+                      {a.status === "resolved" || a.level === "resolved" ? "✓ Resolved" : a.status === "active" ? a.severity || a.level : a.level}
                       {a.project ? ` · ${a.project}${a.container ? ` (${a.container})` : ""}` : ""}
                     </span>
                     <span className="shrink-0 text-xs text-gray-400">
-                      {new Date(a.at).toLocaleTimeString()}
+                      {new Date(a.at).toLocaleString()}
                     </span>
                   </div>
-                  <p className="mt-1 text-sm text-gray-700 dark:text-gray-300">
-                    {a.message}
+                  <p className="mt-1 text-sm font-medium text-gray-800 dark:text-gray-200">
+                    {a.title || a.message}
                   </p>
+                  {a.message && a.title && a.message !== a.title && (
+                    <p className="mt-1 text-sm text-gray-600 dark:text-gray-300">
+                      {a.message}
+                    </p>
+                  )}
+                  {a.detail && (
+                    <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                      {a.detail}
+                    </p>
+                  )}
+                  {a.action && a.status === "active" && (
+                    <p className="mt-2 rounded bg-white/60 p-2 text-xs italic text-gray-600 dark:bg-gray-900/30 dark:text-gray-400">
+                      💡 {a.action}
+                    </p>
+                  )}
                 </div>
               ))}
             </div>
