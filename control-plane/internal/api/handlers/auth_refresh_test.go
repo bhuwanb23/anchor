@@ -13,18 +13,20 @@ import (
 	"github.com/yourname/yourplatform/control-plane/internal/auth"
 )
 
-// loginHelper registers a fresh user and returns the login response.
+// loginHelper registers a fresh user with a unique email (so it can be called
+// several times per test) and returns the login response.
 func loginHelper(t *testing.T, h *handlers.Auth) map[string]interface{} {
 	t.Helper()
+	email := "alice" + uniqueSuffix() + "@example.com"
 	if w := registerRequest(t, h, map[string]string{
 		"name":     "Alice Smith",
-		"email":    "alice@example.com",
+		"email":    email,
 		"password": "correct horse battery staple",
 	}); w.Code != http.StatusCreated {
 		t.Fatalf("register: expected 201, got %d", w.Code)
 	}
 
-	body := map[string]string{"email": "alice@example.com", "password": "correct horse battery staple"}
+	body := map[string]string{"email": email, "password": "correct horse battery staple"}
 	bodyBytes, _ := json.Marshal(body)
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", bytes.NewReader(bodyBytes))
 	req.Header.Set("Content-Type", "application/json")
@@ -68,7 +70,7 @@ func TestRefresh_Success(t *testing.T) {
 	if resp["refresh_token"] == "" {
 		t.Error("refresh should return a rotated refresh_token")
 	}
-	if resp["expires_in"] != 86400 {
+	if int(resp["expires_in"].(float64)) != 86400 {
 		t.Errorf("expires_in = %v, want 86400", resp["expires_in"])
 	}
 
