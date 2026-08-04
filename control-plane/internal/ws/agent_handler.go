@@ -224,6 +224,36 @@ func handleBackupVerification(db *sql.DB, serverID string, payload json.RawMessa
 		"files", result.FilesCount)
 }
 
+// handleAnomalyAlert persists a Layer 4C Step 4 anomaly alert as a server
+// event and lets the caller forward it to browsers for live display.
+func handleAnomalyAlert(db *sql.DB, serverID string, payload json.RawMessage) {
+	var a struct {
+		Level     string `json:"level"`
+		Type      string `json:"type"`
+		Project   string `json:"project,omitempty"`
+		Container string `json:"container,omitempty"`
+		Message   string `json:"message"`
+	}
+	if err := json.Unmarshal(payload, &a); err != nil {
+		slog.Warn("failed to parse anomaly_alert", "server_id", serverID, "error", err)
+		return
+	}
+	if a.Message == "" {
+		return
+	}
+	eventType := "warning"
+	switch a.Level {
+	case "critical", "resolved":
+		eventType = "alert"
+	}
+	checkName := a.Type
+	if a.Project != "" {
+		checkName = a.Project + "/" + a.Type
+	}
+	_ = queries.InsertServerEvent(db, uuid.New().String(), serverID, eventType, checkName, a.Message, a.Container)
+	slog.Info("anomaly alert", "server_id", serverID, "level", a.Level, "type", a.Type)
+}
+
 // healthReportContainer mirrors the agent's ContainerMetrics JSON fields.
 type healthReportContainer struct {
 	Project      string  `json:"project"`
@@ -410,6 +440,10 @@ func HandleAgentWS(hub *Hub, db *sql.DB, baseDomain string) http.HandlerFunc {
 		// Deliver offline queue
 		sendHelloAck(conn, db, serverID)
 
+		// Re-establish any live log streams dashboards were watching before this
+		// agent (re)connected (Layer 4C 3B).
+		hub.ReplayStreamCommands(serverID)
+
 		if status != "connected" {
 			_ = queries.UpdateServerConnection(db, serverID, "connected")
 		}
@@ -455,9 +489,12 @@ func HandleAgentWS(hub *Hub, db *sql.DB, baseDomain string) http.HandlerFunc {
 			case "certificate_alert":
 				hub.ForwardToBrowsers(serverID, data)
 				slog.Warn("certificate alert", "server_id", serverID, "payload", string(msg.Payload))
-			case "error_alert":
-				hub.ForwardToBrowsers(serverID, data)
-				slog.Warn("error alert", "server_id", serverID, "payload", string(msg.Payload))
+		case "error_alert":
+			hub.ForwardToBrowsers(serverID, data)
+			slog.Warn("error alert", "server_id", serverID, "payload", string(msg.Payload))
+		case "anomaly_alert":
+			handleAnomalyAlert(db, serverID, msg.Payload)
+			hub.ForwardToBrowsers(serverID, data)
 			case "server_event":
 				hub.ForwardToBrowsers(serverID, data)
 				slog.Info("server event", "server_id", serverID, "payload", string(msg.Payload))
@@ -470,7 +507,7 @@ func HandleAgentWS(hub *Hub, db *sql.DB, baseDomain string) http.HandlerFunc {
 		case "backup_verification":
 			handleBackupVerification(db, serverID, msg.Payload)
 			hub.ForwardToBrowsers(serverID, data)
-		case "log_line", "log_history", "pull_progress", "docker_status", "reconciliation_result":
+		case "log_line", "log_lines", "log_history", "stream_ended", "pull_progress", "docker_status", "reconciliation_result":
 				hub.ForwardToBrowsers(serverID, data)
 			case "health_report":
 				handleHealthReport(db, serverID, msg.Payload)
