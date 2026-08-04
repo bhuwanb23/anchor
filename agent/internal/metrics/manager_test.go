@@ -98,6 +98,41 @@ func TestManager_SlowCollectionHook(t *testing.T) {
 	}
 }
 
+// countingRemediator records how many times the Layer 4C Step 7
+// auto-remediation manager was evaluated.
+type countingRemediator struct{ calls int }
+
+func (c *countingRemediator) Evaluate(report HealthReport) { c.calls++ }
+
+func TestManager_EvaluatesRemediator(t *testing.T) {
+	mgr := NewManager("srv-test", NewSystemCollector(nil, nil),
+		NewDockerCollector(emptyLister{}), NewReporter(&captureSender{}, 4)).
+		WithInterval(10 * time.Millisecond)
+	rem := &countingRemediator{}
+	mgr.WithRemediator(rem)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		mgr.Run(ctx)
+		close(done)
+	}()
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if rem.calls >= 2 {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	cancel()
+	<-done
+
+	if rem.calls < 2 {
+		t.Fatalf("remediator evaluated %d times, want at least 2", rem.calls)
+	}
+}
+
 // captureLogHandler records slog messages so tests can assert on them.
 type captureLogHandler struct {
 	msgs []string
