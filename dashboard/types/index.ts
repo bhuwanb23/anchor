@@ -42,23 +42,28 @@ export interface AnomalyAlert {
   message: string
 }
 
-// Layer 4C Step 5 — rich alert emitted by the agent and persisted by the
-// control plane. `level` is retained for backward compatibility.
+// Layer 4C Step 5/6 — rich alert emitted by the agent, persisted by the
+// control plane, and delivered via email. `level` is retained for backward
+// compatibility.
 export interface Alert {
   id: string
   server_id: string
+  server_name?: string
   project?: string
   container?: string
   level: "warning" | "critical" | "resolved"
   severity: "warning" | "critical"
   type: string
-  status: "active" | "resolved"
+  status: "active" | "resolved" | "acknowledged"
   title: string
   message: string
   detail?: string
   action?: string
   fired_at: string
   resolved_at?: string | null
+  read_at?: string | null
+  acknowledged_at?: string | null
+  acknowledged_by?: string | null
   metrics?: Record<string, number | string | boolean>
 }
 
