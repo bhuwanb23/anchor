@@ -101,7 +101,7 @@ func decodeErrorCode(t *testing.T, w *httptest.ResponseRecorder) string {
 func TestAuth_ValidTokenAttachesUser(t *testing.T) {
 	env := newTestEnv(t)
 
-	token, err := auth.GenerateAccessToken(env.userID, "alice@example.com", "Alice Smith", testSecret, time.Hour)
+	token, err := auth.GenerateAccessToken(env.userID, "sess-1", "alice@example.com", "Alice Smith", testSecret, time.Hour)
 	if err != nil {
 		t.Fatalf("generate token: %v", err)
 	}
@@ -143,7 +143,7 @@ func TestAuth_ExpiredToken(t *testing.T) {
 	env := newTestEnv(t)
 
 	// Expired an hour ago — well past the 30s clock-skew leeway.
-	token, err := auth.GenerateAccessToken(env.userID, "alice@example.com", "Alice Smith", testSecret, -time.Hour)
+	token, err := auth.GenerateAccessToken(env.userID, "sess-1", "alice@example.com", "Alice Smith", testSecret, -time.Hour)
 	if err != nil {
 		t.Fatalf("generate token: %v", err)
 	}
@@ -197,7 +197,7 @@ func TestAuth_ExpiredTokenHandcrafted(t *testing.T) {
 func TestAuth_TamperedToken(t *testing.T) {
 	env := newTestEnv(t)
 
-	valid, err := auth.GenerateAccessToken(env.userID, "alice@example.com", "Alice Smith", testSecret, time.Hour)
+	valid, err := auth.GenerateAccessToken(env.userID, "sess-1", "alice@example.com", "Alice Smith", testSecret, time.Hour)
 	if err != nil {
 		t.Fatalf("generate token: %v", err)
 	}
@@ -265,7 +265,7 @@ func TestAuth_UserNotInDatabase(t *testing.T) {
 	env := newTestEnv(t)
 
 	// Token validly signed for a user that does not exist (account deleted).
-	token, err := auth.GenerateAccessToken("deleted-user", "gone@example.com", "Gone", testSecret, time.Hour)
+	token, err := auth.GenerateAccessToken("deleted-user", "", "gone@example.com", "Gone", testSecret, time.Hour)
 	if err != nil {
 		t.Fatalf("generate token: %v", err)
 	}
@@ -282,7 +282,7 @@ func TestAuth_UserNotInDatabase(t *testing.T) {
 func TestAuth_QueryParamTokenRejected(t *testing.T) {
 	env := newTestEnv(t)
 
-	token, err := auth.GenerateAccessToken(env.userID, "alice@example.com", "Alice Smith", testSecret, time.Hour)
+	token, err := auth.GenerateAccessToken(env.userID, "sess-1", "alice@example.com", "Alice Smith", testSecret, time.Hour)
 	if err != nil {
 		t.Fatalf("generate token: %v", err)
 	}
