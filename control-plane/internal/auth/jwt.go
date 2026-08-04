@@ -7,11 +7,6 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 )
 
-type Config struct {
-	Secret    string
-	ExpiryHrs int
-}
-
 // TokenTypeAccess marks an access JWT so refresh tokens can never be confused
 // with them (refresh tokens are opaque strings, not JWTs).
 const TokenTypeAccess = "access"

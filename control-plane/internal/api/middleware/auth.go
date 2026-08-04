@@ -88,7 +88,11 @@ func Auth(db *sql.DB, jwtSecret string) func(http.Handler) http.Handler {
 				return
 			}
 			if err != nil {
-				writeAuthError(w, "internal_error", "Something went wrong. Please try again.", nil)
+				// A DB failure is not an auth failure: 500 (not 401) so the
+				// frontend does not loop refresh/login attempts.
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusInternalServerError)
+				json.NewEncoder(w).Encode(authError{Error: "internal_error", Message: "Something went wrong. Please try again."})
 				return
 			}
 

@@ -164,8 +164,8 @@ func (s *Server) ListAlerts(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "server ID required", http.StatusBadRequest)
 		return
 	}
-	userID, ok := r.Context().Value("user_id").(string)
-	if ok && userID != "" && !s.serverOwnedBy(userID, serverID) {
+	userID := middleware.UserIDFromContext(r.Context())
+	if userID == "" || !s.serverOwnedBy(userID, serverID) {
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
