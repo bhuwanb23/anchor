@@ -61,27 +61,29 @@ type LogStreamer struct {
 	mu            sync.Mutex
 	activeStreams map[string]streamEntry   // key: containerID
 	desired       map[string]desiredStream // key: project+"/"+role
+	batchers      map[uint64]*lineBatcher  // key: stream id (for memory remediation flush)
 	nextID        atomic.Uint64
 	openLogs      DockerLogOpener
 	fetchHistory  DockerHistoricalLogsFunc
 	sender        WSSender
 
 	// Test seams (defaults set in NewLogStreamer).
-	maxStreams          int
-	batchMaxLines       int
-	batchFlushInterval  time.Duration
+	maxStreams         int
+	batchMaxLines      int
+	batchFlushInterval time.Duration
 }
 
 // NewLogStreamer creates a new log stream manager.
 func NewLogStreamer(openLogs DockerLogOpener, fetchHistory DockerHistoricalLogsFunc, sender WSSender) *LogStreamer {
 	return &LogStreamer{
-		activeStreams:     make(map[string]streamEntry),
-		desired:           make(map[string]desiredStream),
-		openLogs:          openLogs,
-		fetchHistory:      fetchHistory,
-		sender:            sender,
-		maxStreams:        maxStreams,
-		batchMaxLines:     batchMaxLines,
+		activeStreams:      make(map[string]streamEntry),
+		desired:            make(map[string]desiredStream),
+		batchers:           make(map[uint64]*lineBatcher),
+		openLogs:           openLogs,
+		fetchHistory:       fetchHistory,
+		sender:             sender,
+		maxStreams:         maxStreams,
+		batchMaxLines:      batchMaxLines,
 		batchFlushInterval: batchFlushInterval,
 	}
 }
@@ -251,6 +253,23 @@ func (ls *LogStreamer) ActiveStreams() int {
 	return len(ls.activeStreams)
 }
 
+// FlushAllBuffers immediately flushes every active stream's line batcher and
+// returns how many buffers were flushed. Used by Layer 4C Step 7
+// auto-remediation when the agent's own memory usage is high (log buffers are
+// the largest soft memory consumers).
+func (ls *LogStreamer) FlushAllBuffers() int {
+	ls.mu.Lock()
+	batchers := make([]*lineBatcher, 0, len(ls.batchers))
+	for _, b := range ls.batchers {
+		batchers = append(batchers, b)
+	}
+	ls.mu.Unlock()
+	for _, b := range batchers {
+		b.Flush()
+	}
+	return len(batchers)
+}
+
 // HandleContainerReplaced is called by Layer 4B after a redeploy starts a new
 // container. If a dashboard is watching this project+role, the stream is
 // automatically switched to the new container with a handoff marker.
@@ -324,6 +343,14 @@ func (ls *LogStreamer) streamLoop(ctx context.Context, containerID string, strea
 	defer reader.Close()
 
 	batcher := newLineBatcher(ls.sender, projectName, containerRole, ls.batchMaxLines, ls.batchFlushInterval)
+	ls.mu.Lock()
+	ls.batchers[streamID] = batcher
+	ls.mu.Unlock()
+	defer func() {
+		ls.mu.Lock()
+		delete(ls.batchers, streamID)
+		ls.mu.Unlock()
+	}()
 	defer batcher.Close()
 
 	slog.Info("live log stream started",
