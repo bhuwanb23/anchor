@@ -2,6 +2,7 @@ package ws
 
 import (
 	"database/sql"
+	"log/slog"
 	"sync"
 	"time"
 
@@ -10,11 +11,15 @@ import (
 )
 
 type Hub struct {
-	mu             sync.RWMutex
-	agents         map[string]*AgentConn
+	mu              sync.RWMutex
+	agents          map[string]*AgentConn
 	agentsByAgentID map[string]*AgentConn
-	browsers       map[string][]*BrowserConn
-	broadcast     chan []byte
+	browsers        map[string][]*BrowserConn
+	broadcast       chan []byte
+	// streams tracks per-server log-stream desires requested by dashboards so
+	// the control plane can re-establish live log views when an agent
+	// reconnects (Layer 4C 3B). Keyed by a project|roles signature.
+	streams map[string]map[string][]byte
 }
 
 type AgentConn struct {
@@ -34,8 +39,9 @@ func NewHub() *Hub {
 	return &Hub{
 		agents:          make(map[string]*AgentConn),
 		agentsByAgentID: make(map[string]*AgentConn),
-		browsers:       make(map[string][]*BrowserConn),
-		broadcast:      make(chan []byte),
+		browsers:        make(map[string][]*BrowserConn),
+		broadcast:       make(chan []byte),
+		streams:         make(map[string]map[string][]byte),
 	}
 }
 
@@ -124,6 +130,60 @@ func (h *Hub) ForwardToBrowsers(serverID string, msg []byte) {
 		default:
 			close(browser.Send)
 		}
+	}
+}
+
+// RecordStreamCommand remembers a stream_logs desire for a server so it can be
+// replayed when the agent (re)connects. key identifies the project+roles.
+func (h *Hub) RecordStreamCommand(serverID, key string, cmd []byte) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.streams == nil {
+		h.streams = make(map[string]map[string][]byte)
+	}
+	if h.streams[serverID] == nil {
+		h.streams[serverID] = make(map[string][]byte)
+	}
+	h.streams[serverID][key] = cmd
+}
+
+// ClearStreamCommand forgets a specific stream desire (selective stop).
+func (h *Hub) ClearStreamCommand(serverID, key string) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if m, ok := h.streams[serverID]; ok {
+		delete(m, key)
+		if len(m) == 0 {
+			delete(h.streams, serverID)
+		}
+	}
+}
+
+// ClearServerStreams forgets every stream desire for a server (all:true stop
+// or browser disconnect).
+func (h *Hub) ClearServerStreams(serverID string) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	delete(h.streams, serverID)
+}
+
+// ReplayStreamCommands re-sends every recorded stream_logs command to the
+// agent. Called when an agent (re)connects so active log views resume without
+// a dashboard refresh.
+func (h *Hub) ReplayStreamCommands(serverID string) {
+	h.mu.RLock()
+	var cmds [][]byte
+	if m, ok := h.streams[serverID]; ok {
+		for _, cmd := range m {
+			cmds = append(cmds, cmd)
+		}
+	}
+	h.mu.RUnlock()
+	for _, cmd := range cmds {
+		h.SendToAgent(serverID, cmd)
+	}
+	if len(cmds) > 0 {
+		slog.Info("replayed stream commands", "server_id", serverID, "count", len(cmds))
 	}
 }
 
