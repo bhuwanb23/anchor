@@ -17,6 +17,7 @@ const TokenTypeAccess = "access"
 //	  "sub":   "550e8400-...",  // user ID (standard subject)
 //	  "email": "user@example.com",
 //	  "name":  "Alice Smith",
+//	  "sid":   "token-record-id",  // refresh-token row ID (session)
 //	  "iat":   1705312800,
 //	  "exp":   1705399200,
 //	  "type":  "access"
@@ -24,10 +25,16 @@ const TokenTypeAccess = "access"
 //
 // Only identity claims are embedded — permissions are fetched from the DB on
 // access so they can change at runtime. Never put secrets or large data here.
+//
+// SessionID ("sid") links the access token back to the refresh-token row it
+// was issued alongside. The sessions view (Layer 5A Step 4B) uses it to mark
+// which session is making the current request. It is empty for tokens issued
+// before this field existed, in which case no session is marked current.
 type Claims struct {
-	Email string `json:"email"`
-	Name  string `json:"name"`
-	Type  string `json:"type"`
+	Email     string `json:"email"`
+	Name      string `json:"name"`
+	Type      string `json:"type"`
+	SessionID string `json:"sid,omitempty"`
 	jwt.RegisteredClaims
 }
 
@@ -37,11 +44,15 @@ func (c *Claims) UserID() string {
 }
 
 // GenerateAccessToken issues a signed HS256 access token for a user.
-func GenerateAccessToken(userID, email, name, secret string, expiry time.Duration) (string, error) {
+// sessionID is the refresh-token row ID this token was issued alongside; it is
+// embedded as the "sid" claim so the sessions view can identify the current
+// session. Pass "" when no session is associated.
+func GenerateAccessToken(userID, sessionID, email, name, secret string, expiry time.Duration) (string, error) {
 	claims := Claims{
-		Email: email,
-		Name:  name,
-		Type:  TokenTypeAccess,
+		Email:     email,
+		Name:      name,
+		Type:      TokenTypeAccess,
+		SessionID: sessionID,
 		RegisteredClaims: jwt.RegisteredClaims{
 			Subject:   userID,
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(expiry)),
