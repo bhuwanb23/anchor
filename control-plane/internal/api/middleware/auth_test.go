@@ -2,6 +2,7 @@ package middleware_test
 
 import (
 	"database/sql"
+	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -167,8 +168,15 @@ func TestAuth_TamperedToken(t *testing.T) {
 	if err != nil {
 		t.Fatalf("generate token: %v", err)
 	}
-	// Flip the last base64url char so the signature no longer matches.
-	tampered := valid[:len(valid)-1] + map[byte]byte{'A': 'B', 'a': 'b', '0': '1'}[valid[len(valid)-1]]
+	// Flip one char in the signature so it no longer matches. The last char
+	// of a base64url signature is always in [A-Za-z0-9_-], so replacing it
+	// with 'A' (or 'B' if it already is 'A') is always a valid flip.
+	last := valid[len(valid)-1]
+	flip := byte('A')
+	if last == 'A' {
+		flip = 'B'
+	}
+	tampered := valid[:len(valid)-1] + string(flip)
 
 	w := env.serve(bearerRequest(tampered))
 	if w.Code != http.StatusUnauthorized {
@@ -255,11 +263,7 @@ func TestAuth_QueryParamTokenRejected(t *testing.T) {
 	}
 }
 
-// base64URL encodes a JSON blob for a JWT segment.
+// base64URL encodes a raw JSON blob for a JWT segment.
 func base64URL(seg string) string {
-	enc := json.RawMessage(seg)
-	// Round-trip through JSON to validate, then base64url without padding.
-	b, _ := json.Marshal(enc)
-	s := strings.Trim(string(b), `"`)
-	return strings.TrimRight(base64.RawURLEncoding.EncodeToString([]byte(s)), "=")
+	return base64.RawURLEncoding.EncodeToString([]byte(seg))
 }
