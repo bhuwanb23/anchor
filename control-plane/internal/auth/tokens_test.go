@@ -1,9 +1,13 @@
 package auth
 
 import (
+	"encoding/base64"
+	"errors"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/golang-jwt/jwt/v5"
 )
 
 func TestGenerateRefreshToken(t *testing.T) {
@@ -94,12 +98,91 @@ func TestGenerateAccessToken_WrongSecretFails(t *testing.T) {
 
 func TestGenerateAccessToken_Expiry(t *testing.T) {
 	const secret = "a-test-secret-that-is-long-enough"
-	// Expire immediately; validation must reject the token.
-	token, err := GenerateAccessToken("u1", "a@b.com", "A", secret, time.Nanosecond)
+	// Expire an hour in the past — well beyond the 30s clock-skew leeway —
+	// so validation must reject the token.
+	token, err := GenerateAccessToken("u1", "a@b.com", "A", secret, -time.Hour)
 	if err != nil {
 		t.Fatalf("GenerateAccessToken error: %v", err)
 	}
 	if _, err := ValidateJWT(token, secret); err == nil {
 		t.Error("expired access token validated successfully, want error")
+	}
+}
+
+func TestValidateAccessToken_LeewayAcceptsBrieflyExpired(t *testing.T) {
+	const secret = "a-test-secret-that-is-long-enough"
+	// Expired 10 seconds ago: inside the 30s clock-skew leeway, so a server
+	// whose clock drifted by a few seconds still accepts the token.
+	token, err := GenerateAccessToken("u1", "a@b.com", "A", secret, -10*time.Second)
+	if err != nil {
+		t.Fatalf("GenerateAccessToken error: %v", err)
+	}
+	if _, err := ValidateAccessToken(token, secret); err != nil {
+		t.Errorf("token expired within leeway rejected: %v", err)
+	}
+}
+
+func TestValidateAccessToken_RejectsNonAccessType(t *testing.T) {
+	const secret = "a-test-secret-that-is-long-enough"
+
+	// Build a well-formed, correctly signed JWT whose type is "refresh" —
+	// this is exactly what a refresh token must never do.
+	claims := Claims{
+		Email: "a@b.com",
+		Name:  "A",
+		Type:  "refresh",
+		RegisteredClaims: jwt.RegisteredClaims{
+			Subject:   "u1",
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour)),
+			IssuedAt:  jwt.NewNumericDate(time.Now()),
+		},
+	}
+	tok := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	refreshJWT, err := tok.SignedString([]byte(secret))
+	if err != nil {
+		t.Fatalf("sign token: %v", err)
+	}
+
+	if _, err := ValidateAccessToken(refreshJWT, secret); !errors.Is(err, ErrTokenNotAccess) {
+		t.Errorf("refresh-typed JWT accepted, want ErrTokenNotAccess (got %v)", err)
+	}
+}
+
+func TestValidateAccessToken_RejectsNoneAlgorithm(t *testing.T) {
+	const secret = "a-test-secret-that-is-long-enough"
+
+	// The classic JWT attack: an unsigned token with alg "none".
+	header := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"none","typ":"JWT"}`))
+	payload := base64.RawURLEncoding.EncodeToString([]byte(`{"sub":"u1","type":"access","exp":9999999999}`))
+	noneToken := header + "." + payload + "."
+
+	if _, err := ValidateAccessToken(noneToken, secret); err == nil {
+		t.Error("alg=none token accepted, want error")
+	}
+}
+
+func TestValidateAccessToken_RejectsNonHS256Algorithm(t *testing.T) {
+	const secret = "a-test-secret-that-is-long-enough"
+
+	// A token signed with a different (non-HS256) algorithm must be rejected:
+	// we only ever issue HS256, so anything else is suspect.
+	claims := Claims{
+		Email: "a@b.com",
+		Name:  "A",
+		Type:  TokenTypeAccess,
+		RegisteredClaims: jwt.RegisteredClaims{
+			Subject:   "u1",
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour)),
+			IssuedAt:  jwt.NewNumericDate(time.Now()),
+		},
+	}
+	tok := jwt.NewWithClaims(jwt.SigningMethodHS512, claims)
+	hs512Token, err := tok.SignedString([]byte(secret))
+	if err != nil {
+		t.Fatalf("sign token: %v", err)
+	}
+
+	if _, err := ValidateAccessToken(hs512Token, secret); err == nil {
+		t.Error("HS512 token accepted, want error")
 	}
 }
