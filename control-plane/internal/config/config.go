@@ -7,6 +7,7 @@ type Config struct {
 	Env              string
 	JWTSecret        string
 	JWTExpiryHrs     int
+	RefreshTokenDays int // Layer 5A Step 2C — refresh token lifetime (default 30)
 	DatabasePath     string
 	FrontendURL      string
 	WSPath           string
@@ -33,6 +34,7 @@ func Load() *Config {
 		Env:              getEnv("ENV", "development"),
 		JWTSecret:        getEnv("JWT_SECRET", "dev-secret-change-in-production"),
 		JWTExpiryHrs:     parseInt(getEnv("JWT_EXPIRY_HOURS", "24")),
+		RefreshTokenDays: parseInt(getEnv("REFRESH_TOKEN_DAYS", "30")),
 		DatabasePath:     getEnv("DATABASE_PATH", "./yourplatform.db"),
 		FrontendURL:      getEnv("FRONTEND_URL", "http://localhost:3000"),
 		WSPath:           getEnv("WS_PATH", "/ws/agent"),

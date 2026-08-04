@@ -47,8 +47,12 @@ func HandleBrowserWS(hub *Hub, db *sql.DB, jwtSecret string) http.HandlerFunc {
 			http.Error(w, "invalid or expired token", http.StatusUnauthorized)
 			return
 		}
+		if claims.Type != auth.TokenTypeAccess {
+			http.Error(w, "invalid or expired token", http.StatusUnauthorized)
+			return
+		}
 
-		userID := claims.UserID
+		userID := claims.UserID()
 
 		// Get server ID from query parameter
 		serverID := r.URL.Query().Get("server_id")
