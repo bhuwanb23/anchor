@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 
@@ -125,7 +126,9 @@ func HandleBrowserWS(hub *Hub, db *sql.DB, jwtSecret string) http.HandlerFunc {
 		// Read goroutine: receives commands from browser, forwards to agent
 		go func() {
 			defer func() {
-				// On disconnect, stop any active log streams for this browser
+				// On disconnect, stop any active log streams and forget the
+				// recorded desires; the dashboard re-sends stream_logs on
+				// reconnect.
 				stopMsg, _ := json.Marshal(map[string]interface{}{
 					"type": "command",
 					"payload": map[string]interface{}{
@@ -137,6 +140,7 @@ func HandleBrowserWS(hub *Hub, db *sql.DB, jwtSecret string) http.HandlerFunc {
 					},
 				})
 				hub.SendToAgent(serverID, stopMsg)
+				hub.ClearServerStreams(serverID)
 				hub.UnregisterBrowser(serverID, conn)
 				conn.Close()
 			}()
@@ -162,6 +166,9 @@ func HandleBrowserWS(hub *Hub, db *sql.DB, jwtSecret string) http.HandlerFunc {
 				// Forward commands from browser to agent
 				if msg.Type == "command" {
 					agentMsg, _ := json.Marshal(msg)
+					// Track log-stream desires so active views are re-established
+					// when the agent reconnects (Layer 4C 3B).
+					trackStreamCommand(hub, serverID, msg, agentMsg)
 					if !hub.SendToAgent(serverID, agentMsg) {
 						slog.Warn("no agent connected for command", "user_id", userID, "server_id", serverID)
 						// Send error back to browser
@@ -177,6 +184,52 @@ func HandleBrowserWS(hub *Hub, db *sql.DB, jwtSecret string) http.HandlerFunc {
 			}
 		}()
 	}
+}
+
+// trackStreamCommand records or clears the hub's per-server log-stream
+// desires based on stream_logs / stop_stream_logs commands from a browser.
+func trackStreamCommand(hub *Hub, serverID string, msg Message, agentMsg []byte) {
+	var inner struct {
+		Type    string                 `json:"type"`
+		Payload map[string]interface{} `json:"payload"`
+	}
+	if err := json.Unmarshal(msg.Payload, &inner); err != nil || inner.Type == "" {
+		return
+	}
+	switch inner.Type {
+	case "stream_logs":
+		if key := streamCommandKey(inner.Payload); key != "" {
+			hub.RecordStreamCommand(serverID, key, agentMsg)
+		}
+	case "stop_stream_logs":
+		if all, _ := inner.Payload["all"].(bool); all {
+			hub.ClearServerStreams(serverID)
+		} else if key := streamCommandKey(inner.Payload); key != "" {
+			hub.ClearStreamCommand(serverID, key)
+		}
+	}
+}
+
+// streamCommandKey derives a stable identity (project|roles) for a stream
+// request so duplicates and matching stops can be tracked.
+func streamCommandKey(p map[string]interface{}) string {
+	if p == nil {
+		return ""
+	}
+	project, _ := p["project_name"].(string)
+	if project == "" {
+		return ""
+	}
+	var roles []string
+	if raw, ok := p["containers"].([]interface{}); ok {
+		for _, r := range raw {
+			if s, ok := r.(string); ok {
+				roles = append(roles, s)
+			}
+		}
+	}
+	sort.Strings(roles)
+	return project + "|" + strings.Join(roles, ",")
 }
 
 // getUserIDFromContext extracts the user_id from request context.
