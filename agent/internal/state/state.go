@@ -104,10 +104,11 @@ type CertState struct {
 
 // BackupState tracks the last backup execution for missed-backup detection.
 type BackupState struct {
-	LastBackupAt   string `json:"last_backup_at,omitempty"`    // RFC3339 timestamp
-	LastSnapshotID string `json:"last_snapshot_id,omitempty"`  // restic snapshot ID
-	LastDurationMs int64  `json:"last_duration_ms,omitempty"`  // backup duration in milliseconds
-	LastTotalBytes int64  `json:"last_total_bytes,omitempty"`  // total bytes backed up
+	LastBackupAt     string `json:"last_backup_at,omitempty"`    // RFC3339 timestamp
+	LastSnapshotID   string `json:"last_snapshot_id,omitempty"`  // restic snapshot ID
+	LastDurationMs   int64  `json:"last_duration_ms,omitempty"`  // backup duration in milliseconds
+	LastTotalBytes   int64  `json:"last_total_bytes,omitempty"`  // total bytes backed up
+	LastBackupStatus string `json:"last_backup_status,omitempty"` // "success" after a completed backup
 }
 
 // DefaultStatePath returns the default path for the state file.
@@ -221,8 +222,8 @@ func (m *Manager) GetPreviousDeployment(project string) *DeploymentRecord {
 	return &cp
 }
 
-// GetProjectAppContainer returns the app container state for a project.
-func (m *Manager) GetProjectAppContainer(project string) *ContainerState {
+// GetProjectContainer returns the container state for a project and role.
+func (m *Manager) GetProjectContainer(project, role string) *ContainerState {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.state == nil {
@@ -232,11 +233,16 @@ func (m *Manager) GetProjectAppContainer(project string) *ContainerState {
 	if !ok || ps.Containers == nil {
 		return nil
 	}
-	if c, ok := ps.Containers["app"]; ok {
+	if c, ok := ps.Containers[role]; ok {
 		cp := *c
 		return &cp
 	}
 	return nil
+}
+
+// GetProjectAppContainer returns the app container state for a project.
+func (m *Manager) GetProjectAppContainer(project string) *ContainerState {
+	return m.GetProjectContainer(project, "app")
 }
 
 // RemoveContainer removes a single container from the state.
@@ -480,8 +486,27 @@ func (m *Manager) RecordBackupCompletion(snapshotID string, duration time.Durati
 	m.state.Backup.LastSnapshotID = snapshotID
 	m.state.Backup.LastDurationMs = duration.Milliseconds()
 	m.state.Backup.LastTotalBytes = totalBytes
+	// Only successful completions are recorded today; the backup layer does
+	// not yet persist failures, so status stays "success" or empty. When
+	// Layer 4C anomaly detection needs failure visibility, record "failed"
+	// from the backup scheduler's error paths as well.
+	m.state.Backup.LastBackupStatus = "success"
 
 	return m.save()
+}
+
+// GetLastBackupStatus returns the status of the last completed backup
+// ("" if no backup has completed yet).
+func (m *Manager) GetLastBackupStatus() string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.state == nil {
+		m.state = LoadState(filepath.Join(m.stateDir, StateFileName))
+	}
+	if m.state == nil || m.state.Backup == nil {
+		return ""
+	}
+	return m.state.Backup.LastBackupStatus
 }
 
 // WasUncleanShutdown returns true if the previous process did not shut down cleanly.
