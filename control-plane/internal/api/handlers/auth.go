@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"log/slog"
+	"net"
 	"net/http"
 	"strings"
 	"time"
@@ -106,6 +107,20 @@ func (a *Auth) Register(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, map[string]string{"message": "Account created successfully"})
 }
 
+// loginResponse is the shape returned by /auth/login and /auth/refresh
+// (Layer 5A Step 2A/2D).
+type loginResponse struct {
+	AccessToken  string `json:"access_token"`
+	RefreshToken string `json:"refresh_token"`
+	TokenType    string `json:"token_type"`
+	ExpiresIn    int    `json:"expires_in"`
+	User         struct {
+		ID    string `json:"id"`
+		Email string `json:"email"`
+		Name  string `json:"name"`
+	} `json:"user"`
+}
+
 func (a *Auth) Login(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Email    string `json:"email"`
@@ -143,21 +158,132 @@ func (a *Auth) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	token, err := auth.GenerateJWT(user.ID, user.Email, a.Cfg.JWTSecret, time.Duration(a.Cfg.JWTExpiryHrs)*time.Hour)
+	resp, err := a.issueTokens(user, r)
 	if err != nil {
-		slog.Error("generate jwt", "error", err)
+		slog.Error("issue tokens", "error", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal server error"})
+		return
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+// Refresh implements Layer 5A Step 2D. Given a valid, unexpired, unrevoked
+// refresh token it issues a fresh access token, rotates the refresh token
+// (revoking the old one) so a stolen token is useless after first use, and
+// slides the session expiry forward by another full lifetime.
+func (a *Auth) Refresh(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		RefreshToken string `json:"refresh_token"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request body"})
+		return
+	}
+	if req.RefreshToken == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "refresh_token is required"})
+		return
+	}
+
+	rt, err := queries.GetRefreshTokenByHash(a.DB, auth.HashRefreshToken(req.RefreshToken))
+	if err == sql.ErrNoRows {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid or expired refresh token"})
+		return
+	}
+	if err != nil {
+		slog.Error("query refresh token", "error", err)
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal server error"})
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"token": token,
-		"user": map[string]interface{}{
-			"id":    user.ID,
-			"email": user.Email,
-			"name":  user.Name,
-		},
-	})
+	if rt.RevokedAt.Valid {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid or expired refresh token"})
+		return
+	}
+	expiresAt, err := time.Parse(time.RFC3339, rt.ExpiresAt)
+	if err != nil || time.Now().After(expiresAt) {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid or expired refresh token"})
+		return
+	}
+
+	user, err := queries.GetUserByID(a.DB, rt.UserID)
+	if err != nil {
+		// Account deleted while the refresh token was still valid.
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid or expired refresh token"})
+		return
+	}
+
+	// Rotate: the presented token can only ever be used once. If the client
+	// presents it again it is already revoked → 401 (stolen-token protection).
+	if err := queries.RevokeRefreshToken(a.DB, rt.ID); err != nil {
+		slog.Error("revoke refresh token", "error", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal server error"})
+		return
+	}
+	_ = queries.UpdateRefreshTokenLastUsed(a.DB, rt.ID)
+
+	resp, err := a.issueTokens(user, r)
+	if err != nil {
+		slog.Error("issue tokens", "error", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal server error"})
+		return
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+// issueTokens creates an access token (Step 2B) and a stored, hashed refresh
+// token (Step 2C) for a user, and builds the shared login response.
+func (a *Auth) issueTokens(user queries.User, r *http.Request) (loginResponse, error) {
+	accessTTL := time.Duration(a.Cfg.JWTExpiryHrs) * time.Hour
+	accessToken, err := auth.GenerateAccessToken(user.ID, user.Email, user.Name, a.Cfg.JWTSecret, accessTTL)
+	if err != nil {
+		return loginResponse{}, err
+	}
+
+	rawRefresh, hashedRefresh, err := auth.GenerateRefreshToken()
+	if err != nil {
+		return loginResponse{}, err
+	}
+
+	expiresAt := time.Now().UTC().Add(time.Duration(a.refreshTokenDays()) * 24 * time.Hour).Format(time.RFC3339)
+	if err := queries.CreateRefreshToken(
+		a.DB,
+		uuid.New().String(),
+		hashedRefresh,
+		user.ID,
+		expiresAt,
+		r.UserAgent(),
+		clientIP(r),
+	); err != nil {
+		return loginResponse{}, err
+	}
+
+	var resp loginResponse
+	resp.AccessToken = accessToken
+	resp.RefreshToken = rawRefresh
+	resp.TokenType = "Bearer"
+	resp.ExpiresIn = int(accessTTL.Seconds())
+	resp.User.ID = user.ID
+	resp.User.Email = user.Email
+	resp.User.Name = user.Name
+	return resp, nil
+}
+
+// refreshTokenDays returns the configured refresh token lifetime, defaulting
+// to 30 days when unset (0).
+func (a *Auth) refreshTokenDays() int {
+	if a.Cfg != nil && a.Cfg.RefreshTokenDays > 0 {
+		return a.Cfg.RefreshTokenDays
+	}
+	return 30
+}
+
+// clientIP extracts the remote address without the port.
+func clientIP(r *http.Request) string {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return r.RemoteAddr
+	}
+	return host
 }
 
 func (a *Auth) Me(w http.ResponseWriter, r *http.Request) {

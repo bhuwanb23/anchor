@@ -29,9 +29,16 @@ func Auth(cfg *auth.Config) func(http.Handler) http.Handler {
 				http.Error(w, "invalid or expired token", http.StatusUnauthorized)
 				return
 			}
+			// Only access tokens are valid here — never refresh tokens
+			// (Layer 5A Step 3B).
+			if claims.Type != auth.TokenTypeAccess {
+				http.Error(w, "invalid or expired token", http.StatusUnauthorized)
+				return
+			}
 
-			ctx := context.WithValue(r.Context(), "user_id", claims.UserID)
+			ctx := context.WithValue(r.Context(), "user_id", claims.UserID())
 			ctx = context.WithValue(ctx, "email", claims.Email)
+			ctx = context.WithValue(ctx, "name", claims.Name)
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
