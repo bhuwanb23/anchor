@@ -3,9 +3,9 @@ package handlers
 import (
 	"database/sql"
 	"encoding/json"
-	"errors"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -18,6 +18,17 @@ type Auth struct {
 	DB  *sql.DB
 	Cfg *config.Config
 }
+
+// dummyPasswordHash is compared against when the requested email does not
+// exist, so unknown-email and wrong-password responses take the same time.
+// It is generated once at startup (never used to authenticate anyone).
+var dummyPasswordHash = func() string {
+	h, err := auth.HashPassword("timing-equalizer-not-a-real-password")
+	if err != nil {
+		panic(err)
+	}
+	return h
+}()
 
 // writeJSON writes a JSON response with the given status code.
 func writeJSON(w http.ResponseWriter, status int, v interface{}) {
@@ -52,7 +63,8 @@ func (a *Auth) Register(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
-	if err := auth.ValidateName(req.Name); err != nil {
+	name := strings.TrimSpace(req.Name)
+	if err := auth.ValidateName(name); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
@@ -79,7 +91,7 @@ func (a *Auth) Register(w http.ResponseWriter, r *http.Request) {
 
 	userID := uuid.New().String()
 
-	if err := queries.InsertUser(a.DB, userID, email, req.Name, hash); err != nil {
+	if err := queries.InsertUser(a.DB, userID, email, name, hash); err != nil {
 		// Concurrent registration with the same email hits the UNIQUE index.
 		if isUniqueViolation(err) {
 			writeJSON(w, http.StatusConflict, map[string]string{"error": "An account with this email already exists"})
@@ -113,7 +125,10 @@ func (a *Auth) Login(w http.ResponseWriter, r *http.Request) {
 	user, err := queries.GetUserByEmail(a.DB, auth.NormalizeEmail(req.Email))
 	if err == sql.ErrNoRows {
 		// Same message for unknown email and wrong password — prevents
-		// email enumeration (Layer 5A Step 2A).
+		// email enumeration (Layer 5A Step 2A). A dummy bcrypt compare keeps
+		// the response time uniform so the endpoint does not reveal whether
+		// an email exists.
+		_ = auth.VerifyPassword(req.Password, dummyPasswordHash)
 		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid email or password"})
 		return
 	}
@@ -164,31 +179,8 @@ func (a *Auth) Me(w http.ResponseWriter, r *http.Request) {
 
 // isUniqueViolation reports whether a SQLite error is a UNIQUE constraint
 // violation (SQLITE_CONSTRAINT_UNIQUE / SQLITE_CONSTRAINT_PRIMARYKEY).
+// modernc.org/sqlite returns messages like
+// "constraint failed: UNIQUE constraint failed: t.email (2067)".
 func isUniqueViolation(err error) bool {
-	var sqliteErr interface {
-		Error() string
-	}
-	if errors.As(err, &sqliteErr) {
-		msg := sqliteErr.Error()
-		return containsAny(msg, "UNIQUE constraint failed", "PRIMARY KEY must be unique")
-	}
-	return false
-}
-
-func containsAny(s string, subs ...string) bool {
-	for _, sub := range subs {
-		if len(sub) > 0 && len(s) >= len(sub) && indexOf(s, sub) >= 0 {
-			return true
-		}
-	}
-	return false
-}
-
-func indexOf(s, sub string) int {
-	for i := 0; i+len(sub) <= len(s); i++ {
-		if s[i:i+len(sub)] == sub {
-			return i
-		}
-	}
-	return -1
+	return strings.Contains(err.Error(), "UNIQUE constraint failed")
 }

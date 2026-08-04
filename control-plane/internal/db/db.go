@@ -3,10 +3,12 @@ package db
 import (
 	"database/sql"
 	"fmt"
+	"log/slog"
 	"os"
+	"strings"
 
-	_ "modernc.org/sqlite"
 	"github.com/yourname/yourplatform/control-plane/internal/db/queries"
+	_ "modernc.org/sqlite"
 )
 
 func Open(path string) (*sql.DB, error) {
@@ -34,7 +36,18 @@ func Open(path string) (*sql.DB, error) {
 	return db, nil
 }
 
+// Migrate applies every migration in order, exactly once. A schema_migrations
+// table records what has already been applied, so restarting the control plane
+// is safe even for migrations built on ALTER TABLE (SQLite does not support
+// ADD COLUMN IF NOT EXISTS).
 func Migrate(database *sql.DB) error {
+	if _, err := database.Exec(`CREATE TABLE IF NOT EXISTS schema_migrations (
+		name TEXT PRIMARY KEY,
+		applied_at TEXT NOT NULL DEFAULT (datetime('now'))
+	)`); err != nil {
+		return fmt.Errorf("create schema_migrations: %w", err)
+	}
+
 	migrations := []string{
 		"001_users.sql",
 		"002_servers.sql",
@@ -56,6 +69,16 @@ func Migrate(database *sql.DB) error {
 	}
 
 	for _, migration := range migrations {
+		var applied int
+		if err := database.QueryRow(
+			"SELECT COUNT(*) FROM schema_migrations WHERE name = ?", migration,
+		).Scan(&applied); err != nil {
+			return fmt.Errorf("check migration %s: %w", migration, err)
+		}
+		if applied > 0 {
+			continue
+		}
+
 		path := "./internal/db/migrations/" + migration
 		data, err := os.ReadFile(path)
 		if err != nil {
@@ -63,23 +86,32 @@ func Migrate(database *sql.DB) error {
 		}
 
 		if _, err := database.Exec(string(data)); err != nil {
-			return fmt.Errorf("run migration %s: %w", migration, err)
+			// Backwards compatibility: databases created by the pre-tracking
+			// runner may already have columns that a later ALTER migration
+			// adds. A duplicate-column error means the change is already
+			// present, so record it as applied and move on.
+			if isDuplicateColumn(err) {
+				slog.Warn("migration column already present, skipping", "migration", migration, "error", err)
+			} else {
+				return fmt.Errorf("run migration %s: %w", migration, err)
+			}
+		}
+
+		if _, err := database.Exec(
+			"INSERT INTO schema_migrations (name) VALUES (?)", migration,
+		); err != nil {
+			return fmt.Errorf("record migration %s: %w", migration, err)
 		}
 	}
 
 	return nil
 }
 
-func InsertUser(db *sql.DB, id, email, name, passwordHash string) error {
-	return queries.InsertUser(db, id, email, name, passwordHash)
-}
-
-func GetUserByEmail(db *sql.DB, email string) (queries.User, error) {
-	return queries.GetUserByEmail(db, email)
-}
-
-func GetUserByID(db *sql.DB, id string) (queries.User, error) {
-	return queries.GetUserByID(db, id)
+// isDuplicateColumn reports whether a SQLite error is a duplicate-column
+// error, which happens when an ALTER TABLE ADD COLUMN is re-applied to a
+// table that already has the column.
+func isDuplicateColumn(err error) bool {
+	return strings.Contains(err.Error(), "duplicate column name")
 }
 
 func InsertServer(db *sql.DB, id, userID, name, token string) error {
