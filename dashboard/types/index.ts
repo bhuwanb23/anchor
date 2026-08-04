@@ -34,6 +34,14 @@ export interface ServerEvent {
   created_at: string
 }
 
+export interface AnomalyAlert {
+  level: "warning" | "critical" | "resolved"
+  type: string
+  project?: string
+  container?: string
+  message: string
+}
+
 export interface Deployment {
   id: string
   server_id: string
@@ -93,6 +101,20 @@ export interface LogHistory {
   project: string
   container: string
   lines: LogEntry[]
+}
+
+export interface LogLines {
+  type: "log_lines"
+  project: string
+  container: string
+  lines: LogEntry[]
+}
+
+export interface StreamEnded {
+  type: "stream_ended"
+  project: string
+  container: string
+  reason: "container_stopped" | "read_error"
 }
 
 export interface StreamLogsCommand {
