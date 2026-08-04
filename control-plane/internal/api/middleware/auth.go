@@ -15,10 +15,20 @@ import (
 
 // contextKey is an unexported type so that only this package can mint the
 // context key that carries the authenticated user.
+//
+// IMPORTANT: userContextKey and claimsContextKey MUST have distinct types.
+// An empty struct's zero value is comparable to any other empty struct, so two
+// vars of the same type would be the SAME key and storing one would overwrite
+// the other in request context.
 type contextKey struct{}
+type claimsContextKeyType struct{}
 
 // userContextKey is the key under which Auth stores the authenticated user.
 var userContextKey = contextKey{}
+
+// claimsContextKey is the key under which Auth stores the validated JWT
+// claims (Layer 5A Step 4B needs the "sid" claim to mark the current session).
+var claimsContextKey = claimsContextKeyType{}
 
 // authError is the structured error body returned for every auth failure
 // (Layer 5A Step 3C). Codes: authentication_required | invalid_token |
@@ -96,12 +106,21 @@ func Auth(db *sql.DB, jwtSecret string) func(http.Handler) http.Handler {
 				return
 			}
 
-			// 3B.7 — attach the user so handlers never parse tokens or query
-			// the DB themselves.
+			// 3B.7 — attach the user and the validated claims so handlers never
+			// parse tokens or query the DB themselves.
 			ctx := context.WithValue(r.Context(), userContextKey, user)
+			ctx = context.WithValue(ctx, claimsContextKey, claims)
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
+}
+
+// ClaimsFromContext returns the validated JWT claims attached by Auth, or nil
+// when the request did not go through Auth. Used by the sessions view (Layer
+// 5A Step 4B) to read the current session ID.
+func ClaimsFromContext(ctx context.Context) *auth.Claims {
+	c, _ := ctx.Value(claimsContextKey).(*auth.Claims)
+	return c
 }
 
 // UserFromContext returns the authenticated user attached by Auth.
