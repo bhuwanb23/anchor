@@ -10,7 +10,6 @@ import (
 	"github.com/yourname/yourplatform/control-plane/internal/alerts"
 	"github.com/yourname/yourplatform/control-plane/internal/api/handlers"
 	appmiddleware "github.com/yourname/yourplatform/control-plane/internal/api/middleware"
-	"github.com/yourname/yourplatform/control-plane/internal/auth"
 	"github.com/yourname/yourplatform/control-plane/internal/config"
 	"github.com/yourname/yourplatform/control-plane/internal/dns"
 	"github.com/yourname/yourplatform/control-plane/internal/ws"
@@ -57,9 +56,7 @@ func NewRouter(database *sql.DB, cfg *config.Config, hub *ws.Hub, delivery *aler
 		r.Post("/agent/register", agentHandler.Register)
 
 		r.Group(func(r chi.Router) {
-			r.Use(appmiddleware.Auth(&auth.Config{
-				Secret: cfg.JWTSecret,
-			}))
+			r.Use(appmiddleware.Auth(database, cfg.JWTSecret))
 			r.Get("/auth/me", authHandler.Me)
 			r.Get("/servers", server.ListServers)
 			r.Post("/servers", server.CreateServer)

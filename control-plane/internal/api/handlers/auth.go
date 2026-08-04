@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/yourname/yourplatform/control-plane/internal/api/middleware"
 	"github.com/yourname/yourplatform/control-plane/internal/auth"
 	"github.com/yourname/yourplatform/control-plane/internal/config"
 	"github.com/yourname/yourplatform/control-plane/internal/db/queries"
@@ -294,11 +295,10 @@ func clientIP(r *http.Request) string {
 }
 
 func (a *Auth) Me(w http.ResponseWriter, r *http.Request) {
-	userID := r.Context().Value("user_id").(string)
-
-	user, err := queries.GetUserByID(a.DB, userID)
-	if err != nil {
-		// Account deleted while the token was still valid.
+	// The middleware already loaded the user from the DB (Layer 5A Step 3B.6),
+	// so the handler does zero auth work — it just reads the context.
+	user, ok := middleware.UserFromContext(r.Context())
+	if !ok {
 		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "user not found"})
 		return
 	}
