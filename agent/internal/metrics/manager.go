@@ -19,16 +19,24 @@ const (
 	slowCollectionThresholdMS = 5000
 )
 
+// RemediationEvaluator is implemented by the Layer 4C Step 7 auto-remediation
+// manager (package remediation). It is an interface here so the metrics
+// package does not import remediation (which imports metrics).
+type RemediationEvaluator interface {
+	Evaluate(report HealthReport)
+}
+
 // Manager runs the Layer 4C metrics collection loop: gather host, container,
 // and platform metrics at a fixed interval, then send each snapshot to the
 // control plane (and keep a bounded buffer for offline catch-up).
 type Manager struct {
-	serverID string
-	system   *SystemCollector
-	docker   *DockerCollector
-	reporter *Reporter
-	anomaly  *AnomalyDetector
-	interval time.Duration
+	serverID   string
+	system     *SystemCollector
+	docker     *DockerCollector
+	reporter   *Reporter
+	anomaly    *AnomalyDetector
+	remediator RemediationEvaluator
+	interval   time.Duration
 
 	// onSlowCollection is invoked when a collection cycle exceeds
 	// slowCollectionThresholdMS. Defaults to a warning log; overridable in
@@ -60,6 +68,14 @@ func (m *Manager) WithInterval(d time.Duration) *Manager {
 // evaluated after every collection cycle (thresholds, state machines, alerts).
 func (m *Manager) WithAnomalyDetector(d *AnomalyDetector) *Manager {
 	m.anomaly = d
+	return m
+}
+
+// WithRemediator attaches the Layer 4C Step 7 auto-remediation manager, which
+// runs safe corrective actions (docker prune, caddy restart, memory flush)
+// after every collection cycle and reports what it did.
+func (m *Manager) WithRemediator(r RemediationEvaluator) *Manager {
+	m.remediator = r
 	return m
 }
 
@@ -126,6 +142,11 @@ func (m *Manager) collectAndSend(_ time.Time) {
 	// on state transitions (dedup, escalation, resolution).
 	if m.anomaly != nil {
 		m.anomaly.Evaluate(report)
+	}
+
+	// Layer 4C 7: auto-remediation — alert AND try to fix, report what was done.
+	if m.remediator != nil {
+		m.remediator.Evaluate(report)
 	}
 
 	m.reporter.Send(report)
