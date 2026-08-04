@@ -244,9 +244,10 @@ func runAgent(args []string) int {
 		metrics.NewDockerCollector(dockerClient),
 		metricsReporter,
 	)
-	// Layer 4C 4: anomaly detection — threshold state machines evaluated after
-	// every collection; alerts flow to the control plane as anomaly_alert.
-	metricsMgr.WithAnomalyDetector(metrics.NewAnomalyDetector(wsClient))
+	// Layer 4C 4/5: anomaly detection — threshold state machines evaluated
+	// after every collection; rich plain-English alerts (Step 5) flow to the
+	// control plane as anomaly_alert and are rate limited per project/server.
+	metricsMgr.WithAnomalyDetector(metrics.NewAnomalyDetector(wsClient, cfg.ServerID))
 	// On WS reconnect, flush buffered health reports to the control plane.
 	connMgr.OnConnect = func() {
 		reports := metricsReporter.Recent(100)
