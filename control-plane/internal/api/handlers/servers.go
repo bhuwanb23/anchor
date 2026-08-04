@@ -8,6 +8,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
+	"github.com/yourname/yourplatform/control-plane/internal/db/queries"
 )
 
 type Server struct {
@@ -152,6 +153,38 @@ func (s *Server) ListEvents(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(events)
+}
+
+// ListAlerts returns the persisted Layer 4C Step 5 alerts for a server,
+// newest first with active alerts floated to the top.
+func (s *Server) ListAlerts(w http.ResponseWriter, r *http.Request) {
+	serverID := chi.URLParam(r, "serverID")
+	if serverID == "" {
+		http.Error(w, "server ID required", http.StatusBadRequest)
+		return
+	}
+	userID, ok := r.Context().Value("user_id").(string)
+	if ok && userID != "" && !s.serverOwnedBy(userID, serverID) {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+
+	alerts, err := queries.ListAlertsByServer(s.DB, serverID, 100)
+	if err != nil {
+		slog.Error("query alerts", "error", err)
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(alerts)
+}
+
+// serverOwnedBy reports whether the given user owns the server.
+func (s *Server) serverOwnedBy(userID, serverID string) bool {
+	var count int
+	err := s.DB.QueryRow("SELECT COUNT(*) FROM servers WHERE id = ? AND user_id = ?", serverID, userID).Scan(&count)
+	return err == nil && count > 0
 }
 
 func (s *Server) CreateServer(w http.ResponseWriter, r *http.Request) {
