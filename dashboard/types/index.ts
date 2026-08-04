@@ -27,11 +27,28 @@ export interface Server {
 export interface ServerEvent {
   id: string
   server_id: string
-  event_type: "warning" | "auto_fixed" | "alert"
+  event_type: "warning" | "auto_fixed" | "alert" | "auto_remediation"
   check_name?: string
   message?: string
   details?: string
   created_at: string
+}
+
+// Layer 4C Step 7 — a record of what the agent did automatically.
+export interface RemediationReport {
+  type: "remediation_report"
+  payload: {
+    server_id: string
+    action: "docker_prune" | "caddy_restart" | "crash_recovery" | "memory_flush"
+    success: boolean
+    message: string
+    project?: string
+    container?: string
+    freed_bytes?: number
+    disk_percent_before?: number
+    disk_percent_after?: number
+    at: string
+  }
 }
 
 export interface AnomalyAlert {
