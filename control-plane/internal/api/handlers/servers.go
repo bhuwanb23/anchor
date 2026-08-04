@@ -8,6 +8,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
+	"github.com/yourname/yourplatform/control-plane/internal/api/middleware"
 	"github.com/yourname/yourplatform/control-plane/internal/db/queries"
 )
 
@@ -16,8 +17,8 @@ type Server struct {
 }
 
 func (s *Server) ListServers(w http.ResponseWriter, r *http.Request) {
-	userID, ok := r.Context().Value("user_id").(string)
-	if !ok || userID == "" {
+	userID := middleware.UserIDFromContext(r.Context())
+	if userID == "" {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
@@ -183,8 +184,8 @@ func (s *Server) ListAlerts(w http.ResponseWriter, r *http.Request) {
 // ListAllAlerts returns recent alerts across every server the user owns plus
 // the unread count for the notification center bell.
 func (s *Server) ListAllAlerts(w http.ResponseWriter, r *http.Request) {
-	userID, ok := r.Context().Value("user_id").(string)
-	if !ok || userID == "" {
+	userID := middleware.UserIDFromContext(r.Context())
+	if userID == "" {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
@@ -210,8 +211,8 @@ func (s *Server) ListAllAlerts(w http.ResponseWriter, r *http.Request) {
 // MarkAllAlertsRead stamps read_at on the user's active alerts (called when
 // the notification center is opened).
 func (s *Server) MarkAllAlertsRead(w http.ResponseWriter, r *http.Request) {
-	userID, ok := r.Context().Value("user_id").(string)
-	if !ok || userID == "" {
+	userID := middleware.UserIDFromContext(r.Context())
+	if userID == "" {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
@@ -231,8 +232,8 @@ func (s *Server) AcknowledgeAlert(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "server and alert IDs required", http.StatusBadRequest)
 		return
 	}
-	userID, ok := r.Context().Value("user_id").(string)
-	if !ok || userID == "" {
+	userID := middleware.UserIDFromContext(r.Context())
+	if userID == "" {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
@@ -256,8 +257,8 @@ func (s *Server) serverOwnedBy(userID, serverID string) bool {
 }
 
 func (s *Server) CreateServer(w http.ResponseWriter, r *http.Request) {
-	userID, ok := r.Context().Value("user_id").(string)
-	if !ok || userID == "" {
+	userID := middleware.UserIDFromContext(r.Context())
+	if userID == "" {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}

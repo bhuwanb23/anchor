@@ -42,12 +42,8 @@ func HandleBrowserWS(hub *Hub, db *sql.DB, jwtSecret string) http.HandlerFunc {
 			return
 		}
 
-		claims, err := auth.ValidateJWT(token, jwtSecret)
+		claims, err := auth.ValidateAccessToken(token, jwtSecret)
 		if err != nil {
-			http.Error(w, "invalid or expired token", http.StatusUnauthorized)
-			return
-		}
-		if claims.Type != auth.TokenTypeAccess {
 			http.Error(w, "invalid or expired token", http.StatusUnauthorized)
 			return
 		}
