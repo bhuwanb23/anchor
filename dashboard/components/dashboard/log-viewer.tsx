@@ -62,7 +62,13 @@ export function LogViewer({
             )}
             <span
               className={
-                entry.stream === "stderr" ? "text-red-400" : "text-gray-300"
+                entry.stream === "stderr"
+                  ? "text-red-400"
+                  : entry.line.startsWith("---")
+                  ? "font-semibold text-amber-400"
+                  : entry.line.startsWith("[")
+                  ? "italic text-gray-500"
+                  : "text-gray-300"
               }
             >
               {entry.line}
