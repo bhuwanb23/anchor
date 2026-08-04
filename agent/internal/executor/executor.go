@@ -327,9 +327,9 @@ func (e *Executor) Execute(ctx context.Context, cmd Command) Result {
 		err = e.executeCreateDatabase(ctx, cmd, &result)
 	case "delete_database":
 		err = e.executeDeleteDatabase(ctx, cmd, &result)
-	case "start_log_stream":
+	case "start_log_stream", "stream_logs":
 		err = e.executeStartLogStream(ctx, cmd, &result)
-	case "stop_log_stream":
+	case "stop_log_stream", "stop_stream_logs":
 		err = e.executeStopLogStream(ctx, cmd, &result)
 	case "update_agent":
 		err = e.executeUpdateAgent(ctx, cmd, &result)
@@ -526,6 +526,15 @@ func (e *Executor) executeDeployInternal(ctx context.Context, cmd Command, resul
 		return fmt.Errorf("start container: %w", err)
 	}
 
+	// Layer 4C 3D: if a dashboard is live-streaming this project+role, switch
+	// the stream to the newly deployed container without a refresh.
+	if e.logStreamer != nil {
+		if err := e.logStreamer.HandleContainerReplaced(p.AppName, string(ct), id); err != nil {
+			slog.Warn("log stream handoff failed",
+				"app", p.AppName, "role", string(ct), "error", err)
+		}
+	}
+
 	SendProgress(e.progressSender, cmd.ID, "health", "Waiting for health check...", 70)
 	if err := e.docker.WaitForHealthy(ctx, id, 60*time.Second); err != nil {
 		slog.Warn("container did not become healthy after deploy",
@@ -717,13 +726,23 @@ func (e *Executor) executeRestart(ctx context.Context, cmd Command, result *Resu
 	}
 
 	// Update state — lookup project/role from container labels
+	var project, role string
 	if e.stateManager != nil {
 		if inspect, err := e.docker.InspectContainer(ctx, p.ContainerID); err == nil {
-			project := inspect.Config.Labels["yourplatform.project"]
-			role := inspect.Config.Labels["yourplatform.role"]
+			project = inspect.Config.Labels["yourplatform.project"]
+			role = inspect.Config.Labels["yourplatform.role"]
 			if project != "" && role != "" {
 				_ = e.stateManager.UpdateStatus(project, role, "running")
 			}
+		}
+	}
+
+	// Layer 4C 3D: if a dashboard is watching this container, restart its log
+	// stream (the container keeps its ID across a restart).
+	if e.logStreamer != nil && project != "" && role != "" {
+		if err := e.logStreamer.HandleContainerReplaced(project, role, p.ContainerID); err != nil {
+			slog.Warn("log stream restart handoff failed",
+				"project", project, "role", role, "error", err)
 		}
 	}
 
@@ -796,6 +815,11 @@ func (e *Executor) executeDeleteProject(ctx context.Context, cmd Command, result
 	// Remove from state file (also cleans up remaining routes for this project)
 	if e.stateManager != nil {
 		_ = e.stateManager.RemoveProject(p.ProjectName)
+	}
+
+	// Stop any active log streams for this project.
+	if e.logStreamer != nil {
+		e.logStreamer.StopProject(p.ProjectName)
 	}
 
 	result.Status = "success"
