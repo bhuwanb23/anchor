@@ -109,6 +109,22 @@ export interface LoginRequest {
   password: string
 }
 
+export interface AuthUser {
+  id: string
+  email: string
+  name: string
+}
+
+// Layer 5A Step 2A/2D — login and refresh both return an access token plus a
+// revocable, rotating refresh token.
+export interface AuthResponse {
+  access_token: string
+  refresh_token: string
+  token_type: "Bearer"
+  expires_in: number
+  user: AuthUser
+}
+
 // Layer 5A Step 1C: registration takes a display name and returns no token.
 export interface RegisterRequest {
   name: string
