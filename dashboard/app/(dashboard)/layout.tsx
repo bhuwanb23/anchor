@@ -5,6 +5,7 @@ import { useRouter, usePathname } from "next/navigation";
 import Link from "next/link";
 import { useAuth } from "@/hooks/use-auth";
 import { isLoggedIn } from "@/lib/auth";
+import NotificationCenter from "@/components/dashboard/notification-center";
 import { LayoutDashboard, Server, LogOut } from "lucide-react";
 
 const navItems = [
@@ -82,7 +83,12 @@ export default function DashboardLayout({
           </div>
         </div>
       </aside>
-      <main className="ml-64 flex-1 p-8">{children}</main>
+      <div className="ml-64 flex-1">
+        <header className="sticky top-0 z-40 flex h-14 items-center justify-end border-b border-gray-200 bg-white/80 px-6 backdrop-blur dark:border-gray-700 dark:bg-gray-900/80">
+          <NotificationCenter />
+        </header>
+        <main className="p-8">{children}</main>
+      </div>
     </div>
   );
 }
