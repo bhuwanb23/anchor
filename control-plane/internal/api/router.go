@@ -58,6 +58,10 @@ func NewRouter(database *sql.DB, cfg *config.Config, hub *ws.Hub, delivery *aler
 		r.Group(func(r chi.Router) {
 			r.Use(appmiddleware.Auth(database, cfg.JWTSecret))
 			r.Get("/auth/me", authHandler.Me)
+			r.Post("/auth/logout", authHandler.Logout)
+			r.Post("/auth/logout-all", authHandler.LogoutAll)
+			r.Get("/auth/sessions", authHandler.Sessions)
+			r.Delete("/auth/sessions/{sessionID}", authHandler.DeleteSession)
 			r.Get("/servers", server.ListServers)
 			r.Post("/servers", server.CreateServer)
 			r.Get("/servers/{serverID}/events", server.ListEvents)
