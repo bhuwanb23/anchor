@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 	"github.com/yourname/yourplatform/control-plane/internal/api/middleware"
 	"github.com/yourname/yourplatform/control-plane/internal/auth"
@@ -240,9 +241,14 @@ func (a *Auth) Refresh(w http.ResponseWriter, r *http.Request) {
 
 // issueTokens creates an access token (Step 2B) and a stored, hashed refresh
 // token (Step 2C) for a user, and builds the shared login response.
+//
+// The refresh-token row ID becomes the access token's "sid" claim, so the
+// sessions view (Step 4B) can mark which session is making a request.
 func (a *Auth) issueTokens(user queries.User, r *http.Request) (loginResponse, error) {
+	sessionID := uuid.New().String()
+
 	accessTTL := time.Duration(a.Cfg.JWTExpiryHrs) * time.Hour
-	accessToken, err := auth.GenerateAccessToken(user.ID, user.Email, user.Name, a.Cfg.JWTSecret, accessTTL)
+	accessToken, err := auth.GenerateAccessToken(user.ID, sessionID, user.Email, user.Name, a.Cfg.JWTSecret, accessTTL)
 	if err != nil {
 		return loginResponse{}, err
 	}
@@ -255,7 +261,7 @@ func (a *Auth) issueTokens(user queries.User, r *http.Request) (loginResponse, e
 	expiresAt := time.Now().UTC().Add(time.Duration(a.refreshTokenDays()) * 24 * time.Hour).Format(time.RFC3339)
 	if err := queries.CreateRefreshToken(
 		a.DB,
-		uuid.New().String(),
+		sessionID,
 		hashedRefresh,
 		user.ID,
 		expiresAt,
@@ -292,6 +298,165 @@ func clientIP(r *http.Request) string {
 		return r.RemoteAddr
 	}
 	return host
+}
+
+// Logout implements Layer 5A Step 4A Level 1 — revoke THIS device's session.
+// It requires a valid access token (route is protected) and takes the refresh
+// token that identifies the session being logged out.
+//
+// The access token itself stays valid until it expires (24h) — JWTs cannot be
+// invalidated without a database blocklist, which we deliberately avoid.
+//
+// Sequence: hash the refresh token → find it → verify it belongs to the
+// authenticated user (prevents cross-user revocation) → set revoked_at → 200.
+func (a *Auth) Logout(w http.ResponseWriter, r *http.Request) {
+	userID := middleware.UserIDFromContext(r.Context())
+	if userID == "" {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "authentication required"})
+		return
+	}
+
+	var req struct {
+		RefreshToken string `json:"refresh_token"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request body"})
+		return
+	}
+	if req.RefreshToken == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "refresh_token is required"})
+		return
+	}
+
+	rt, err := queries.GetRefreshTokenByHash(a.DB, auth.HashRefreshToken(req.RefreshToken))
+	if err == sql.ErrNoRows {
+		// Unknown token: same response whether the token is invalid or already
+		// gone — do not reveal anything about other users' sessions.
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid session"})
+		return
+	}
+	if err != nil {
+		slog.Error("lookup refresh token", "error", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal server error"})
+		return
+	}
+
+	// Cross-user revocation attempt: the token belongs to someone else.
+	// Reply as if invalid so we never confirm another session's existence.
+	if rt.UserID != userID {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid session"})
+		return
+	}
+
+	if _, err := queries.RevokeRefreshToken(a.DB, rt.ID); err != nil {
+		slog.Error("revoke refresh token", "error", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal server error"})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{"message": "Logged out"})
+}
+
+// LogoutAll implements Layer 5A Step 4A Level 2 — revoke every active session
+// for the authenticated user, logging them out on all devices.
+func (a *Auth) LogoutAll(w http.ResponseWriter, r *http.Request) {
+	userID := middleware.UserIDFromContext(r.Context())
+	if userID == "" {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "authentication required"})
+		return
+	}
+
+	if _, err := queries.RevokeAllRefreshTokens(a.DB, userID); err != nil {
+		slog.Error("revoke all refresh tokens", "error", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal server error"})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{"message": "Logged out from all devices"})
+}
+
+// sessionView is the JSON shape of one entry in the sessions list (Layer 5A
+// Step 4B). last_used_at is null until the session has been refreshed.
+type sessionView struct {
+	ID         string  `json:"id"`
+	CreatedAt  string  `json:"created_at"`
+	LastUsedAt *string `json:"last_used_at"`
+	ExpiresAt  string  `json:"expires_at"`
+	UserAgent  string  `json:"user_agent"`
+	IPAddress  string  `json:"ip_address"`
+	Current    bool    `json:"current"`
+}
+
+// Sessions implements Layer 5A Step 4B — the active sessions view. It lists
+// every active (non-revoked, non-expired) session for the authenticated user
+// with device info, marking the one that made this request as current.
+func (a *Auth) Sessions(w http.ResponseWriter, r *http.Request) {
+	userID := middleware.UserIDFromContext(r.Context())
+	if userID == "" {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "authentication required"})
+		return
+	}
+
+	sessions, err := queries.ListSessionsByUser(a.DB, userID)
+	if err != nil {
+		slog.Error("list sessions", "error", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal server error"})
+		return
+	}
+
+	// The access token's sid claim identifies the current session.
+	currentID := ""
+	if claims := middleware.ClaimsFromContext(r.Context()); claims != nil {
+		currentID = claims.SessionID
+	}
+
+	out := make([]sessionView, 0, len(sessions))
+	for _, s := range sessions {
+		view := sessionView{
+			ID:         s.ID,
+			CreatedAt:  s.CreatedAt,
+			ExpiresAt:  s.ExpiresAt,
+			UserAgent:  s.UserAgent,
+			IPAddress:  s.IPAddress,
+			Current:    s.ID == currentID,
+		}
+		if s.LastUsedAt.Valid {
+			view.LastUsedAt = &s.LastUsedAt.String
+		}
+		out = append(out, view)
+	}
+
+	writeJSON(w, http.StatusOK, out)
+}
+
+// DeleteSession implements Layer 5A Step 4B — revoke a specific session from
+// the sessions view. The session must belong to the authenticated user.
+func (a *Auth) DeleteSession(w http.ResponseWriter, r *http.Request) {
+	userID := middleware.UserIDFromContext(r.Context())
+	if userID == "" {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "authentication required"})
+		return
+	}
+
+	sessionID := chi.URLParam(r, "sessionID")
+	if sessionID == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "session id is required"})
+		return
+	}
+
+	revoked, err := queries.RevokeSessionForUser(a.DB, sessionID, userID)
+	if err != nil {
+		slog.Error("revoke session", "error", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal server error"})
+		return
+	}
+	if !revoked {
+		// Not found, already revoked, or belongs to another user — all 404.
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "session not found"})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{"message": "Session revoked"})
 }
 
 func (a *Auth) Me(w http.ResponseWriter, r *http.Request) {
