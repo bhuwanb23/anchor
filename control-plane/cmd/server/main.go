@@ -42,6 +42,10 @@ func main() {
 	go hub.StartHeartbeat(database)
 	go pruneMetrics(database)
 
+	// Layer 5A Step 4A Level 3 — delete expired refresh tokens weekly. Expired
+	// sessions can no longer be refreshed, so the rows are garbage.
+	go pruneExpiredRefreshTokens(database)
+
 	// Layer 4C Step 6 — alert email delivery. Runs in the background and
 	// never blocks the agent/metrics paths.
 	sender := mailer.NewFromConfig(cfg)
@@ -56,6 +60,28 @@ func main() {
 	if err := http.ListenAndServe(addr, router); err != nil {
 		slog.Error("server failed", "error", err)
 		os.Exit(1)
+	}
+}
+
+// pruneExpiredRefreshTokens deletes refresh tokens whose expiry has passed,
+// running weekly. It uses the stored RFC3339 expires_at for comparison.
+func pruneExpiredRefreshTokens(db *sql.DB) {
+	cutoff := time.Now().UTC().Format(time.RFC3339)
+	if n, err := queries.DeleteExpiredRefreshTokens(db, cutoff); err != nil {
+		slog.Warn("failed to prune expired refresh tokens", "error", err)
+	} else if n > 0 {
+		slog.Info("pruned expired refresh tokens", "count", n)
+	}
+
+	ticker := time.NewTicker(7 * 24 * time.Hour)
+	defer ticker.Stop()
+	for range ticker.C {
+		cutoff := time.Now().UTC().Format(time.RFC3339)
+		if n, err := queries.DeleteExpiredRefreshTokens(db, cutoff); err != nil {
+			slog.Warn("failed to prune expired refresh tokens", "error", err)
+		} else if n > 0 {
+			slog.Info("pruned expired refresh tokens", "count", n)
+		}
 	}
 }
 
