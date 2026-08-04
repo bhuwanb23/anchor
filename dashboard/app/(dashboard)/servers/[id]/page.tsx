@@ -1,13 +1,15 @@
 "use client";
 
-import { use, useState } from "react";
+import { use, useCallback, useEffect, useState } from "react";
 import { useServer } from "@/hooks/use-server";
 import { useLogStream } from "@/hooks/use-log-stream";
 import { useAlerts } from "@/hooks/use-alerts";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { StatusBadge } from "@/components/ui/badge";
 import { LogViewer } from "@/components/dashboard/log-viewer";
-import { ArrowLeft, Server, HardDrive, Cpu, Wifi, Activity } from "lucide-react";
+import { ServerEvent } from "@/types";
+import api from "@/lib/api";
+import { ArrowLeft, Server, HardDrive, Cpu, Wifi, Activity, Sparkles } from "lucide-react";
 import Link from "next/link";
 
 export default function ServerDetailPage({
@@ -33,6 +35,22 @@ export default function ServerDetailPage({
   });
 
   const { alerts, acknowledge } = useAlerts(id);
+
+  // Layer 4C Step 7 — history of automatic actions the agent took.
+  const [actions, setActions] = useState<ServerEvent[]>([]);
+  const fetchActions = useCallback(() => {
+    api
+      .get<ServerEvent[]>(`/servers/${id}/events`)
+      .then((res) => {
+        setActions((res.data || []).filter((e) => e.event_type === "auto_remediation").slice(0, 20));
+      })
+      .catch(() => {});
+  }, [id]);
+  useEffect(() => {
+    fetchActions();
+    const t = setInterval(fetchActions, 60_000);
+    return () => clearInterval(t);
+  }, [fetchActions]);
 
   if (isLoading) {
     return (
@@ -319,6 +337,51 @@ export default function ServerDetailPage({
                         : ""}
                     </p>
                   )}
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <CardTitle className="flex items-center gap-2 text-sm font-medium">
+              <Sparkles className="h-4 w-4 text-violet-500" />
+              Automatic Actions
+            </CardTitle>
+            <span className="text-xs text-gray-400">
+              What the agent fixed on its own
+            </span>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {actions.length === 0 ? (
+            <p className="text-sm text-gray-500">
+              No automatic actions taken yet — the agent will clean up disk space, restart
+              the reverse proxy, and recover crashed apps on its own when needed.
+            </p>
+          ) : (
+            <div className="max-h-72 space-y-2 overflow-y-auto pr-1">
+              {actions.map((e) => (
+                <div
+                  key={e.id}
+                  className="flex items-start justify-between gap-3 rounded-r border-l-4 border-violet-400 bg-violet-50 p-3 dark:bg-violet-950/40"
+                >
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium text-gray-800 dark:text-gray-200">
+                      {e.message || e.check_name}
+                    </p>
+                    {e.check_name && e.check_name !== e.message && (
+                      <p className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+                        Action: {e.check_name}
+                      </p>
+                    )}
+                  </div>
+                  <span className="shrink-0 text-xs text-gray-400">
+                    {new Date(e.created_at).toLocaleString()}
+                  </span>
                 </div>
               ))}
             </div>
