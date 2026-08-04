@@ -32,7 +32,7 @@ export default function ServerDetailPage({
     enabled: showLogs && !!projectName,
   });
 
-  const { alerts } = useAlerts(id);
+  const { alerts, acknowledge } = useAlerts(id);
 
   if (isLoading) {
     return (
@@ -299,6 +299,24 @@ export default function ServerDetailPage({
                   {a.action && a.status === "active" && (
                     <p className="mt-2 rounded bg-white/60 p-2 text-xs italic text-gray-600 dark:bg-gray-900/30 dark:text-gray-400">
                       💡 {a.action}
+                    </p>
+                  )}
+                  {a.status === "active" && (
+                    <div className="mt-2 flex justify-end">
+                      <button
+                        onClick={() => acknowledge(a.id)}
+                        className="rounded-md border border-gray-300 px-2 py-1 text-xs font-medium text-gray-600 transition-colors hover:border-green-400 hover:text-green-600 dark:border-gray-600 dark:text-gray-300"
+                      >
+                        Acknowledge
+                      </button>
+                    </div>
+                  )}
+                  {a.status === "acknowledged" && (
+                    <p className="mt-1 text-right text-xs text-gray-400">
+                      ✓ Acknowledged
+                      {a.acknowledged_at
+                        ? ` ${new Date(a.acknowledged_at).toLocaleString()}`
+                        : ""}
                     </p>
                   )}
                 </div>
