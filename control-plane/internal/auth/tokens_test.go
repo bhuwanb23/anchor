@@ -59,7 +59,7 @@ func TestHashRefreshToken_IsSHA256Hex(t *testing.T) {
 
 func TestGenerateAccessToken_Claims(t *testing.T) {
 	const secret = "a-test-secret-that-is-long-enough"
-	token, err := GenerateAccessToken("user-123", "alice@example.com", "Alice Smith", secret, 24*time.Hour)
+	token, err := GenerateAccessToken("user-123", "sess-456", "alice@example.com", "Alice Smith", secret, 24*time.Hour)
 	if err != nil {
 		t.Fatalf("GenerateAccessToken error: %v", err)
 	}
@@ -81,13 +81,16 @@ func TestGenerateAccessToken_Claims(t *testing.T) {
 	if claims.Type != TokenTypeAccess {
 		t.Errorf("type = %q, want access", claims.Type)
 	}
+	if claims.SessionID != "sess-456" {
+		t.Errorf("sid = %q, want sess-456", claims.SessionID)
+	}
 	if claims.IssuedAt == nil || claims.ExpiresAt == nil {
 		t.Fatal("iat/exp must be set")
 	}
 }
 
 func TestGenerateAccessToken_WrongSecretFails(t *testing.T) {
-	token, err := GenerateAccessToken("u1", "a@b.com", "A", "secret-one", time.Hour)
+	token, err := GenerateAccessToken("u1", "", "a@b.com", "A", "secret-one", time.Hour)
 	if err != nil {
 		t.Fatalf("GenerateAccessToken error: %v", err)
 	}
@@ -100,7 +103,7 @@ func TestGenerateAccessToken_Expiry(t *testing.T) {
 	const secret = "a-test-secret-that-is-long-enough"
 	// Expire an hour in the past — well beyond the 30s clock-skew leeway —
 	// so validation must reject the token.
-	token, err := GenerateAccessToken("u1", "a@b.com", "A", secret, -time.Hour)
+	token, err := GenerateAccessToken("u1", "", "a@b.com", "A", secret, -time.Hour)
 	if err != nil {
 		t.Fatalf("GenerateAccessToken error: %v", err)
 	}
@@ -113,7 +116,7 @@ func TestValidateAccessToken_LeewayAcceptsBrieflyExpired(t *testing.T) {
 	const secret = "a-test-secret-that-is-long-enough"
 	// Expired 10 seconds ago: inside the 30s clock-skew leeway, so a server
 	// whose clock drifted by a few seconds still accepts the token.
-	token, err := GenerateAccessToken("u1", "a@b.com", "A", secret, -10*time.Second)
+	token, err := GenerateAccessToken("u1", "", "a@b.com", "A", secret, -10*time.Second)
 	if err != nil {
 		t.Fatalf("GenerateAccessToken error: %v", err)
 	}
