@@ -52,6 +52,7 @@ func Migrate(database *sql.DB) error {
 		"014_metrics.sql",
 		"015_alerts.sql",
 		"016_alert_delivery.sql",
+		"017_users_auth.sql",
 	}
 
 	for _, migration := range migrations {
@@ -69,12 +70,16 @@ func Migrate(database *sql.DB) error {
 	return nil
 }
 
-func InsertUser(db *sql.DB, id, email, passwordHash string) error {
-	return queries.InsertUser(db, id, email, passwordHash)
+func InsertUser(db *sql.DB, id, email, name, passwordHash string) error {
+	return queries.InsertUser(db, id, email, name, passwordHash)
 }
 
-func GetUserByEmail(db *sql.DB, email string) (id string, passwordHash string, err error) {
+func GetUserByEmail(db *sql.DB, email string) (queries.User, error) {
 	return queries.GetUserByEmail(db, email)
+}
+
+func GetUserByID(db *sql.DB, id string) (queries.User, error) {
+	return queries.GetUserByID(db, id)
 }
 
 func InsertServer(db *sql.DB, id, userID, name, token string) error {
