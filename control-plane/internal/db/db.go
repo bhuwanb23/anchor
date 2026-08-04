@@ -51,6 +51,7 @@ func Migrate(database *sql.DB) error {
 		"013_pending_commands.sql",
 		"014_metrics.sql",
 		"015_alerts.sql",
+		"016_alert_delivery.sql",
 	}
 
 	for _, migration := range migrations {
