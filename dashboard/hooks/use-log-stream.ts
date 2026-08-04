@@ -1,8 +1,16 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { WSClient, WSMessage } from "@/lib/ws";
-import { LogEntry, LogHistory } from "@/types";
+import { LogEntry } from "@/types";
+
+// Loose shape for the union of log messages pushed by the agent (log_line,
+// log_lines, log_history, stream_ended) so one handler can filter and fold
+// them into LogEntry rows without TS collapsing the payload type to never.
+interface LogStreamPayload extends Partial<LogEntry> {
+  lines?: LogEntry[];
+  reason?: string;
+}
 
 interface UseLogStreamOptions {
   serverId: string;
@@ -34,30 +42,67 @@ export function useLogStream({
   const clientRef = useRef<WSClient | null>(null);
   const MAX_LOGS = 1000;
 
-  const handleMessage = useCallback((msg: WSMessage) => {
-    if (msg.type === "log_line") {
-      const entry = msg.payload as LogEntry;
-      setLogs((prev) => {
-        const next = [...prev, entry];
-        // Trim to keep memory bounded
-        if (next.length > MAX_LOGS) {
-          return next.slice(next.length - MAX_LOGS);
-        }
-        return next;
-      });
-    } else if (msg.type === "log_history") {
-      const history = msg.payload as LogHistory;
-      if (history.lines && history.lines.length > 0) {
-        setLogs((prev) => {
-          const combined = [...history.lines, ...prev];
-          if (combined.length > MAX_LOGS) {
-            return combined.slice(combined.length - MAX_LOGS);
-          }
-          return combined;
-        });
-      }
-    }
+  // Stable identity for the containers list so effect deps don't churn when a
+  // caller passes a fresh array literal every render.
+  const containersKey = containers.join(",");
+  const containerRoles = useMemo(
+    () => containersKey.split(","),
+    [containersKey]
+  );
+
+  const appendLogs = useCallback((entries: LogEntry[]) => {
+    if (entries.length === 0) return;
+    setLogs((prev) => {
+      const next = [...prev, ...entries];
+      return next.length > MAX_LOGS ? next.slice(next.length - MAX_LOGS) : next;
+    });
   }, []);
+
+  const prependLogs = useCallback((entries: LogEntry[]) => {
+    if (entries.length === 0) return;
+    setLogs((prev) => {
+      const combined = [...entries, ...prev];
+      return combined.length > MAX_LOGS
+        ? combined.slice(combined.length - MAX_LOGS)
+        : combined;
+    });
+  }, []);
+
+  const handleMessage = useCallback(
+    (msg: WSMessage) => {
+      const payload = msg.payload as LogStreamPayload | undefined;
+      if (!payload) return;
+
+      // Ignore messages for other projects/containers on the same server WS.
+      if (payload.project && payload.project !== projectName) return;
+      if (payload.container && !containerRoles.includes(payload.container)) {
+        return;
+      }
+
+      if (msg.type === "log_line" && payload.line) {
+        appendLogs([payload as LogEntry]);
+      } else if (msg.type === "log_lines" && Array.isArray(payload.lines)) {
+        appendLogs(payload.lines);
+      } else if (msg.type === "log_history" && Array.isArray(payload.lines)) {
+        prependLogs(payload.lines);
+      } else if (msg.type === "stream_ended" && payload.reason) {
+        appendLogs([
+          {
+            type: "log_line",
+            project: payload.project ?? "",
+            container: payload.container ?? "",
+            stream: "stdout",
+            line:
+              payload.reason === "read_error"
+                ? "[Log stream error]"
+                : "[Container stopped]",
+            timestamp: new Date().toISOString(),
+          },
+        ]);
+      }
+    },
+    [projectName, containerRoles, appendLogs, prependLogs]
+  );
 
   const startStreaming = useCallback(() => {
     if (clientRef.current) {
@@ -76,10 +121,9 @@ export function useLogStream({
       handleMessage(msg);
     });
 
-    client.connect();
-
-    // Send stream_logs command after a short delay to allow connection
-    setTimeout(() => {
+    // Send stream_logs whenever the WebSocket (re)connects. The control plane
+    // also re-sends these on agent reconnect; this covers browser blips too.
+    const sendStreamCommand = () => {
       client.send({
         type: "command",
         payload: {
@@ -87,18 +131,21 @@ export function useLogStream({
           type: "stream_logs",
           payload: {
             project_name: projectName,
-            containers,
+            containers: containerRoles,
             tail,
           },
         },
       });
-    }, 500);
+    };
+    client.onConnect(sendStreamCommand);
+
+    client.connect();
 
     return () => {
       unsub();
       client.disconnect();
     };
-  }, [serverId, projectName, containers, tail, handleMessage]);
+  }, [serverId, projectName, containerRoles, tail, handleMessage]);
 
   const stopStreaming = useCallback(() => {
     if (clientRef.current) {
@@ -108,7 +155,8 @@ export function useLogStream({
           id: `stop_${Date.now()}`,
           type: "stop_stream_logs",
           payload: {
-            all: true,
+            project_name: projectName,
+            containers: containerRoles,
           },
         },
       });
@@ -116,7 +164,7 @@ export function useLogStream({
       clientRef.current = null;
     }
     setIsConnected(false);
-  }, []);
+  }, [projectName, containerRoles]);
 
   const clearLogs = useCallback(() => {
     setLogs([]);
@@ -128,10 +176,11 @@ export function useLogStream({
     const cleanup = startStreaming();
 
     return () => {
-      cleanup?.();
+      // Send the selective stop while the WS is still open, then tear down.
       stopStreaming();
+      cleanup?.();
     };
-  }, [enabled, serverId, projectName]);
+  }, [enabled, serverId, projectName, containersKey, startStreaming, stopStreaming]);
 
   return {
     logs,
