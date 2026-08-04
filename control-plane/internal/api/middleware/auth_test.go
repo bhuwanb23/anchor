@@ -161,6 +161,39 @@ func TestAuth_ExpiredToken(t *testing.T) {
 	}
 }
 
+func TestAuth_ExpiredTokenHandcrafted(t *testing.T) {
+	env := newTestEnv(t)
+
+	// Hand-craft the token the way an external client would: iat and exp both
+	// in the past, correctly signed. Must still be classified as expired.
+	claims := auth.Claims{
+		Email: "alice@example.com",
+		Name:  "Alice Smith",
+		Type:  auth.TokenTypeAccess,
+		RegisteredClaims: jwt.RegisteredClaims{
+			Subject:   env.userID,
+			IssuedAt:  jwt.NewNumericDate(time.Now().Add(-2 * time.Hour)),
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(-time.Hour)),
+		},
+	}
+	tok := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	token, err := tok.SignedString([]byte(testSecret))
+	if err != nil {
+		t.Fatalf("sign token: %v", err)
+	}
+
+	w := env.serve(bearerRequest(token))
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d", w.Code)
+	}
+	if code := decodeErrorCode(t, w); code != "token_expired" {
+		t.Errorf("error code = %q, want token_expired", code)
+	}
+	if got := w.Header().Get("X-Token-Expired"); got != "true" {
+		t.Errorf("X-Token-Expired = %q, want true", got)
+	}
+}
+
 func TestAuth_TamperedToken(t *testing.T) {
 	env := newTestEnv(t)
 
