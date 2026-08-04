@@ -136,10 +136,6 @@ export interface RegisterResponse {
   message: string
 }
 
-export interface AuthResponse {
-  token: string
-}
-
 export interface CreateServerRequest {
   name: string
 }

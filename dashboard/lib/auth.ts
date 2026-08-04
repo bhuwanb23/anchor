@@ -1,17 +1,31 @@
 import api from "./api";
-import type { AuthResponse, LoginRequest, RegisterRequest, RegisterResponse } from "@/types";
+import type { AuthResponse, AuthUser, LoginRequest, RegisterRequest, RegisterResponse } from "@/types";
+
+const ACCESS_TOKEN_KEY = "token";
+const REFRESH_TOKEN_KEY = "refresh_token";
 
 export function getToken(): string | null {
   if (typeof window === "undefined") return null;
-  return localStorage.getItem("token");
+  return localStorage.getItem(ACCESS_TOKEN_KEY);
+}
+
+export function getRefreshToken(): string | null {
+  if (typeof window === "undefined") return null;
+  return localStorage.getItem(REFRESH_TOKEN_KEY);
+}
+
+function setTokens(res: AuthResponse): void {
+  localStorage.setItem(ACCESS_TOKEN_KEY, res.access_token);
+  localStorage.setItem(REFRESH_TOKEN_KEY, res.refresh_token);
 }
 
 export function setToken(token: string): void {
-  localStorage.setItem("token", token);
+  localStorage.setItem(ACCESS_TOKEN_KEY, token);
 }
 
 export function removeToken(): void {
-  localStorage.removeItem("token");
+  localStorage.removeItem(ACCESS_TOKEN_KEY);
+  localStorage.removeItem(REFRESH_TOKEN_KEY);
 }
 
 export function isLoggedIn(): boolean {
@@ -20,7 +34,7 @@ export function isLoggedIn(): boolean {
 
 export async function login(data: LoginRequest): Promise<AuthResponse> {
   const res = await api.post<AuthResponse>("/api/v1/auth/login", data);
-  setToken(res.data.token);
+  setTokens(res.data);
   return res.data;
 }
 
@@ -31,11 +45,23 @@ export async function register(data: RegisterRequest): Promise<RegisterResponse>
   return res.data;
 }
 
+// Layer 5A Step 2D: silently exchange the refresh token for a fresh access
+// token (and a rotated refresh token).
+export async function refreshAccessToken(): Promise<AuthResponse> {
+  const refreshToken = getRefreshToken();
+  if (!refreshToken) throw new Error("no refresh token");
+  const res = await api.post<AuthResponse>("/api/v1/auth/refresh", {
+    refresh_token: refreshToken,
+  });
+  setTokens(res.data);
+  return res.data;
+}
+
 export async function logout(): Promise<void> {
   removeToken();
 }
 
-export async function getMe(): Promise<{ id: string; email: string; name: string }> {
-  const res = await api.get<{ id: string; email: string; name: string }>("/api/v1/auth/me");
+export async function getMe(): Promise<AuthUser> {
+  const res = await api.get<AuthUser>("/api/v1/auth/me");
   return res.data;
 }
