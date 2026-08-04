@@ -1,0 +1,49 @@
+ANCHOR — PRODUCT FACTS AND POSITIONING
+(sourced from README.md + docs/project_overview.md)
+
+One-line pitch:
+You already have a server. We make it behave like your own private Heroku — deploy in one click, and if anything breaks, we already fixed it or tell you exactly why.
+
+Subline: Own your server. Don't babysit it.
+
+The problem:
+Small businesses, freelancers, and dev agencies run apps on a single cheap VPS or old hardware because AWS/Azure are too expensive or too complex for their scale. Managing that server manually — Docker, SSL certs, backups, monitoring — requires sysadmin skills most of them don't have and don't want to learn.
+
+The idea:
+The user brings any compute they already have — a VPS, a rented server, or their own hardware. A lightweight agent installed on that server turns it into a self-managing mini-cloud. A web dashboard is the only thing the user ever touches.
+
+Who it's for:
+- Already have or can afford a $5-40/month server
+- Don't want to hire a sysadmin or learn Linux/Docker/Nginx
+- Are currently paying too much for managed cloud, or manually babysitting their own VPS
+
+Features:
+- One-line install agent, auto-restart on crash, deploy from Git or Docker image, log streaming, health reporting
+- One-click templates (WordPress, Next.js+Postgres, Django+Postgres, static)
+- Automatic subdomain, custom domain with auto-HTTPS (via embedded Caddy)
+- One-click managed databases, persistent storage
+- Automatic daily backups (restic), one-click "restore to yesterday"
+- Simple resource dashboard, plain-English alerts (not raw graphs)
+- Live container logs streamed in real time
+
+Architecture:
+1. User connects a server by running a one-line install script
+2. The Go agent installs itself, connects securely back to the control plane
+3. User deploys an app (Git repo or Docker image) from the dashboard
+4. Agent pulls code/image, runs it in Docker; Caddy (embedded) gives it a domain + automatic HTTPS
+5. Agent reports health and logs back continuously
+6. Agent runs daily backups; user can restore with one click
+7. If something breaks, the agent detects it, tries to recover, sends a plain-English alert
+
+Our wedge:
+1. Nobody targets under-served markets deeply.
+2. Nobody makes it foolproof for a non-sysadmin — most tools still assume you know what a reverse proxy or SSH key is.
+3. Nobody bundles peace-of-mind features (auto backups, plain-English alerts) as a default.
+
+Explicitly NOT building:
+- No custom hypervisor or virtualization
+- No storage clustering, no auto-scaling across regions, no Kubernetes-style orchestration
+- No custom container runtime (we use Docker), no custom TLS engine (we use Caddy)
+
+Business model:
+Usage-based or seat-based SaaS subscription for the control plane. Customer servers stay theirs.
