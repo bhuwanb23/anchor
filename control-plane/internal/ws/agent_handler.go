@@ -13,6 +13,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
+	"github.com/yourname/yourplatform/control-plane/internal/alerts"
 	"github.com/yourname/yourplatform/control-plane/internal/db/queries"
 )
 
@@ -227,8 +228,9 @@ func handleBackupVerification(db *sql.DB, serverID string, payload json.RawMessa
 // handleAnomalyAlert persists a Layer 4C Step 4/5 anomaly alert: it upserts
 // the rich Step 5 alert into the alerts table (deduped by id, escalation and
 // resolution reuse the id), keeps a server_events row for backward compat,
-// and lets the caller forward it to browsers for live display.
-func handleAnomalyAlert(db *sql.DB, serverID string, payload json.RawMessage) {
+// hands it to the Step 6 delivery manager for email, and lets the caller
+// forward it to browsers for live display.
+func handleAnomalyAlert(db *sql.DB, serverID string, payload json.RawMessage, delivery *alerts.Delivery) {
 	var a struct {
 		ID         string                 `json:"id"`
 		Project    string                 `json:"project,omitempty"`
@@ -285,12 +287,13 @@ func handleAnomalyAlert(db *sql.DB, serverID string, payload json.RawMessage) {
 	if a.ResolvedAt != nil {
 		resolvedAt = *a.ResolvedAt
 	}
-	_ = queries.UpsertAlert(db, queries.AlertRecord{
+	record := queries.AlertRecord{
 		ID:          alertID,
 		ServerID:    serverID,
 		Project:     a.Project,
 		Container:   a.Container,
 		Severity:    severity,
+		Level:       a.Level,
 		Type:        a.Type,
 		Status:      status,
 		Title:       title,
@@ -300,7 +303,11 @@ func handleAnomalyAlert(db *sql.DB, serverID string, payload json.RawMessage) {
 		MetricsJSON: metricsJSON,
 		FiredAt:     a.FiredAt,
 		ResolvedAt:  resolvedAt,
-	})
+	}
+	_ = queries.UpsertAlert(db, record)
+	if delivery != nil {
+		delivery.HandleAlert(serverID, record)
+	}
 
 	// Backward-compatible server event row.
 	eventType := "warning"
@@ -439,7 +446,7 @@ func handleHealthReportBatch(db *sql.DB, serverID string, payload json.RawMessag
 	slog.Info("health_report_batch processed", "server_id", serverID, "count", len(batch.Reports))
 }
 
-func HandleAgentWS(hub *Hub, db *sql.DB, baseDomain string) http.HandlerFunc {
+func HandleAgentWS(hub *Hub, db *sql.DB, baseDomain string, delivery *alerts.Delivery) http.HandlerFunc {
 	upgrader := websocket.Upgrader{
 		ReadBufferSize:  1024,
 		WriteBufferSize: 1024,
@@ -555,7 +562,7 @@ func HandleAgentWS(hub *Hub, db *sql.DB, baseDomain string) http.HandlerFunc {
 			hub.ForwardToBrowsers(serverID, data)
 			slog.Warn("error alert", "server_id", serverID, "payload", string(msg.Payload))
 		case "anomaly_alert":
-			handleAnomalyAlert(db, serverID, msg.Payload)
+			handleAnomalyAlert(db, serverID, msg.Payload, delivery)
 			hub.ForwardToBrowsers(serverID, data)
 			case "server_event":
 				hub.ForwardToBrowsers(serverID, data)
