@@ -7,6 +7,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	"github.com/yourname/yourplatform/control-plane/internal/alerts"
 	"github.com/yourname/yourplatform/control-plane/internal/api/handlers"
 	appmiddleware "github.com/yourname/yourplatform/control-plane/internal/api/middleware"
 	"github.com/yourname/yourplatform/control-plane/internal/auth"
@@ -15,7 +16,7 @@ import (
 	"github.com/yourname/yourplatform/control-plane/internal/ws"
 )
 
-func NewRouter(database *sql.DB, cfg *config.Config, hub *ws.Hub) http.Handler {
+func NewRouter(database *sql.DB, cfg *config.Config, hub *ws.Hub, delivery *alerts.Delivery) http.Handler {
 	r := chi.NewRouter()
 
 	r.Use(middleware.RequestID)
@@ -29,7 +30,7 @@ func NewRouter(database *sql.DB, cfg *config.Config, hub *ws.Hub) http.Handler {
 		http.ServeFile(w, r, "./scripts/install.sh")
 	})
 
-	r.Get("/ws/agent", ws.HandleAgentWS(hub, database, cfg.BaseDomain))
+	r.Get("/ws/agent", ws.HandleAgentWS(hub, database, cfg.BaseDomain, delivery))
 	r.Get("/ws/browser", ws.HandleBrowserWS(hub, database, cfg.JWTSecret))
 
 	releaseDir := filepath.Join(".", "release")
@@ -63,6 +64,9 @@ func NewRouter(database *sql.DB, cfg *config.Config, hub *ws.Hub) http.Handler {
 			r.Post("/servers", server.CreateServer)
 			r.Get("/servers/{serverID}/events", server.ListEvents)
 			r.Get("/servers/{serverID}/alerts", server.ListAlerts)
+			r.Post("/servers/{serverID}/alerts/{alertID}/ack", server.AcknowledgeAlert)
+			r.Get("/alerts", server.ListAllAlerts)
+			r.Post("/alerts/read", server.MarkAllAlertsRead)
 			r.Post("/servers/registration-token", tokenHandler.CreateRegistrationToken)
 			r.Post("/deploy", handlers.MakeDeployApp(database, cfg, hub))
 			r.Get("/deployments", handlers.GetDeploymentStatus)
