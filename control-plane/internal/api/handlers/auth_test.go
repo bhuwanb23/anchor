@@ -39,6 +39,19 @@ func setupAuthTestDB(t *testing.T) *sql.DB {
 			updated_at TEXT
 		);
 		CREATE INDEX idx_users_email ON users(email);
+		CREATE TABLE refresh_tokens (
+			id TEXT PRIMARY KEY,
+			token_hash TEXT NOT NULL UNIQUE,
+			user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+			created_at TEXT NOT NULL DEFAULT (datetime('now')),
+			expires_at TEXT NOT NULL,
+			last_used_at TEXT,
+			user_agent TEXT,
+			ip_address TEXT,
+			revoked_at TEXT
+		);
+		CREATE INDEX idx_refresh_tokens_user ON refresh_tokens(user_id);
+		CREATE INDEX idx_refresh_tokens_hash ON refresh_tokens(token_hash);
 	`)
 	if err != nil {
 		t.Fatalf("create users table: %v", err)
@@ -289,8 +302,20 @@ func TestLogin_CaseInsensitiveEmail(t *testing.T) {
 	}
 	var resp map[string]interface{}
 	json.NewDecoder(w.Body).Decode(&resp)
-	if resp["token"] == "" {
-		t.Error("login should return a token")
+	if resp["access_token"] == "" {
+		t.Error("login should return an access_token")
+	}
+	if resp["refresh_token"] == "" {
+		t.Error("login should return a refresh_token")
+	}
+	if !strings.HasPrefix(resp["refresh_token"].(string), "rt_") {
+		t.Errorf("refresh_token = %v, want rt_ prefix", resp["refresh_token"])
+	}
+	if resp["token_type"] != "Bearer" {
+		t.Errorf("token_type = %v, want Bearer", resp["token_type"])
+	}
+	if resp["expires_in"] != 86400 {
+		t.Errorf("expires_in = %v, want 86400", resp["expires_in"])
 	}
 	user := resp["user"].(map[string]interface{})
 	if user["name"] != "Alice Smith" {
