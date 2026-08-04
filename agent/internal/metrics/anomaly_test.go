@@ -9,32 +9,32 @@ import (
 // fakeAlertSender records anomaly alerts sent by the detector.
 type fakeAlertSender struct {
 	mu     sync.Mutex
-	alerts []AnomalyAlert
+	alerts []Alert
 }
 
 func (s *fakeAlertSender) SendJSON(v interface{}) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if m, ok := v.(map[string]interface{}); ok {
-		if a, ok := m["payload"].(AnomalyAlert); ok {
+		if a, ok := m["payload"].(Alert); ok {
 			s.alerts = append(s.alerts, a)
 		}
 	}
 	return nil
 }
 
-func (s *fakeAlertSender) all() []AnomalyAlert {
+func (s *fakeAlertSender) all() []Alert {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	out := make([]AnomalyAlert, len(s.alerts))
+	out := make([]Alert, len(s.alerts))
 	copy(out, s.alerts)
 	return out
 }
 
-func (s *fakeAlertSender) ofType(typ string) []AnomalyAlert {
+func (s *fakeAlertSender) ofType(typ string) []Alert {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	var out []AnomalyAlert
+	var out []Alert
 	for _, a := range s.alerts {
 		if a.Type == typ {
 			out = append(out, a)
@@ -49,7 +49,7 @@ func (s *fakeAlertSender) count() int {
 	return len(s.alerts)
 }
 
-func levels(alerts []AnomalyAlert) []string {
+func levels(alerts []Alert) []string {
 	out := make([]string, len(alerts))
 	for i, a := range alerts {
 		out[i] = a.Level
@@ -59,7 +59,7 @@ func levels(alerts []AnomalyAlert) []string {
 
 func newTestDetector() (*AnomalyDetector, *fakeAlertSender) {
 	s := &fakeAlertSender{}
-	return NewAnomalyDetector(s), s
+	return NewAnomalyDetector(s, "srv-test"), s
 }
 
 func cpuReport(pct float64) HealthReport {
@@ -91,7 +91,7 @@ func containerReport(proj, role string, c ContainerMetrics) HealthReport {
 // crashAlerts returns the crash machine's alerts across both of its types
 // (single-crash warnings use "container_crash", crash loops use
 // "container_crash_loop").
-func crashAlerts(s *fakeAlertSender) []AnomalyAlert {
+func crashAlerts(s *fakeAlertSender) []Alert {
 	return append(s.ofType("container_crash"), s.ofType("container_crash_loop")...)
 }
 
@@ -483,7 +483,7 @@ func TestBackup_NeverRanNoAlert(t *testing.T) {
 
 func TestManager_WithAnomalyDetectorEvaluates(t *testing.T) {
 	alertSender := &fakeAlertSender{}
-	detector := NewAnomalyDetector(alertSender)
+	detector := NewAnomalyDetector(alertSender, "srv-test")
 
 	mgr := NewManager("srv-test",
 		NewSystemCollector(fakeCaddyStatus{alive: true}, fakeBackupReader{}),
