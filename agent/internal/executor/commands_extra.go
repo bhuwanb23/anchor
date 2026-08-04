@@ -167,64 +167,135 @@ func (e *Executor) executeVerifyDNS(ctx context.Context, cmd Command, result *Re
 	return nil
 }
 
+// streamJob is a resolved container stream to start.
+type streamJob struct {
+	role        string
+	containerID string
+}
+
+// executeStartLogStream handles both start_log_stream (single container_id+role)
+// and stream_logs (project_name + containers[]) payloads. One stream per role
+// is started; the dashboard can watch several containers at once (Layer 4C 3B).
 func (e *Executor) executeStartLogStream(ctx context.Context, cmd Command, result *Result) error {
 	if e.logStreamer == nil {
 		return fmt.Errorf("log streamer not configured")
 	}
 	var p struct {
-		StreamID    string `json:"stream_id"`
-		ProjectName string `json:"project_name"`
-		ContainerID string `json:"container_id"`
-		Role        string `json:"role"`
-		Tail        int    `json:"tail"`
+		ProjectName string   `json:"project_name"`
+		ContainerID string   `json:"container_id"`
+		Role        string   `json:"role"`
+		Containers  []string `json:"containers"`
+		Tail        int      `json:"tail"`
 	}
 	if err := json.Unmarshal(cmd.Payload, &p); err != nil {
-		return fmt.Errorf("invalid start_log_stream payload: %w", err)
+		return fmt.Errorf("invalid stream_logs payload: %w", err)
+	}
+	if p.ProjectName == "" {
+		return fmt.Errorf("project_name is required")
 	}
 	if p.Tail <= 0 {
 		p.Tail = 200
 	}
-	role := p.Role
-	if role == "" {
-		role = "app"
-	}
-	containerID := p.ContainerID
-	if containerID == "" && e.stateManager != nil {
-		if c := e.stateManager.GetProjectAppContainer(p.ProjectName); c != nil {
-			containerID = c.ContainerID
+
+	var jobs []streamJob
+	if p.ContainerID != "" {
+		role := p.Role
+		if role == "" {
+			role = "app"
+		}
+		jobs = append(jobs, streamJob{role: role, containerID: p.ContainerID})
+	} else {
+		roles := p.Containers
+		if len(roles) == 0 && p.Role != "" {
+			roles = []string{p.Role}
+		}
+		if len(roles) == 0 {
+			roles = []string{"app"}
+		}
+		for _, role := range roles {
+			containerID := ""
+			if e.stateManager != nil {
+				if c := e.stateManager.GetProjectContainer(p.ProjectName, role); c != nil {
+					containerID = c.ContainerID
+				}
+			}
+			jobs = append(jobs, streamJob{role: role, containerID: containerID})
 		}
 	}
-	if containerID == "" {
-		return fmt.Errorf("container_id required")
+
+	started := 0
+	var errs []string
+	for _, j := range jobs {
+		if j.containerID == "" {
+			errs = append(errs, fmt.Sprintf("no container for role %q", j.role))
+			continue
+		}
+		if err := e.logStreamer.StartStream(ctx, j.containerID, p.ProjectName, j.role, p.Tail); err != nil {
+			errs = append(errs, err.Error())
+			break // stream limit hit — stop trying further roles
+		}
+		started++
 	}
-	streamKey := p.StreamID
-	if streamKey == "" {
-		streamKey = p.ProjectName + "/" + role
+	if started == 0 {
+		if len(errs) > 0 {
+			return fmt.Errorf("%s", strings.Join(errs, "; "))
+		}
+		return fmt.Errorf("no containers to stream for project %s", p.ProjectName)
 	}
-	e.logStreamer.StartStream(ctx, containerID, p.ProjectName, role, p.Tail)
 	result.Status = "success"
-	result.Output = "streaming " + streamKey
+	result.Output = fmt.Sprintf("streaming %d container(s) for %s", started, p.ProjectName)
+	if len(errs) > 0 {
+		// Some roles failed (no container or limit hit) — surface it so the
+		// control plane knows the start was partial.
+		result.Output += "; " + strings.Join(errs, "; ")
+	}
 	return nil
 }
 
+// executeStopLogStream handles stop_stream_logs / stop_log_stream payloads:
+//   - all: true            → stop every active stream
+//   - project_name         → stop all streams for the project
+//   - project_name+containers → stop the listed roles only
+//   - container_id         → stop a single stream
 func (e *Executor) executeStopLogStream(ctx context.Context, cmd Command, result *Result) error {
 	if e.logStreamer == nil {
 		return fmt.Errorf("log streamer not configured")
 	}
 	var p struct {
-		ContainerID string `json:"container_id"`
-		ProjectName string `json:"project_name"`
-		Role        string `json:"role"`
+		ContainerID string   `json:"container_id"`
+		ProjectName string   `json:"project_name"`
+		Role        string   `json:"role"`
+		Containers  []string `json:"containers"`
+		All         bool     `json:"all"`
 	}
 	_ = json.Unmarshal(cmd.Payload, &p)
-	id := p.ContainerID
-	if id == "" && e.stateManager != nil {
-		if c := e.stateManager.GetProjectAppContainer(p.ProjectName); c != nil {
-			id = c.ContainerID
-		}
+
+	if p.All {
+		e.logStreamer.StopAll()
+		result.Status = "success"
+		result.Output = "stopped all log streams"
+		return nil
 	}
-	if id != "" {
-		e.logStreamer.StopStream(id)
+	if p.ProjectName != "" {
+		roles := p.Containers
+		if len(roles) == 0 && p.Role != "" {
+			roles = []string{p.Role}
+		}
+		if len(roles) == 0 {
+			e.logStreamer.StopProject(p.ProjectName)
+		} else if e.stateManager != nil {
+			for _, role := range roles {
+				if c := e.stateManager.GetProjectContainer(p.ProjectName, role); c != nil {
+					e.logStreamer.StopStream(c.ContainerID)
+				}
+			}
+		}
+		result.Status = "success"
+		result.Output = fmt.Sprintf("stopped log streams for %s", p.ProjectName)
+		return nil
+	}
+	if p.ContainerID != "" {
+		e.logStreamer.StopStream(p.ContainerID)
 	}
 	result.Status = "success"
 	result.Output = "stopped log stream"
