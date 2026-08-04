@@ -19,6 +19,7 @@ import (
 	"github.com/yourname/yourplatform/agent/internal/logstream"
 	"github.com/yourname/yourplatform/agent/internal/metrics"
 	"github.com/yourname/yourplatform/agent/internal/preflight"
+	"github.com/yourname/yourplatform/agent/internal/remediation"
 	"github.com/yourname/yourplatform/agent/internal/state"
 	"github.com/yourname/yourplatform/agent/internal/update"
 	"github.com/yourname/yourplatform/agent/internal/version"
@@ -248,6 +249,22 @@ func runAgent(args []string) int {
 	// after every collection; rich plain-English alerts (Step 5) flow to the
 	// control plane as anomaly_alert and are rate limited per project/server.
 	metricsMgr.WithAnomalyDetector(metrics.NewAnomalyDetector(wsClient, cfg.ServerID))
+	// Layer 4C 7: auto-remediation — safe corrective actions (docker prune when
+	// disk > 75%, Caddy restart when down, log-buffer flush when agent memory
+	// is high), each reported to the control plane as a remediation_report.
+	remediator := remediation.New(wsClient, cfg.ServerID)
+	remediator.SetPruner(dockerClient.PruneUnusedResources)
+	remediator.SetCaddyRestarter(func(ctx context.Context) error {
+		// Restart the process, then restore routes from persisted state — the
+		// same path used at startup (Layer 3B Step 1D).
+		if err := caddyProc.Restart(ctx, nil); err != nil {
+			return err
+		}
+		_, _, err := state.ReconcileCaddy(ctx, stateMgr, caddyMgr)
+		return err
+	})
+	remediator.SetLogFlusher(logStreamer.FlushAllBuffers)
+	metricsMgr.WithRemediator(remediator)
 	// On WS reconnect, flush buffered health reports to the control plane.
 	connMgr.OnConnect = func() {
 		reports := metricsReporter.Recent(100)
