@@ -681,6 +681,19 @@ func TestRecordBackupCompletion(t *testing.T) {
 	if backup.LastTotalBytes != 1024*1024 {
 		t.Errorf("expected total bytes %d, got %d", 1024*1024, backup.LastTotalBytes)
 	}
+	if backup.LastBackupStatus != "success" {
+		t.Errorf("expected status success, got %q", backup.LastBackupStatus)
+	}
+	if got := stateMgr.GetLastBackupStatus(); got != "success" {
+		t.Errorf("GetLastBackupStatus() = %q, want success", got)
+	}
+}
+
+func TestGetLastBackupStatus_NoBackup(t *testing.T) {
+	stateMgr := newTestManager(t)
+	if got := stateMgr.GetLastBackupStatus(); got != "" {
+		t.Errorf("GetLastBackupStatus() = %q, want empty", got)
+	}
 }
 
 func TestGetLastBackupTime_NoBackup(t *testing.T) {
@@ -709,6 +722,9 @@ func TestBackupState_Persistence(t *testing.T) {
 	backup := stateMgr2.GetState().Backup
 	if backup.LastSnapshotID != "snap123" {
 		t.Errorf("expected snapshot ID snap123, got %q", backup.LastSnapshotID)
+	}
+	if backup.LastBackupStatus != "success" {
+		t.Errorf("expected status success to persist, got %q", backup.LastBackupStatus)
 	}
 }
 
