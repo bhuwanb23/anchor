@@ -1,6 +1,7 @@
 package metrics
 
 import (
+	"runtime"
 	"sync"
 	"testing"
 	"time"
@@ -480,6 +481,30 @@ func TestBackup_NeverRanNoAlert(t *testing.T) {
 }
 
 // --- Manager wiring ---
+
+// --- Step 7 Case 4: agent memory ---
+
+func TestAgentMemory_WarningAndResolved(t *testing.T) {
+	d, s := newTestDetector()
+	ms := &runtime.MemStats{}
+	d.memStats = func() *runtime.MemStats { return ms }
+	rep := HealthReport{Platform: PlatformMetrics{CaddyRunning: true}}
+
+	ms.Alloc = 250 << 20 // 250MB → above the 200MB threshold
+	d.Evaluate(rep)
+	d.Evaluate(rep) // persistent → no duplicate
+	alerts := s.ofType("agent_memory")
+	if len(alerts) != 1 || alerts[0].Level != sevNameWarning {
+		t.Fatalf("expected 1 agent_memory warning, got %v", levels(alerts))
+	}
+
+	ms.Alloc = 100 << 20 // below the 180MB resolve threshold
+	d.Evaluate(rep)
+	alerts = s.ofType("agent_memory")
+	if len(alerts) != 2 || alerts[1].Level != sevNameResolved {
+		t.Fatalf("expected agent_memory resolved, got %v", levels(alerts))
+	}
+}
 
 func TestManager_WithAnomalyDetectorEvaluates(t *testing.T) {
 	alertSender := &fakeAlertSender{}
