@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"errors"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -58,17 +59,47 @@ func GenerateAccessToken(userID, email, name, secret string, expiry time.Duratio
 }
 
 // ValidateJWT parses and verifies an access token's signature and expiry.
+// It is the strict Layer 5A Step 3B validator (HS256 only, 30s clock skew,
+// access-type only) — see ValidateAccessToken.
 func ValidateJWT(tokenString, secret string) (*Claims, error) {
-	token, err := jwt.ParseWithClaims(tokenString, &Claims{}, func(token *jwt.Token) (interface{}, error) {
-		return []byte(secret), nil
-	})
+	return ValidateAccessToken(tokenString, secret)
+}
+
+// ErrTokenNotAccess is returned when a well-formed, correctly signed token
+// carries a type claim other than "access" (e.g. a refresh token or a token
+// from a future token type).
+var ErrTokenNotAccess = errors.New("token is not an access token")
+
+// ValidateAccessToken parses, verifies, and type-checks an access token
+// (Layer 5A Step 3B). Validation order:
+//
+//  1. structure — the JWT must parse (three base64url parts)
+//  2. signature — verified against the secret (catches tampering)
+//  3. algorithm — must be HS256; "none" and asymmetric algs are rejected
+//  4. expiry — exp must be in the future, with 30 seconds of clock-skew
+//     leeway for servers that drift
+//  5. type — the type claim must be "access", so a refresh token can never
+//     be accepted as an access token
+func ValidateAccessToken(tokenString, secret string) (*Claims, error) {
+	token, err := jwt.ParseWithClaims(
+		tokenString,
+		&Claims{},
+		func(token *jwt.Token) (interface{}, error) {
+			return []byte(secret), nil
+		},
+		jwt.WithValidMethods([]string{jwt.SigningMethodHS256.Alg()}),
+		jwt.WithLeeway(30*time.Second),
+	)
 	if err != nil {
 		return nil, err
 	}
 
-	if claims, ok := token.Claims.(*Claims); ok && token.Valid {
-		return claims, nil
+	claims, ok := token.Claims.(*Claims)
+	if !ok || !token.Valid {
+		return nil, jwt.ErrTokenInvalidClaims
 	}
-
-	return nil, jwt.ErrTokenInvalidClaims
+	if claims.Type != TokenTypeAccess {
+		return nil, ErrTokenNotAccess
+	}
+	return claims, nil
 }
