@@ -42,7 +42,7 @@ async function doRefresh(): Promise<string> {
   if (!refreshToken) throw new Error("no refresh token");
 
   const res = await axios.post<AuthResponse>(
-    `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080"}/api/v1/auth/refresh`,
+    `${api.defaults.baseURL}/api/v1/auth/refresh`,
     { refresh_token: refreshToken }
   );
 
@@ -57,13 +57,18 @@ api.interceptors.response.use(
   (response) => response,
   async (error: AxiosError) => {
     const status = error.response?.status;
-    const isAuthEndpoint =
+    // Only token-issuing endpoints are excluded from silent refresh (they
+    // would loop). Protected endpoints like /auth/me must still be retried
+    // after a refresh so an expired session recovers instead of logging out.
+    const isTokenIssuingEndpoint =
       typeof error.config?.url === "string" &&
-      error.config.url.includes("/auth/");
+      (error.config.url.endsWith("/auth/refresh") ||
+        error.config.url.endsWith("/auth/login") ||
+        error.config.url.endsWith("/auth/register"));
     const alreadyRetried = (error.config as InternalAxiosRequestConfig & { _retried?: boolean })?._retried;
 
     // Only attempt a silent refresh on 401 from protected endpoints, once.
-    if (status === 401 && !isAuthEndpoint && !alreadyRetried) {
+    if (status === 401 && !isTokenIssuingEndpoint && !alreadyRetried) {
       try {
         const newToken = await refreshAccessToken();
         const config = error.config as InternalAxiosRequestConfig & { _retried?: boolean };

@@ -212,11 +212,18 @@ func (a *Auth) Refresh(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Rotate: the presented token can only ever be used once. If the client
-	// presents it again it is already revoked → 401 (stolen-token protection).
-	if err := queries.RevokeRefreshToken(a.DB, rt.ID); err != nil {
+	// Rotate: the presented token can only ever be used once. The revoke is
+	// atomic (conditional on revoked_at IS NULL), so if two requests race with
+	// the same token only the first wins — the loser is treated as replay.
+	revoked, err := queries.RevokeRefreshToken(a.DB, rt.ID)
+	if err != nil {
 		slog.Error("revoke refresh token", "error", err)
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal server error"})
+		return
+	}
+	if !revoked {
+		// Another request already rotated this token — treat as stolen/replayed.
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid or expired refresh token"})
 		return
 	}
 	_ = queries.UpdateRefreshTokenLastUsed(a.DB, rt.ID)

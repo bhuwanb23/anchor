@@ -37,13 +37,20 @@ func GetRefreshTokenByHash(db *sql.DB, tokenHash string) (RefreshToken, error) {
 	return rt, err
 }
 
-// RevokeRefreshToken invalidates a session (used by logout and rotation).
-func RevokeRefreshToken(db *sql.DB, id string) error {
-	_, err := db.Exec(
-		"UPDATE refresh_tokens SET revoked_at = ? WHERE id = ?",
+// RevokeRefreshToken atomically invalidates a session (used by logout and
+// rotation). It only revokes a token that is still active; the returned bool
+// reports whether the token was actually revoked (false = already used), which
+// lets the refresh handler detect a raced/replayed token.
+func RevokeRefreshToken(db *sql.DB, id string) (bool, error) {
+	res, err := db.Exec(
+		"UPDATE refresh_tokens SET revoked_at = ? WHERE id = ? AND revoked_at IS NULL",
 		time.Now().UTC().Format(time.RFC3339), id,
 	)
-	return err
+	if err != nil {
+		return false, err
+	}
+	n, err := res.RowsAffected()
+	return n > 0, err
 }
 
 // UpdateRefreshTokenLastUsed records the most recent use of a session
@@ -52,16 +59,6 @@ func UpdateRefreshTokenLastUsed(db *sql.DB, id string) error {
 	_, err := db.Exec(
 		"UPDATE refresh_tokens SET last_used_at = ? WHERE id = ?",
 		time.Now().UTC().Format(time.RFC3339), id,
-	)
-	return err
-}
-
-// RevokeAllUserRefreshTokens invalidates every session for a user
-// (logout-all / password reset).
-func RevokeAllUserRefreshTokens(db *sql.DB, userID string) error {
-	_, err := db.Exec(
-		"UPDATE refresh_tokens SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL",
-		time.Now().UTC().Format(time.RFC3339), userID,
 	)
 	return err
 }
