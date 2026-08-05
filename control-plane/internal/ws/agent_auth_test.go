@@ -217,3 +217,27 @@ func TestAgentWS_RevokedAgentRejected(t *testing.T) {
 		t.Errorf("status = %v, want 401", resp)
 	}
 }
+
+// TestAgentWS_DeletedServerRejected verifies that a deleted server's agent
+// cannot reconnect (Layer 5A Step 6A): the WebSocket upgrade is rejected
+// with 403 before any connection is established.
+func TestAgentWS_DeletedServerRejected(t *testing.T) {
+	db := setupAgentAuthDB(t)
+	defer db.Close()
+	hub := NewHub()
+	srv := httptest.NewServer(HandleAgentWS(hub, db, "example.com", nil))
+	defer srv.Close()
+
+	// Mark the server as deleted.
+	if _, err := db.Exec("UPDATE servers SET status = 'deleted' WHERE id = 'srv-1'"); err != nil {
+		t.Fatalf("mark deleted: %v", err)
+	}
+
+	_, resp, err := dialAgent(srv, basicAuth("agt-1", "secret1"))
+	if err == nil {
+		t.Fatal("expected handshake to fail with deleted server")
+	}
+	if resp == nil || resp.StatusCode != http.StatusForbidden {
+		t.Errorf("status = %v, want 403", resp)
+	}
+}

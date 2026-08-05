@@ -511,6 +511,11 @@ func HandleAgentWS(hub *Hub, db *sql.DB, baseDomain string, delivery *alerts.Del
 			return
 		}
 
+		if status == "deleted" {
+			http.Error(w, "this server has been removed from your account", http.StatusForbidden)
+			return
+		}
+
 		conn, err := upgrader.Upgrade(w, r, nil)
 		if err != nil {
 			slog.Error("websocket upgrade", "agent_id", agentID, "error", err)
