@@ -78,6 +78,8 @@ type BrowserConn struct {
 	Send             chan []byte
 	WatchingServerID string
 	ActiveStreams    map[string]struct{}
+	LastPongAt       time.Time
+	LastPingSentAt   time.Time
 }
 
 // hubOpKind enumerates every operation the hub goroutine can process.
@@ -100,6 +102,8 @@ const (
 	opFailTimedOutCommand
 	opHasInFlightCommand
 	opAgentPong
+	opBrowserPong
+	opRecordBrowserPing
 	opSendToBrowser
 	opRegisterLogStream
 	opUnregisterLogStream
@@ -356,6 +360,16 @@ func (h *Hub) handleOp(op hubOp) {
 	case opAgentPong:
 		if agent, ok := h.agents[op.serverID]; ok {
 			agent.LastPingAt = time.Now().UTC()
+		}
+
+	case opBrowserPong:
+		if browser, ok := h.browsers[op.connID]; ok {
+			browser.LastPongAt = time.Now()
+		}
+
+	case opRecordBrowserPing:
+		if browser, ok := h.browsers[op.connID]; ok {
+			browser.LastPingSentAt = time.Now()
 		}
 
 	case opSendToBrowser:
@@ -674,6 +688,16 @@ func (h *Hub) HasInFlightCommand(serverID string) bool {
 // AgentPong records that the agent answered a heartbeat ping.
 func (h *Hub) AgentPong(serverID string) {
 	h.ops <- hubOp{kind: opAgentPong, serverID: serverID}
+}
+
+// BrowserPong records that a browser answered a heartbeat ping.
+func (h *Hub) BrowserPong(connID string) {
+	h.ops <- hubOp{kind: opBrowserPong, connID: connID}
+}
+
+// RecordBrowserPing records when a ping was sent to a browser for timeout tracking.
+func (h *Hub) RecordBrowserPing(connID string) {
+	h.ops <- hubOp{kind: opRecordBrowserPing, connID: connID}
 }
 
 // SendToBrowser sends a message directly to one browser connection, ignoring
