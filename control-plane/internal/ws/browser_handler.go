@@ -259,18 +259,15 @@ func HandleBrowserWS(hub *Hub, db *sql.DB, jwtSecret string) http.HandlerFunc {
 
 // userHasServerAccess reports whether the user owns the server or shares it
 // through a team (Layer 5A permission model). Used to validate subscriptions.
+// Uses the single-query check from the query layer (Layer 5C Step 3C #7)
+// instead of loading every accessible server ID into memory.
 func userHasServerAccess(db *sql.DB, userID, serverID string) bool {
-	ids, err := queries.ListServersByUserID(db, userID)
+	ok, err := queries.CanUserAccessServer(db, userID, serverID)
 	if err != nil {
 		slog.Warn("server access check failed", "user_id", userID, "error", err)
 		return false
 	}
-	for _, id := range ids {
-		if id == serverID {
-			return true
-		}
-	}
-	return false
+	return ok
 }
 
 // browserErrorMsg builds a browser-facing error envelope.
