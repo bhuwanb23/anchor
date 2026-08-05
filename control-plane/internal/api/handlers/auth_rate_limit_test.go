@@ -1,6 +1,7 @@
 package handlers_test
 
 import (
+	"fmt"
 	"net/http"
 	"strings"
 	"testing"
@@ -61,6 +62,57 @@ func TestForgotPassword_RateLimited(t *testing.T) {
 	}
 	if !strings.Contains(w.Body.String(), "Too many password reset requests") {
 		t.Errorf("body missing retry message: %s", w.Body.String())
+	}
+}
+
+// TestLogin_DefaultIPLimitTenAttempts mirrors the plan's exact rule: with the
+// production defaults (10 attempts per IP per 15 min), the 11th failed login
+// from one IP returns 429. Distinct emails keep the per-email limit out of
+// the way so the per-IP limit is what trips.
+func TestLogin_DefaultIPLimitTenAttempts(t *testing.T) {
+	db := setupAuthTestDB(t)
+	defer db.Close()
+	h := newAuthHandler(db)
+	h.Limiter = ratelimit.New() // production defaults: 10/IP, 5/email
+
+	prefix := fmt.Sprintf("attack-%d", time.Now().UnixNano())
+	for i := 0; i < 10; i++ {
+		email := fmt.Sprintf("%s-%d@example.com", prefix, i)
+		if w := loginWith(h, email, "wrong-password"); w.Code != http.StatusUnauthorized {
+			t.Fatalf("attempt %d: expected 401, got %d", i+1, w.Code)
+		}
+	}
+
+	// The 11th attempt from the same IP trips the limit.
+	w := loginWith(h, prefix+"-final@example.com", "wrong-password")
+	if w.Code != http.StatusTooManyRequests {
+		t.Fatalf("11th attempt: expected 429, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+// TestLogin_RecoversAfterWindow verifies the limiter opens up again once the
+// sliding window passes (the plan's "wait 15 minutes: login works again",
+// tested with a compressed window). The window must be longer than the ~300ms
+// bcrypt compare, otherwise each attempt expires before the next arrives.
+func TestLogin_RecoversAfterWindow(t *testing.T) {
+	db := setupAuthTestDB(t)
+	defer db.Close()
+	h := newAuthHandler(db)
+	h.Limiter = ratelimit.NewWithLimits(2, 2, 2, 2, 2, 3*time.Second)
+
+	if w := loginWith(h, "alice@example.com", "wrong-password"); w.Code != http.StatusUnauthorized {
+		t.Fatalf("first attempt: expected 401, got %d", w.Code)
+	}
+	if w := loginWith(h, "alice@example.com", "wrong-password"); w.Code != http.StatusUnauthorized {
+		t.Fatalf("second attempt: expected 401, got %d", w.Code)
+	}
+	if w := loginWith(h, "alice@example.com", "wrong-password"); w.Code != http.StatusTooManyRequests {
+		t.Fatalf("third attempt: expected 429, got %d", w.Code)
+	}
+
+	time.Sleep(3500 * time.Millisecond) // comfortably past the 3s window
+	if w := loginWith(h, "alice@example.com", "wrong-password"); w.Code != http.StatusUnauthorized {
+		t.Errorf("after window: expected 401, got %d (limiter did not recover)", w.Code)
 	}
 }
 

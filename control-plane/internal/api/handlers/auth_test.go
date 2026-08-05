@@ -376,3 +376,28 @@ func TestLogin_WrongPassword(t *testing.T) {
 		t.Errorf("error = %v, want non-enumerating message", resp["error"])
 	}
 }
+
+// TestLogin_UnknownEmailSameError verifies the anti-enumeration contract: an
+// unknown email returns the exact same error as a wrong password, so an
+// attacker cannot learn which emails have accounts.
+func TestLogin_UnknownEmailSameError(t *testing.T) {
+	db := setupAuthTestDB(t)
+	defer db.Close()
+	h := newAuthHandler(db)
+
+	registerRequest(t, h, map[string]string{
+		"name":     "Alice Smith",
+		"email":    "alice@example.com",
+		"password": "correct horse battery staple",
+	})
+
+	wrongPW := loginWith(h, "alice@example.com", "wrong-password")
+	unknown := loginWith(h, "nobody@example.com", "anything")
+
+	if wrongPW.Code != http.StatusUnauthorized || unknown.Code != http.StatusUnauthorized {
+		t.Fatalf("both must be 401: wrongPW=%d unknown=%d", wrongPW.Code, unknown.Code)
+	}
+	if wrongPW.Body.String() != unknown.Body.String() {
+		t.Errorf("responses differ — wrong password: %q, unknown email: %q", wrongPW.Body.String(), unknown.Body.String())
+	}
+}
