@@ -1104,17 +1104,7 @@ func (e *Executor) executeBackupStats(ctx context.Context, cmd Command, result *
 
 	// Report stats to control plane via WebSocket
 	if e.backupReporter != nil {
-		msg := map[string]interface{}{
-			"type": "backup_stats",
-			"payload": map[string]interface{}{
-				"server_id":       e.serverID,
-				"total_size":      stats.TotalSize,
-				"file_count":      stats.TotalFileCount,
-				"snapshot_count":  stats.SnapshotsCount,
-				"collected_at":    stats.CollectedAt,
-			},
-		}
-		_ = e.backupReporter.wsClient.SendJSON(msg)
+		e.backupReporter.SendStorageStats(e.serverID, stats)
 	}
 
 	result.Status = "success"
