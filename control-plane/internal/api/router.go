@@ -13,6 +13,7 @@ import (
 	"github.com/yourname/yourplatform/control-plane/internal/config"
 	"github.com/yourname/yourplatform/control-plane/internal/dns"
 	"github.com/yourname/yourplatform/control-plane/internal/mailer"
+	"github.com/yourname/yourplatform/control-plane/internal/ratelimit"
 	"github.com/yourname/yourplatform/control-plane/internal/ws"
 	"log/slog"
 )
@@ -24,6 +25,9 @@ func NewRouter(database *sql.DB, cfg *config.Config, hub *ws.Hub, delivery *aler
 	r.Use(middleware.RealIP)
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
+	// Security headers first so even CORS-short-circuited preflight (OPTIONS)
+	// responses carry them — "every response" (Layer 5A Step 8B).
+	r.Use(appmiddleware.SecurityHeaders)
 	r.Use(appmiddleware.CORS(cfg.FrontendURL))
 
 	r.Get("/health", handlers.Health)
@@ -44,7 +48,7 @@ func NewRouter(database *sql.DB, cfg *config.Config, hub *ws.Hub, delivery *aler
 		dnsClient = dns.NewClient(cfg.CloudflareToken, cfg.CloudflareZoneID)
 	}
 
-	authHandler := &handlers.Auth{DB: database, Cfg: cfg, Mailer: sender}
+	authHandler := &handlers.Auth{DB: database, Cfg: cfg, Mailer: sender, Limiter: ratelimit.New()}
 	server := &handlers.Server{DB: database}
 	tokenHandler := &handlers.Token{DB: database}
 	agentHandler := &handlers.Agent{DB: database, DNS: dnsClient, Config: cfg}
