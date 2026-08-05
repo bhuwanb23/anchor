@@ -35,7 +35,7 @@ func Load() *Config {
 		JWTSecret:        getEnv("JWT_SECRET", "dev-secret-change-in-production"),
 		JWTExpiryHrs:     parseInt(getEnv("JWT_EXPIRY_HOURS", "24")),
 		RefreshTokenDays: parseInt(getEnv("REFRESH_TOKEN_DAYS", "30")),
-		DatabasePath:     getEnv("DATABASE_PATH", "./yourplatform.db"),
+		DatabasePath:     getEnv("DATABASE_PATH", "./data/yourplatform.db"),
 		FrontendURL:      getEnv("FRONTEND_URL", "http://localhost:3000"),
 		WSPath:           getEnv("WS_PATH", "/ws/agent"),
 		BaseDomain:       getEnv("BASE_DOMAIN", "yourplatform.app"),
