@@ -68,6 +68,9 @@ func ListSessionsByUser(db *sql.DB, userID string) ([]RefreshToken, error) {
 		}
 		sessions = append(sessions, rt)
 	}
+	if sessions == nil {
+		sessions = []RefreshToken{}
+	}
 	return sessions, rows.Err()
 }
 

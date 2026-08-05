@@ -84,14 +84,16 @@ func InsertMetric(db *sql.DB, id, serverID, recordedAt string, collectedInMS int
 	return err
 }
 
-// DeleteMetricsBefore deletes metrics_history rows older than the given cutoff
-// for all servers when serverID is "", or for a specific server otherwise.
+// DeleteMetricsBefore deletes RAW metrics_history rows older than the given
+// cutoff for all servers when serverID is "", or for a specific server
+// otherwise. Rolled-up hourly/daily rows are never touched here (they have
+// their own retention in DeleteOldHourlyMetrics / DeleteOldDailyMetrics).
 func DeleteMetricsBefore(db *sql.DB, serverID, cutoff string) error {
 	if serverID == "" {
-		_, err := db.Exec("DELETE FROM metrics_history WHERE recorded_at < ?", cutoff)
+		_, err := db.Exec("DELETE FROM metrics_history WHERE granularity = 'raw' AND recorded_at < ?", cutoff)
 		return err
 	}
-	_, err := db.Exec("DELETE FROM metrics_history WHERE server_id = ? AND recorded_at < ?", serverID, cutoff)
+	_, err := db.Exec("DELETE FROM metrics_history WHERE granularity = 'raw' AND server_id = ? AND recorded_at < ?", serverID, cutoff)
 	return err
 }
 
@@ -253,11 +255,13 @@ func GetServerMetricsLatest(db *sql.DB, serverID string) (*MetricRow, error) {
 	return &m, nil
 }
 
-// RollupHourlyMetrics aggregates raw metrics into hourly averages.
-// Returns the number of hourly rows inserted.
+// RollupHourlyMetrics aggregates raw metrics into hourly averages
+// (Layer 5C Step 4A). The partial unique index on (server_id, recorded_at)
+// for non-raw rows makes the rollup idempotent: re-running it for the same
+// hour bucket inserts nothing. Returns the number of hourly rows inserted.
 func RollupHourlyMetrics(db *sql.DB) (int64, error) {
 	result, err := db.Exec(`
-		INSERT OR IGNORE INTO metrics_history (id, server_id, recorded_at, cpu_percent, ram_used_mb, ram_total_mb, disk_used_gb, disk_total_gb, load_1min)
+		INSERT OR IGNORE INTO metrics_history (id, server_id, recorded_at, cpu_percent, ram_used_mb, ram_total_mb, disk_used_gb, disk_total_gb, load_1min, granularity)
 		SELECT
 			lower(hex(randomblob(16))),
 			server_id,
@@ -267,9 +271,11 @@ func RollupHourlyMetrics(db *sql.DB) (int64, error) {
 			AVG(ram_total_mb),
 			AVG(disk_used_gb),
 			AVG(disk_total_gb),
-			AVG(load_1min)
+			AVG(load_1min),
+			'hourly'
 		FROM metrics_history
-		WHERE recorded_at < datetime('now', '-1 hour')
+		WHERE granularity = 'raw'
+		  AND recorded_at < datetime('now', '-1 hour')
 		  AND recorded_at >= datetime('now', '-8 days')
 		GROUP BY server_id, hour`)
 	if err != nil {
@@ -278,11 +284,64 @@ func RollupHourlyMetrics(db *sql.DB) (int64, error) {
 	return result.RowsAffected()
 }
 
-// DeleteOldRawMetrics removes raw metrics older than 7 days.
+// RollupDailyMetrics aggregates hourly averages into daily averages
+// (Layer 5C Step 4A). The daily bucket is date-only (strftime('%Y-%m-%d')) so
+// it can never collide with an hourly bucket at 00:00 of the same day in the
+// partial unique index. Returns the number of daily rows inserted.
+func RollupDailyMetrics(db *sql.DB) (int64, error) {
+	result, err := db.Exec(`
+		INSERT OR IGNORE INTO metrics_history (id, server_id, recorded_at, cpu_percent, ram_used_mb, ram_total_mb, disk_used_gb, disk_total_gb, load_1min, granularity)
+		SELECT
+			lower(hex(randomblob(16))),
+			server_id,
+			strftime('%Y-%m-%d', recorded_at) as day,
+			AVG(cpu_percent),
+			AVG(ram_used_mb),
+			AVG(ram_total_mb),
+			AVG(disk_used_gb),
+			AVG(disk_total_gb),
+			AVG(load_1min),
+			'daily'
+		FROM metrics_history
+		WHERE granularity = 'hourly'
+		  AND recorded_at < datetime('now', '-1 day')
+		  AND recorded_at >= datetime('now', '-32 days')
+		GROUP BY server_id, day`)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+// DeleteOldRawMetrics removes raw metrics older than 7 days, leaving the
+// rolled-up hourly and daily rows in place.
 func DeleteOldRawMetrics(db *sql.DB) (int64, error) {
 	result, err := db.Exec(`
 		DELETE FROM metrics_history
-		WHERE recorded_at < datetime('now', '-7 days')`)
+		WHERE granularity = 'raw' AND recorded_at < datetime('now', '-7 days')`)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+// DeleteOldHourlyMetrics removes hourly rows older than 30 days (the hourly
+// retention tier); daily rows are untouched.
+func DeleteOldHourlyMetrics(db *sql.DB) (int64, error) {
+	result, err := db.Exec(`
+		DELETE FROM metrics_history
+		WHERE granularity = 'hourly' AND recorded_at < datetime('now', '-30 days')`)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+// DeleteOldDailyMetrics removes daily rows older than 12 months.
+func DeleteOldDailyMetrics(db *sql.DB) (int64, error) {
+	result, err := db.Exec(`
+		DELETE FROM metrics_history
+		WHERE granularity = 'daily' AND recorded_at < datetime('now', '-12 months')`)
 	if err != nil {
 		return 0, err
 	}
