@@ -89,3 +89,16 @@ func PendingCommandsAsJSON(db *sql.DB, serverID string) ([]json.RawMessage, erro
 	}
 	return out, nil
 }
+
+// DeleteExpiredPendingCommands removes pending commands whose expiry has passed.
+func DeleteExpiredPendingCommands(db *sql.DB) (int64, error) {
+	now := time.Now().UTC().Format(time.RFC3339)
+	result, err := db.Exec(
+		`DELETE FROM pending_commands WHERE expires_at IS NOT NULL AND expires_at != '' AND expires_at < ?`,
+		now,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}

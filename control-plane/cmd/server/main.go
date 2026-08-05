@@ -40,15 +40,27 @@ func main() {
 
 	hub := ws.NewHub()
 	go hub.StartHeartbeat(database)
+	go hub.StartMetricsLogger()
 	go pruneMetrics(database)
+	go rollupMetrics(database)
 
-	// Layer 5A Step 4A Level 3 — delete expired refresh tokens weekly. Expired
-	// sessions can no longer be refreshed, so the rows are garbage.
+	// Layer 5A Step 4A Level 3 — delete expired refresh tokens weekly.
 	go pruneExpiredRefreshTokens(database)
 
-	// Layer 5A Step 7A — expired password-reset tokens are garbage: their
-	// 1-hour window has passed, so they can never be redeemed. Prune weekly.
+	// Layer 5A Step 7A — expired password-reset tokens weekly.
 	go pruneExpiredPasswordResets(database)
+
+	// Layer 5C Step 2 — expired registration tokens daily.
+	go pruneExpiredRegistrationTokens(database)
+
+	// Layer 5C Step 2 — expired pending commands daily.
+	go pruneExpiredPendingCommands(database)
+
+	// Layer 5C Step 2 — old server events (90 days) weekly.
+	go pruneOldEvents(database)
+
+	// Layer 5C Step 2 — VACUUM weekly.
+	go vacuumDatabase(database)
 
 	// Layer 4C Step 6 — alert email delivery. Runs in the background and
 	// never blocks the agent/metrics paths.
@@ -121,6 +133,77 @@ func pruneMetrics(db *sql.DB) {
 			slog.Warn("failed to prune metrics_history", "error", err)
 		} else {
 			slog.Info("pruned metrics_history before", "cutoff", cutoff)
+		}
+	}
+}
+
+// rollupMetrics runs hourly and aggregates raw metrics into hourly averages,
+// then deletes raw metrics older than 7 days.
+func rollupMetrics(db *sql.DB) {
+	ticker := time.NewTicker(1 * time.Hour)
+	defer ticker.Stop()
+	for range ticker.C {
+		if n, err := queries.RollupHourlyMetrics(db); err != nil {
+			slog.Warn("failed to rollup hourly metrics", "error", err)
+		} else if n > 0 {
+			slog.Info("rolled up hourly metrics", "rows", n)
+		}
+		if n, err := queries.DeleteOldRawMetrics(db); err != nil {
+			slog.Warn("failed to delete old raw metrics", "error", err)
+		} else if n > 0 {
+			slog.Info("deleted old raw metrics", "rows", n)
+		}
+	}
+}
+
+// pruneExpiredRegistrationTokens runs daily and deletes unused tokens past expiry.
+func pruneExpiredRegistrationTokens(db *sql.DB) {
+	ticker := time.NewTicker(24 * time.Hour)
+	defer ticker.Stop()
+	for range ticker.C {
+		if err := queries.DeleteExpiredRegistrationTokens(db); err != nil {
+			slog.Warn("failed to prune expired registration tokens", "error", err)
+		} else {
+			slog.Info("pruned expired registration tokens")
+		}
+	}
+}
+
+// pruneExpiredPendingCommands runs daily and deletes commands past their expiry.
+func pruneExpiredPendingCommands(db *sql.DB) {
+	ticker := time.NewTicker(24 * time.Hour)
+	defer ticker.Stop()
+	for range ticker.C {
+		if n, err := queries.DeleteExpiredPendingCommands(db); err != nil {
+			slog.Warn("failed to prune expired pending commands", "error", err)
+		} else if n > 0 {
+			slog.Info("pruned expired pending commands", "count", n)
+		}
+	}
+}
+
+// pruneOldEvents runs weekly and deletes server events older than 90 days.
+func pruneOldEvents(db *sql.DB) {
+	ticker := time.NewTicker(7 * 24 * time.Hour)
+	defer ticker.Stop()
+	for range ticker.C {
+		if n, err := queries.DeleteOldEvents(db, 90); err != nil {
+			slog.Warn("failed to prune old server events", "error", err)
+		} else if n > 0 {
+			slog.Info("pruned old server events", "count", n)
+		}
+	}
+}
+
+// vacuumDatabase runs weekly and reclaims space from deleted rows.
+func vacuumDatabase(db *sql.DB) {
+	ticker := time.NewTicker(7 * 24 * time.Hour)
+	defer ticker.Stop()
+	for range ticker.C {
+		if _, err := db.Exec("VACUUM"); err != nil {
+			slog.Warn("failed to vacuum database", "error", err)
+		} else {
+			slog.Info("vacuumed database")
 		}
 	}
 }

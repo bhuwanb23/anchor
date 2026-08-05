@@ -209,3 +209,91 @@ func nullFloat64Ptr(v sql.NullFloat64) *float64 {
 	out := v.Float64
 	return &out
 }
+
+// UpsertServerMetricsLatest updates the latest metrics snapshot for a server.
+// Called on every health report for O(1) dashboard load.
+func UpsertServerMetricsLatest(db *sql.DB, serverID, recordedAt string, cpuPct float64, ramUsedMB, ramTotalMB int64, diskUsedGB, diskTotalGB, load1 float64) error {
+	_, err := db.Exec(`
+		INSERT INTO server_metrics_latest (server_id, recorded_at, cpu_percent, ram_used_mb, ram_total_mb, disk_used_gb, disk_total_gb, load_1min)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(server_id) DO UPDATE SET
+			recorded_at = excluded.recorded_at,
+			cpu_percent = excluded.cpu_percent,
+			ram_used_mb = excluded.ram_used_mb,
+			ram_total_mb = excluded.ram_total_mb,
+			disk_used_gb = excluded.disk_used_gb,
+			disk_total_gb = excluded.disk_total_gb,
+			load_1min = excluded.load_1min`,
+		serverID, recordedAt, cpuPct, ramUsedMB, ramTotalMB, diskUsedGB, diskTotalGB, load1,
+	)
+	return err
+}
+
+// GetServerMetricsLatest returns the latest metrics snapshot for a server.
+func GetServerMetricsLatest(db *sql.DB, serverID string) (*MetricRow, error) {
+	row := db.QueryRow(`
+		SELECT server_id, recorded_at, cpu_percent, ram_used_mb, ram_total_mb, disk_used_gb, disk_total_gb, load_1min
+		FROM server_metrics_latest WHERE server_id = ?`, serverID)
+
+	var m MetricRow
+	var cpu, diskUsed, diskTotal, load1 sql.NullFloat64
+	var ramUsed, ramTotal sql.NullInt64
+	if err := row.Scan(&m.ServerID, &m.RecordedAt, &cpu, &ramUsed, &ramTotal, &diskUsed, &diskTotal, &load1); err != nil {
+		return nil, err
+	}
+	m.CPUPercent = nullFloat64Ptr(cpu)
+	m.RAMUsedMB = nullInt64Ptr(ramUsed)
+	m.RAMTotalMB = nullInt64Ptr(ramTotal)
+	m.DiskUsedGB = nullFloat64Ptr(diskUsed)
+	m.DiskTotalGB = nullFloat64Ptr(diskTotal)
+	m.Load1Min = nullFloat64Ptr(load1)
+	return &m, nil
+}
+
+// RollupHourlyMetrics aggregates raw metrics into hourly averages.
+// Returns the number of hourly rows inserted.
+func RollupHourlyMetrics(db *sql.DB) (int64, error) {
+	result, err := db.Exec(`
+		INSERT OR IGNORE INTO metrics_history (id, server_id, recorded_at, cpu_percent, ram_used_mb, ram_total_mb, disk_used_gb, disk_total_gb, load_1min)
+		SELECT
+			lower(hex(randomblob(16))),
+			server_id,
+			strftime('%Y-%m-%dT%H:00:00Z', recorded_at) as hour,
+			AVG(cpu_percent),
+			AVG(ram_used_mb),
+			AVG(ram_total_mb),
+			AVG(disk_used_gb),
+			AVG(disk_total_gb),
+			AVG(load_1min)
+		FROM metrics_history
+		WHERE recorded_at < datetime('now', '-1 hour')
+		  AND recorded_at >= datetime('now', '-8 days')
+		GROUP BY server_id, hour`)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+// DeleteOldRawMetrics removes raw metrics older than 7 days.
+func DeleteOldRawMetrics(db *sql.DB) (int64, error) {
+	result, err := db.Exec(`
+		DELETE FROM metrics_history
+		WHERE recorded_at < datetime('now', '-7 days')`)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+// DeleteOldMetrics removes metrics older than the given number of days.
+func DeleteOldMetrics(db *sql.DB, days int) (int64, error) {
+	result, err := db.Exec(
+		`DELETE FROM metrics_history WHERE recorded_at < datetime('now', '-' || ? || ' days')`,
+		days,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
