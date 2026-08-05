@@ -549,3 +549,75 @@ func (h *Backup) TriggerBackupVerification(w http.ResponseWriter, r *http.Reques
 		"message": "Backup verification has been triggered",
 	})
 }
+
+// GetStorageStats returns detailed storage statistics for a server.
+// GET /api/v1/servers/{serverID}/backup/storage/stats
+func (h *Backup) GetStorageStats(w http.ResponseWriter, r *http.Request) {
+	serverID := chi.URLParam(r, "serverID")
+
+	info, err := queries.GetBackupUsageInfo(h.DB, serverID)
+	if err != nil {
+		slog.Error("get storage stats", "error", err)
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	// Get retention info for days-until-full estimate
+	limitBytes, daily, weekly, monthly, _ := queries.GetBackupStorageLimits(h.DB, serverID)
+	daysUntilFull := queries.EstimateDaysUntilFull(info.History, info.TotalBytes, limitBytes)
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"total_bytes":      info.TotalBytes,
+		"limit_bytes":      info.LimitBytes,
+		"percent_used":     info.PercentUsed,
+		"snapshot_count":   info.SnapshotCount,
+		"days_until_full":  daysUntilFull,
+		"retention_daily":  daily,
+		"retention_weekly": weekly,
+		"retention_monthly": monthly,
+		"history":          info.History,
+	})
+}
+
+// TriggerMaintenance sends a maintenance command to the agent.
+// POST /api/v1/servers/{serverID}/backup/storage/maintenance
+func (h *Backup) TriggerMaintenance(w http.ResponseWriter, r *http.Request) {
+	serverID := chi.URLParam(r, "serverID")
+
+	var req struct {
+		Operation string `json:"operation"` // "cache_cleanup", "rebuild_index", "all"
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		req.Operation = "all"
+	}
+
+	if req.Operation == "" {
+		req.Operation = "all"
+	}
+
+	// Send maintenance command to agent
+	msg := map[string]interface{}{
+		"type": "command",
+		"payload": map[string]interface{}{
+			"id":   uuid.New().String(),
+			"type": "backup_maintenance",
+			"payload": map[string]interface{}{
+				"server_id":  serverID,
+				"operation": req.Operation,
+			},
+		},
+	}
+
+	msgBytes, _ := json.Marshal(msg)
+	if !h.Hub.SendToAgent(serverID, msgBytes) {
+		http.Error(w, "agent not connected", http.StatusServiceUnavailable)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{
+		"status":  "maintenance_triggered",
+		"message": "Maintenance operation has been triggered",
+	})
+}
