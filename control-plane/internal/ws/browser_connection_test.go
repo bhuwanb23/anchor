@@ -59,14 +59,15 @@ func TestBrowserConnection_UnregisterCleansStreamSubs(t *testing.T) {
 	hub := NewHub()
 	connID, _ := hub.RegisterBrowser("user-1", testConn(t))
 	hub.RegisterLogStream("st-1", connID)
-	if got := hub.LookupLogStream("st-1"); got != connID {
-		t.Fatalf("LookupLogStream(st-1) = %q, want %q", got, connID)
+	got := hub.LookupLogStream("st-1")
+	if len(got) != 1 || got[0] != connID {
+		t.Fatalf("LookupLogStream(st-1) = %v, want [%q]", got, connID)
 	}
 
 	// Tab close: the browser's unregister must release its log streams.
 	hub.UnregisterBrowser(connID)
-	if got := hub.LookupLogStream("st-1"); got != "" {
-		t.Fatalf("stream routing should be cleaned on unregister, still %q", got)
+	if got := hub.LookupLogStream("st-1"); len(got) != 0 {
+		t.Fatalf("stream routing should be cleaned on unregister, still %v", got)
 	}
 }
 
@@ -75,12 +76,13 @@ func TestBrowserConnection_LogStreamTable(t *testing.T) {
 	connID, _ := hub.RegisterBrowser("user-1", testConn(t))
 
 	hub.RegisterLogStream("stream-abc", connID)
-	if got := hub.LookupLogStream("stream-abc"); got != connID {
-		t.Fatalf("LookupLogStream = %q, want %q", got, connID)
+	got := hub.LookupLogStream("stream-abc")
+	if len(got) != 1 || got[0] != connID {
+		t.Fatalf("LookupLogStream = %v, want [%q]", got, connID)
 	}
-	hub.UnregisterLogStream("stream-abc")
-	if got := hub.LookupLogStream("stream-abc"); got != "" {
-		t.Fatalf("stream should be unregistered, still %q", got)
+	hub.UnregisterLogStream("stream-abc", connID)
+	if got := hub.LookupLogStream("stream-abc"); len(got) != 0 {
+		t.Fatalf("stream should be unregistered, still %v", got)
 	}
 }
 

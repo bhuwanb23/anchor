@@ -237,7 +237,7 @@ func HandleBrowserWS(hub *Hub, db *sql.DB, jwtSecret string) http.HandlerFunc {
 						continue
 					}
 					if key := streamPayloadKey(msg.Payload); key != "" {
-						hub.UnregisterLogStream(key)
+						hub.UnregisterLogStream(key, connID)
 						hub.ClearStreamCommand(watching, key)
 					}
 					hub.SendToAgent(watching, buildStreamCommand("stop_stream_logs", msg.Payload))

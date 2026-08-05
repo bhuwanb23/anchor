@@ -666,13 +666,15 @@ func streamIDFromPayload(payload json.RawMessage) string {
 	return ""
 }
 
-// routeLogLines delivers container log output to the browser subscribed to
+// routeLogLines delivers container log output to the browsers subscribed to
 // that stream, broadcasting to all watching dashboards as a fallback when the
 // payload has no routable stream id.
 func routeLogLines(hub *Hub, serverID string, payload json.RawMessage, data []byte) {
 	if streamID := streamIDFromPayload(payload); streamID != "" {
-		if connID := hub.LookupLogStream(streamID); connID != "" {
-			hub.SendToBrowser(connID, data)
+		if connIDs := hub.LookupLogStream(streamID); len(connIDs) > 0 {
+			for _, connID := range connIDs {
+				hub.SendToBrowser(connID, data)
+			}
 			return
 		}
 	}

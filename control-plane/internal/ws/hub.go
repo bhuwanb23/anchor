@@ -38,9 +38,10 @@ type Hub struct {
 	browsers        map[string]*BrowserConn
 	subscriptions   map[string]map[string]struct{}
 	pendingCommands map[string]pendingCommandEntry
-	// streamSubs routes agent log output (by stream_id) to the exact browser
-	// connection that requested it (Layer 5B Step 3D).
-	streamSubs map[string]string
+	// streamSubs routes agent log output (by stream_id) to the browser
+	// connections that requested it (Layer 5B Step 5C). Multiple browsers
+	// can watch the same stream simultaneously.
+	streamSubs map[string]map[string]struct{}
 	// streams records per-server log-stream desires requested by dashboards so
 	// the control plane can re-establish live log views when an agent
 	// reconnects (Layer 4C 3B). Keyed by a project|roles signature.
@@ -145,7 +146,7 @@ func NewHub() *Hub {
 		browsers:        make(map[string]*BrowserConn),
 		subscriptions:   make(map[string]map[string]struct{}),
 		pendingCommands: make(map[string]pendingCommandEntry),
-		streamSubs:      make(map[string]string),
+		streamSubs:      make(map[string]map[string]struct{}),
 		streams:         make(map[string]map[string][]byte),
 	}
 	h.started.Do(func() { go h.run() })
@@ -245,12 +246,13 @@ func (h *Hub) handleOp(op hubOp) {
 					delete(h.pendingCommands, cmdID)
 				}
 			}
-			// Release every log stream this connection started (Step 3C Way 2).
-			for streamID, owner := range h.streamSubs {
-				if owner == op.connID {
-					delete(h.streamSubs, streamID)
-				}
+		// Release every log stream this connection started (Step 3C Way 2).
+		for streamID, conns := range h.streamSubs {
+			delete(conns, op.connID)
+			if len(conns) == 0 {
+				delete(h.streamSubs, streamID)
 			}
+		}
 			close(browser.Send)
 			browser.Conn.Close()
 			delete(h.browsers, op.connID)
@@ -337,19 +339,31 @@ func (h *Hub) handleOp(op hubOp) {
 
 	case opRegisterLogStream:
 		if _, ok := h.browsers[op.connID]; ok {
-			h.streamSubs[op.key] = op.connID
+			if h.streamSubs[op.key] == nil {
+				h.streamSubs[op.key] = make(map[string]struct{})
+			}
+			h.streamSubs[op.key][op.connID] = struct{}{}
 		}
 
 	case opUnregisterLogStream:
-		delete(h.streamSubs, op.key)
+		if conns, ok := h.streamSubs[op.key]; ok {
+			delete(conns, op.connID)
+			if len(conns) == 0 {
+				delete(h.streamSubs, op.key)
+			}
+		}
 
 	case opLookupLogStream:
 		if op.reply != nil {
-			connID, ok := h.streamSubs[op.key]
-			if !ok {
-				op.reply <- ""
+			conns, ok := h.streamSubs[op.key]
+			if !ok || len(conns) == 0 {
+				op.reply <- []string{}
 			} else {
-				op.reply <- connID
+				ids := make([]string, 0, len(conns))
+				for id := range conns {
+					ids = append(ids, id)
+				}
+				op.reply <- ids
 			}
 		}
 
@@ -625,18 +639,23 @@ func (h *Hub) RegisterLogStream(streamID, connID string) {
 	h.ops <- hubOp{kind: opRegisterLogStream, key: streamID, connID: connID}
 }
 
-// UnregisterLogStream stops routing log output for a stream (stop_log_stream).
-func (h *Hub) UnregisterLogStream(streamID string) {
-	h.ops <- hubOp{kind: opUnregisterLogStream, key: streamID}
+// UnregisterLogStream stops routing log output for a stream for a specific
+// browser connection (stop_log_stream).
+func (h *Hub) UnregisterLogStream(streamID, connID string) {
+	h.ops <- hubOp{kind: opUnregisterLogStream, key: streamID, connID: connID}
 }
 
-// LookupLogStream returns the browser connection currently receiving log
-// output for a stream, or "" if nobody is subscribed.
-func (h *Hub) LookupLogStream(streamID string) string {
+// LookupLogStream returns the browser connections currently receiving log
+// output for a stream, or an empty slice if nobody is subscribed.
+func (h *Hub) LookupLogStream(streamID string) []string {
 	reply := make(chan interface{}, 1)
 	h.ops <- hubOp{kind: opLookupLogStream, key: streamID, reply: reply}
-	connID, _ := (<-reply).(string)
-	return connID
+	r := <-reply
+	if r == nil {
+		return nil
+	}
+	ids, _ := r.([]string)
+	return ids
 }
 
 // RecordStreamCommand remembers a stream_logs desire for a server so it can be
