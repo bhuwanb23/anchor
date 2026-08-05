@@ -313,6 +313,10 @@ func (e *Executor) Execute(ctx context.Context, cmd Command) Result {
 		err = e.executeBackupConfig(ctx, cmd, &result)
 	case "backup_verify":
 		err = e.executeBackupVerify(ctx, cmd, &result)
+	case "backup_stats":
+		err = e.executeBackupStats(ctx, cmd, &result)
+	case "backup_maintenance":
+		err = e.executeBackupMaintenance(ctx, cmd, &result)
 	case "fetch_logs", "get_logs":
 		err = e.executeFetchLogs(ctx, cmd, &result)
 	case "delete_project":
@@ -1079,6 +1083,95 @@ func (e *Executor) executeBackupVerify(ctx context.Context, cmd Command, result 
 
 	result.Status = "success"
 	result.Output = fmt.Sprintf("verification %s: %s", status.Status, status.Subset)
+	return nil
+}
+
+// BackupStatsPayload is the payload for backup_stats commands.
+type BackupStatsPayload struct {
+	ServerID string `json:"server_id"`
+}
+
+func (e *Executor) executeBackupStats(ctx context.Context, cmd Command, result *Result) error {
+	if e.backup == nil {
+		return fmt.Errorf("backup manager not initialized")
+	}
+
+	storage := backup.NewStorageManager(e.backup.GetRepository())
+	stats, err := storage.CollectStats(ctx)
+	if err != nil {
+		return fmt.Errorf("collect storage stats: %w", err)
+	}
+
+	// Report stats to control plane via WebSocket
+	if e.backupReporter != nil {
+		msg := map[string]interface{}{
+			"type": "backup_stats",
+			"payload": map[string]interface{}{
+				"server_id":       e.serverID,
+				"total_size":      stats.TotalSize,
+				"file_count":      stats.TotalFileCount,
+				"snapshot_count":  stats.SnapshotsCount,
+				"collected_at":    stats.CollectedAt,
+			},
+		}
+		_ = e.backupReporter.wsClient.SendJSON(msg)
+	}
+
+	result.Status = "success"
+	result.Output = fmt.Sprintf("stats: size=%d files=%d snapshots=%d",
+		stats.TotalSize, stats.TotalFileCount, stats.SnapshotsCount)
+	return nil
+}
+
+// BackupMaintenancePayload is the payload for backup_maintenance commands.
+type BackupMaintenancePayload struct {
+	ServerID  string `json:"server_id"`
+	Operation string `json:"operation"` // "cache_cleanup", "rebuild_index", "all"
+}
+
+func (e *Executor) executeBackupMaintenance(ctx context.Context, cmd Command, result *Result) error {
+	if e.backup == nil {
+		return fmt.Errorf("backup manager not initialized")
+	}
+
+	var p BackupMaintenancePayload
+	if err := json.Unmarshal(cmd.Payload, &p); err != nil {
+		return fmt.Errorf("invalid backup_maintenance payload: %w", err)
+	}
+
+	storage := backup.NewStorageManager(e.backup.GetRepository())
+
+	switch p.Operation {
+	case "cache_cleanup":
+		if err := storage.CacheCleanup(ctx); err != nil {
+			return fmt.Errorf("cache cleanup: %w", err)
+		}
+		result.Output = "cache cleanup completed"
+
+	case "rebuild_index":
+		if err := storage.RebuildIndex(ctx); err != nil {
+			return fmt.Errorf("rebuild index: %w", err)
+		}
+		result.Output = "index rebuild completed"
+
+	case "all", "":
+		cacheErr, indexErr := storage.RunMaintenance(ctx)
+		if cacheErr != nil {
+			slog.Warn("cache cleanup failed during maintenance", "error", cacheErr)
+		}
+		if indexErr != nil {
+			slog.Warn("index rebuild failed during maintenance", "error", indexErr)
+		}
+		if cacheErr != nil && indexErr != nil {
+			return fmt.Errorf("maintenance failed: cache=%v, index=%v", cacheErr, indexErr)
+		}
+		result.Output = "maintenance completed"
+
+	default:
+		return fmt.Errorf("unknown maintenance operation: %s", p.Operation)
+	}
+
+	result.Status = "success"
 	return nil
 }
 
