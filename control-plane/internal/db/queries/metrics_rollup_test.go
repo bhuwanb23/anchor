@@ -106,22 +106,22 @@ func TestRollupDailyMetrics_FromHourly(t *testing.T) {
 	db := setupMetricsRollupDB(t)
 	defer db.Close()
 
-	// Two hourly buckets on the same day, one on another day.
-	for i, cpu := range []float64{10, 30} {
+	// Three distinct hour buckets on the same day (avg 30), one bucket on
+	// another day. Distinct buckets because the rollup unique index forbids
+	// two hourly rows for the same (server_id, hour).
+	seedHourly := func(id string, cpu float64, hoursBack int) {
+		t.Helper()
 		if _, err := db.Exec(
 			`INSERT INTO metrics_history (id, server_id, recorded_at, cpu_percent, granularity)
-			 VALUES (?, 'srv-1', strftime('%Y-%m-%dT%H:00:00Z', datetime('now', '-2 days', '-2 hours')), ?, 'hourly')`,
-			fmt.Sprintf("h1-%d", i), cpu,
+			 VALUES (?, 'srv-1', strftime('%Y-%m-%dT%H:00:00Z', datetime('now', '-2 days', ?)), ?, 'hourly')`,
+			id, fmt.Sprintf("-%d hours", hoursBack), cpu,
 		); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if _, err := db.Exec(
-		`INSERT INTO metrics_history (id, server_id, recorded_at, cpu_percent, granularity)
-		 VALUES ('h3', 'srv-1', strftime('%Y-%m-%dT%H:00:00Z', datetime('now', '-2 days', '-5 hours')), 50, 'hourly')`,
-	); err != nil {
-		t.Fatal(err)
-	}
+	seedHourly("h1-0", 10, 2)
+	seedHourly("h1-1", 30, 3)
+	seedHourly("h1-2", 50, 5)
 	if _, err := db.Exec(
 		`INSERT INTO metrics_history (id, server_id, recorded_at, cpu_percent, granularity)
 		 VALUES ('h4', 'srv-2', strftime('%Y-%m-%dT%H:00:00Z', datetime('now', '-3 days', '-1 hours')), 80, 'hourly')`,
