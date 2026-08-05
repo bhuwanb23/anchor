@@ -44,6 +44,11 @@ func TestInsertAndListServerEvents(t *testing.T) {
 	if err := InsertServerEvent(db, "e-2", "srv-1", "warning", "disk", "disk at 85%", ""); err != nil {
 		t.Fatal(err)
 	}
+	// datetime('now') has second granularity, so backdate e-1 to make the
+	// newest-first ordering deterministic.
+	if _, err := db.Exec(`UPDATE server_events SET created_at = datetime('now', '-1 minute') WHERE id = 'e-1'`); err != nil {
+		t.Fatal(err)
+	}
 
 	events, err := ListEventsByServer(db, "srv-1", 0)
 	if err != nil {
