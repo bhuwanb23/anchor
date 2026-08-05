@@ -108,8 +108,10 @@ func TestHub_AgentUnregisterClosesSend(t *testing.T) {
 
 func TestHub_BrowserRegisterDeliversSubscribed(t *testing.T) {
 	hub := NewHub()
-	_, sendA := hub.RegisterBrowser("srv-1", "user-1", testConn(t))
-	_, sendB := hub.RegisterBrowser("srv-1", "user-2", testConn(t))
+	connIDA, sendA := hub.RegisterBrowser("user-1", testConn(t))
+	connIDB, sendB := hub.RegisterBrowser("user-2", testConn(t))
+	hub.Subscribe("srv-1", connIDA)
+	hub.Subscribe("srv-1", connIDB)
 
 	hub.ForwardToBrowsers("srv-1", []byte("hello"))
 
@@ -123,8 +125,10 @@ func TestHub_BrowserRegisterDeliversSubscribed(t *testing.T) {
 
 func TestHub_BrowserDoesNotReceiveOtherServer(t *testing.T) {
 	hub := NewHub()
-	_, sendA := hub.RegisterBrowser("srv-1", "user-1", testConn(t))
-	hub.RegisterBrowser("srv-2", "user-2", testConn(t))
+	connIDA, sendA := hub.RegisterBrowser("user-1", testConn(t))
+	hub.Subscribe("srv-1", connIDA)
+	connIDB, _ := hub.RegisterBrowser("user-2", testConn(t))
+	hub.Subscribe("srv-2", connIDB)
 
 	hub.ForwardToBrowsers("srv-2", []byte("other-server"))
 
@@ -133,7 +137,8 @@ func TestHub_BrowserDoesNotReceiveOtherServer(t *testing.T) {
 
 func TestHub_SubscribeUnsubscribe(t *testing.T) {
 	hub := NewHub()
-	connID, sendA := hub.RegisterBrowser("srv-1", "user-1", testConn(t))
+	connID, sendA := hub.RegisterBrowser("user-1", testConn(t))
+	hub.Subscribe("srv-1", connID)
 
 	// Unsubscribe: no more deliveries for srv-1.
 	hub.Unsubscribe("srv-1", connID)
@@ -150,7 +155,8 @@ func TestHub_SubscribeUnsubscribe(t *testing.T) {
 
 func TestHub_UnregisterBrowserStopsDelivery(t *testing.T) {
 	hub := NewHub()
-	connID, sendA := hub.RegisterBrowser("srv-1", "user-1", testConn(t))
+	connID, sendA := hub.RegisterBrowser("user-1", testConn(t))
+	hub.Subscribe("srv-1", connID)
 
 	hub.UnregisterBrowser(connID)
 	hub.ForwardToBrowsers("srv-1", []byte("after-close"))
@@ -159,7 +165,8 @@ func TestHub_UnregisterBrowserStopsDelivery(t *testing.T) {
 
 func TestHub_PendingCommandsRouteToBrowser(t *testing.T) {
 	hub := NewHub()
-	connID, sendA := hub.RegisterBrowser("srv-1", "user-1", testConn(t))
+	connID, sendA := hub.RegisterBrowser("user-1", testConn(t))
+	hub.Subscribe("srv-1", connID)
 
 	hub.TrackPendingCommand("cmd-1", connID, "srv-1")
 	if got := hub.ResolvePendingCommand("cmd-1"); got != connID {
@@ -282,7 +289,7 @@ func TestHub_ConcurrentOperations(t *testing.T) {
 			serverID := "srv-" + string(rune('a'+i%3))
 			hub.RegisterAgent(serverID, "agt-"+serverID, "user-1", conns[i])
 			hub.SendToAgent(serverID, []byte("ping"))
-			connID, sendCh := hub.RegisterBrowser(serverID, "user-1", conns[i+20])
+			connID, sendCh := hub.RegisterBrowser("user-1", conns[i+20])
 			hub.Subscribe(serverID, connID)
 			hub.Unsubscribe(serverID, connID)
 			hub.TrackPendingCommand("cmd-"+serverID, connID, serverID)
