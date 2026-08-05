@@ -1,10 +1,27 @@
 package ws
 
 import (
+	"database/sql"
 	"encoding/json"
 	"testing"
 	"time"
+
+	_ "modernc.org/sqlite"
 )
+
+// commandTestDB is a bare in-memory DB for routing tests that never hit the
+// commands table (missing-table errors are ignored by the routing helpers).
+func commandTestDB(t *testing.T) *sql.DB {
+	t.Helper()
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// One connection so the in-memory schema is visible to every query.
+	db.SetMaxOpenConns(1)
+	t.Cleanup(func() { db.Close() })
+	return db
+}
 
 // drain receives one message, failing if nothing arrives. Used to skip over
 // expected messages (e.g. agent_connected) to reach the one under test.
@@ -158,7 +175,7 @@ func TestAgentConnection_CommandResultRoutesToWaitingBrowserOnly(t *testing.T) {
 
 	// Agent completes the command.
 	result := []byte(`{"type":"command_result","payload":{"id":"cmd-1","ok":true}}`)
-	routeCommandResult(hub, "srv-1", []byte(`{"id":"cmd-1"}`), result)
+	routeCommandResult(hub, commandTestDB(t), "srv-1", []byte(`{"id":"cmd-1"}`), result)
 
 	if got := recvWithTimeout(t, sendA, "result for waiting browser"); string(got) != string(result) {
 		t.Fatalf("waiting browser got %q, want the command result", got)
@@ -183,7 +200,7 @@ func TestAgentConnection_CommandProgressKeepsPending(t *testing.T) {
 	hub.TrackPendingCommand("cmd-1", connID, "srv-1")
 
 	progress := []byte(`{"type":"command_progress","payload":{"id":"cmd-1","percent":42}}`)
-	routeCommandProgress(hub, "srv-1", []byte(`{"id":"cmd-1"}`), progress)
+	routeCommandProgress(hub, commandTestDB(t), "srv-1", []byte(`{"id":"cmd-1"}`), progress)
 
 	if got := recvWithTimeout(t, sendA, "progress for waiting browser"); string(got) != string(progress) {
 		t.Fatalf("waiting browser got %q, want progress", got)
@@ -208,7 +225,7 @@ func TestAgentConnection_CommandResultFallbackBroadcasts(t *testing.T) {
 
 	// Untracked command (e.g. server-initiated): result is broadcast.
 	result := []byte(`{"type":"command_result","payload":{"id":"untracked"}}`)
-	routeCommandResult(hub, "srv-1", []byte(`{"id":"untracked"}`), result)
+	routeCommandResult(hub, commandTestDB(t), "srv-1", []byte(`{"id":"untracked"}`), result)
 
 	if got := recvWithTimeout(t, sendA, "broadcast result"); string(got) != string(result) {
 		t.Fatalf("browser A got %q, want broadcast result", got)
