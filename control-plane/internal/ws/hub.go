@@ -3,6 +3,7 @@ package ws
 import (
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"sync"
 	"time"
@@ -64,8 +65,9 @@ type AgentConn struct {
 // command result and which server the command was sent to (the latter allows
 // the hub to fail pending commands when the agent disconnects).
 type pendingCommandEntry struct {
-	connID   string
-	serverID string
+	connID    string
+	serverID  string
+	createdAt time.Time
 }
 
 // BrowserConn tracks a connected dashboard (browser) WebSocket connection.
@@ -95,6 +97,7 @@ const (
 	opTrackPendingCommand
 	opResolvePendingCommand
 	opLookupPendingCommand
+	opFailTimedOutCommand
 	opAgentPong
 	opSendToBrowser
 	opRegisterLogStream
@@ -302,13 +305,26 @@ func (h *Hub) handleOp(op hubOp) {
 		op.reply <- snap
 
 	case opTrackPendingCommand:
-		h.pendingCommands[op.commandID] = pendingCommandEntry{connID: op.connID, serverID: op.serverID}
+		h.pendingCommands[op.commandID] = pendingCommandEntry{connID: op.connID, serverID: op.serverID, createdAt: time.Now()}
 
 	case opResolvePendingCommand:
 		entry := h.pendingCommands[op.commandID]
 		delete(h.pendingCommands, op.commandID)
 		if op.reply != nil {
 			op.reply <- entry.connID
+		}
+
+	case opFailTimedOutCommand:
+		// If the command is still pending, fail it and notify the browser.
+		if entry, ok := h.pendingCommands[op.commandID]; ok {
+			delete(h.pendingCommands, op.commandID)
+			if browser, ok := h.browsers[entry.connID]; ok {
+				errMsg := fmt.Sprintf(`{"type":"error","payload":{"command_id":"%s","error":"command timed out"}}`, op.commandID)
+				select {
+				case browser.Send <- []byte(errMsg):
+				default:
+				}
+			}
 		}
 
 	case opLookupPendingCommand:
@@ -601,6 +617,16 @@ func (h *Hub) GetAgentSend(serverID string) <-chan []byte {
 // failure) can be routed to exactly that dashboard.
 func (h *Hub) TrackPendingCommand(commandID, connID, serverID string) {
 	h.ops <- hubOp{kind: opTrackPendingCommand, commandID: commandID, connID: connID, serverID: serverID}
+	h.startCommandTimeout(commandID)
+}
+
+// startCommandTimeout starts a background goroutine that fails a pending
+// command after 10 minutes if no result has arrived.
+func (h *Hub) startCommandTimeout(commandID string) {
+	go func() {
+		time.Sleep(10 * time.Minute)
+		h.ops <- hubOp{kind: opFailTimedOutCommand, commandID: commandID}
+	}()
 }
 
 // ResolvePendingCommand returns (and removes) the browser connection waiting

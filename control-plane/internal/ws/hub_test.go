@@ -207,6 +207,38 @@ func TestHub_PendingCommandsRouteToBrowser(t *testing.T) {
 	}
 }
 
+func TestHub_CommandTimeoutFailsPending(t *testing.T) {
+	hub := NewHub()
+	connID, sendA := hub.RegisterBrowser("user-1", testConn(t))
+	hub.Subscribe("srv-1", connID)
+
+	// Directly enqueue a timed-out command via the internal op to avoid
+	// waiting 10 minutes. We simulate what startCommandTimeout does.
+	hub.TrackPendingCommand("cmd-to", connID, "srv-1")
+	hub.ops <- hubOp{kind: opFailTimedOutCommand, commandID: "cmd-to"}
+
+	if got := recvWithTimeout(t, sendA, "timeout error"); got == nil {
+		t.Fatal("timeout error not delivered to browser")
+	}
+	// Command should be removed from pending.
+	if got := hub.ResolvePendingCommand("cmd-to"); got != "" {
+		t.Fatalf("command should be removed after timeout, got %q", got)
+	}
+}
+
+func TestHub_CommandTimeoutNoOpForResolvedCommand(t *testing.T) {
+	hub := NewHub()
+	connID, _ := hub.RegisterBrowser("user-1", testConn(t))
+	hub.Subscribe("srv-1", connID)
+
+	hub.TrackPendingCommand("cmd-resolved", connID, "srv-1")
+	hub.ResolvePendingCommand("cmd-resolved") // resolve before timeout
+
+	// Timeout after resolution should be a no-op.
+	hub.ops <- hubOp{kind: opFailTimedOutCommand, commandID: "cmd-resolved"}
+	// No crash, no panic — just a no-op.
+}
+
 func TestHub_ReplayStreamCommands(t *testing.T) {
 	hub := NewHub()
 	hub.RegisterAgent("srv-1", "agt-1", "user-1", testConn(t))
