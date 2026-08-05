@@ -90,30 +90,15 @@ func HandleBrowserWS(hub *Hub, db *sql.DB, jwtSecret string) http.HandlerFunc {
 			return
 		}
 
-		hub.RegisterBrowser(serverID, conn)
-		slog.Info("browser connected", "user_id", userID, "server_id", serverID)
+		connID, sendCh := hub.RegisterBrowser(serverID, userID, conn)
+		slog.Info("browser connected", "user_id", userID, "server_id", serverID, "connection_id", connID)
 
 		// Write goroutine: forwards messages from hub to browser
 		go func() {
 			defer func() {
-				hub.UnregisterBrowser(serverID, conn)
+				hub.UnregisterBrowser(connID)
 				slog.Info("browser disconnected", "user_id", userID, "server_id", serverID)
 			}()
-
-			// Get the send channel for this browser
-			hub.mu.RLock()
-			var sendCh chan []byte
-			for _, b := range hub.browsers[serverID] {
-				if b.Conn == conn {
-					sendCh = b.Send
-					break
-				}
-			}
-			hub.mu.RUnlock()
-
-			if sendCh == nil {
-				return
-			}
 
 			for msg := range sendCh {
 				if err := conn.WriteMessage(websocket.TextMessage, msg); err != nil {
@@ -141,7 +126,7 @@ func HandleBrowserWS(hub *Hub, db *sql.DB, jwtSecret string) http.HandlerFunc {
 				})
 				hub.SendToAgent(serverID, stopMsg)
 				hub.ClearServerStreams(serverID)
-				hub.UnregisterBrowser(serverID, conn)
+				hub.UnregisterBrowser(connID)
 				conn.Close()
 			}()
 
