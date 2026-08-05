@@ -89,11 +89,13 @@ func InsertMetric(db *sql.DB, id, serverID, recordedAt string, collectedInMS int
 // otherwise. Rolled-up hourly/daily rows are never touched here (they have
 // their own retention in DeleteOldHourlyMetrics / DeleteOldDailyMetrics).
 func DeleteMetricsBefore(db *sql.DB, serverID, cutoff string) error {
+	// datetime(recorded_at) normalizes both the agent's RFC3339 "T" format
+	// and SQLite's space format so the comparison is format-independent.
 	if serverID == "" {
-		_, err := db.Exec("DELETE FROM metrics_history WHERE granularity = 'raw' AND recorded_at < ?", cutoff)
+		_, err := db.Exec("DELETE FROM metrics_history WHERE granularity = 'raw' AND datetime(recorded_at) < ?", cutoff)
 		return err
 	}
-	_, err := db.Exec("DELETE FROM metrics_history WHERE granularity = 'raw' AND server_id = ? AND recorded_at < ?", serverID, cutoff)
+	_, err := db.Exec("DELETE FROM metrics_history WHERE granularity = 'raw' AND server_id = ? AND datetime(recorded_at) < ?", serverID, cutoff)
 	return err
 }
 
@@ -280,8 +282,11 @@ func RollupHourlyMetrics(db *sql.DB) (int64, error) {
 			'hourly'
 		FROM metrics_history
 		WHERE granularity = 'raw'
-		  AND recorded_at < datetime('now', '-1 hour')
-		  AND recorded_at >= datetime('now', '-8 days')
+		  -- datetime(recorded_at) normalizes the agent's RFC3339 "T" format
+		  -- and SQLite's space format; a raw string comparison would silently
+		  -- exclude today's rows ('T' > ' ' lexicographically).
+		  AND datetime(recorded_at) < datetime('now', '-1 hour')
+		  AND datetime(recorded_at) >= datetime('now', '-8 days')
 		GROUP BY server_id, hour`)
 	if err != nil {
 		return 0, err
@@ -309,8 +314,9 @@ func RollupDailyMetrics(db *sql.DB) (int64, error) {
 			'daily'
 		FROM metrics_history
 		WHERE granularity = 'hourly'
-		  AND recorded_at < datetime('now', '-1 day')
-		  AND recorded_at >= datetime('now', '-32 days')
+		  -- Same format normalization as the hourly rollup.
+		  AND datetime(recorded_at) < datetime('now', '-1 day')
+		  AND datetime(recorded_at) >= datetime('now', '-32 days')
 		GROUP BY server_id, day`)
 	if err != nil {
 		return 0, err
@@ -323,7 +329,7 @@ func RollupDailyMetrics(db *sql.DB) (int64, error) {
 func DeleteOldRawMetrics(db *sql.DB) (int64, error) {
 	result, err := db.Exec(`
 		DELETE FROM metrics_history
-		WHERE granularity = 'raw' AND recorded_at < datetime('now', '-7 days')`)
+		WHERE granularity = 'raw' AND datetime(recorded_at) < datetime('now', '-7 days')`)
 	if err != nil {
 		return 0, err
 	}
@@ -335,7 +341,7 @@ func DeleteOldRawMetrics(db *sql.DB) (int64, error) {
 func DeleteOldHourlyMetrics(db *sql.DB) (int64, error) {
 	result, err := db.Exec(`
 		DELETE FROM metrics_history
-		WHERE granularity = 'hourly' AND recorded_at < datetime('now', '-30 days')`)
+		WHERE granularity = 'hourly' AND datetime(recorded_at) < datetime('now', '-30 days')`)
 	if err != nil {
 		return 0, err
 	}
@@ -346,7 +352,7 @@ func DeleteOldHourlyMetrics(db *sql.DB) (int64, error) {
 func DeleteOldDailyMetrics(db *sql.DB) (int64, error) {
 	result, err := db.Exec(`
 		DELETE FROM metrics_history
-		WHERE granularity = 'daily' AND recorded_at < datetime('now', '-12 months')`)
+		WHERE granularity = 'daily' AND datetime(recorded_at) < datetime('now', '-12 months')`)
 	if err != nil {
 		return 0, err
 	}
@@ -356,7 +362,7 @@ func DeleteOldDailyMetrics(db *sql.DB) (int64, error) {
 // DeleteOldMetrics removes metrics older than the given number of days.
 func DeleteOldMetrics(db *sql.DB, days int) (int64, error) {
 	result, err := db.Exec(
-		`DELETE FROM metrics_history WHERE recorded_at < datetime('now', '-' || ? || ' days')`,
+		`DELETE FROM metrics_history WHERE datetime(recorded_at) < datetime('now', '-' || ? || ' days')`,
 		days,
 	)
 	if err != nil {
