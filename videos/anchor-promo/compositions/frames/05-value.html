@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="UTF-8" /></head>
+<body>
+<template id="05-value-template">
+  <div id="root-05-value" class="frame-root clip" data-composition-id="05-value" data-start="0" data-duration="12" data-track-index="0" data-width="1920" data-height="1080">
+    <div class="ground"></div>
+    <div class="header-block">
+      <div class="accent-line" id="v5-accent"></div>
+      <div class="eyebrow" id="v5-eyebrow">THE PAYOFF</div>
+      <h2 class="h2" id="v5-h2">Three things, every night.</h2>
+    </div>
+    <div class="card-row">
+      <div class="val-card" id="v5-card-1"><div class="card-title">Auto.</div><div class="card-caption">HTTPS handled for you</div></div>
+      <div class="val-card" id="v5-card-2"><div class="card-title">Every night.</div><div class="card-caption">Backups, verified</div></div>
+      <div class="val-card" id="v5-card-3"><div class="card-title">Plain English.</div><div class="card-caption">Alerts you can act on</div></div>
+    </div>
+    <div class="glow" id="v5-glow"></div>
+  </div>
+  <style>
+    .frame-root { position: relative; width: 1920px; height: 1080px; overflow: hidden; container-type: size; font-family: "Inter", system-ui, sans-serif; }
+    .ground { position: absolute; inset: 0; background: #f6f8fa; }
+    .header-block { position: absolute; left: 5cqw; top: 150px; z-index: 2; }
+    .accent-line { width: 60px; height: 4px; border-radius: 2px; background: #1f6feb; margin-bottom: 22px; }
+    .eyebrow { font-family: "Space Grotesk", sans-serif; font-weight: 600; font-size: 15.4px; letter-spacing: 0.08em; text-transform: uppercase; color: #1f6feb; margin-bottom: 18px; }
+    .h2 { margin: 0; font-family: "Space Grotesk", sans-serif; font-weight: 600; font-size: 50px; line-height: 1.1; letter-spacing: -0.02em; color: #0b1b2b; }
+    .card-row { position: absolute; left: 5cqw; top: 360px; display: flex; gap: 27px; z-index: 2; }
+    .val-card { width: 500px; background: rgba(30,43,250,0.04); border: 1.5px solid rgba(30,43,250,0.2); border-radius: 14px; box-shadow: none; padding: 34px 32px 30px; opacity: 0; will-change: transform, opacity; }
+    .card-title { font-family: "Space Grotesk", sans-serif; font-weight: 500; font-size: 34px; line-height: 1.3; letter-spacing: -0.02em; color: #0b1b2b; margin-bottom: 10px; }
+    .card-caption { font-family: "Inter", sans-serif; font-weight: 400; font-size: 16.3px; line-height: 1.6; color: #0055d6; }
+    .glow { position: absolute; left: 460px; top: 240px; width: 1000px; height: 560px; background: radial-gradient(closest-side, rgba(13,64,142,0.9) 0%, rgba(13,64,142,0) 74%); opacity: 0; transform: scale(0.92); transform-origin: 50% 50%; z-index: 1; pointer-events: none; }
+  </style>
+  <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+  <script>
+    (function () {
+      window.__timelines = window.__timelines || {};
+      var tl = gsap.timeline({ paused: true });
+      var rootFrag = document.getElementById("05-value-template").content;
+      var accent = rootFrag.getElementById("v5-accent");
+      var eyebrow = rootFrag.getElementById("v5-eyebrow");
+      var h2 = rootFrag.getElementById("v5-h2");
+      var card1 = rootFrag.getElementById("v5-card-1");
+      var card2 = rootFrag.getElementById("v5-card-2");
+      var card3 = rootFrag.getElementById("v5-card-3");
+      var glow = rootFrag.getElementById("v5-glow");
+      var TOTAL = 12.0;
+      var GLOW_PEAK = 0.18;
+      tl.fromTo(accent, { scaleX: 0, opacity: 0, transformOrigin: "0% 50%" }, { scaleX: 1, opacity: 1, duration: 0.5, ease: "power3.out" }, 0.1);
+      tl.fromTo(eyebrow, { y: 14, opacity: 0 }, { y: 0, opacity: 1, duration: 0.4, ease: "power3.out" }, 0.15);
+      tl.fromTo(h2, { y: 22, opacity: 0 }, { y: 0, opacity: 1, duration: 0.5, ease: "power3.out" }, 0.3);
+      tl.set(card1, { opacity: 1, y: 60 }, 1.2);
+      tl.to(card1, { y: 0, duration: 0.18, ease: "power4.out" }, 1.2);
+      tl.set(card2, { opacity: 1, y: 48 }, 1.9);
+      tl.to(card2, { y: 0, duration: 0.15, ease: "power4.out" }, 1.9);
+      tl.set(card3, { opacity: 1, y: 70 }, 2.6);
+      tl.to(card3, { y: 0, duration: 0.16, ease: "power4.out" }, 2.6);
+      tl.fromTo(card2, { scale: 1 }, { scale: 1.04, duration: 0.22, ease: "back.out(2.5)" }, 3.4);
+      tl.to(card2, { scale: 1, duration: 0.28, ease: "power2.inOut" }, 3.62);
+      tl.fromTo(glow, { opacity: 0, scale: 0.92 }, { opacity: GLOW_PEAK, scale: 1, duration: 0.9, ease: "power2.out" }, 3.3);
+      var phase = { p: 0 };
+      var BREATHE_START = 4.2;
+      var BREATHE_DUR = TOTAL - BREATHE_START;
+      var CYCLES = BREATHE_DUR / 3.9;
+      var BASE_OP = 0.18, OP_AMP = 0.03, SC_AMP = 0.008, FADE_FRAC = 0.2;
+      tl.to(phase, {
+        p: Math.PI * 2 * CYCLES, duration: BREATHE_DUR, ease: "none",
+        onUpdate: function () {
+          var t = phase.p / (Math.PI * 2 * CYCLES);
+          var env = t < 1 - FADE_FRAC ? 1 : (1 - t) / FADE_FRAC;
+          var s = Math.sin(phase.p);
+          glow.style.opacity = String(BASE_OP + s * OP_AMP * env);
+          glow.style.transform = "scale(" + (1 + s * SC_AMP * env) + ")";
+        }
+      }, BREATHE_START);
+      window.__timelines["05-value"] = tl;
+    })();
+  </script>
+</template>
+</body>
+</html>
