@@ -147,9 +147,14 @@ type MetricRow struct {
 	ContainerCount   *int
 }
 
-// GetLatestMetric returns the most recent health metrics sample for a server,
-// or nil if the server has no samples yet. Used for the server_state snapshot
-// a browser receives on subscribe (Layer 5B Step 3B).
+// GetLatestMetric returns the most recent RAW health metrics sample for a
+// server, or nil if the server has no samples yet. Used for the server_state
+// snapshot a browser receives on subscribe (Layer 5B Step 3B).
+//
+// The granularity = 'raw' filter matters: rolled-up hourly/daily rows share
+// this table, and their recorded_at uses a different timestamp format than
+// the agent's RFC3339 samples, so a plain ORDER BY could surface a coarse
+// average instead of the newest 30-second sample.
 func GetLatestMetric(db *sql.DB, serverID string) (*MetricRow, error) {
 	row := db.QueryRow(`
 		SELECT id, server_id, recorded_at, collected_in_ms,
@@ -158,7 +163,7 @@ func GetLatestMetric(db *sql.DB, serverID string) (*MetricRow, error) {
 		       load_1min, load_per_core,
 		       caddy_running, caddy_routes_count, last_backup_age_sec, container_count
 		FROM metrics_history
-		WHERE server_id = ?
+		WHERE server_id = ? AND granularity = 'raw'
 		ORDER BY recorded_at DESC
 		LIMIT 1`, serverID)
 
