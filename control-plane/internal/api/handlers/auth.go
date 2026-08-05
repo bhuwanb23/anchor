@@ -4,12 +4,16 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
+	"math"
 	"net"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
+	chimw "github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 	"github.com/yourname/yourplatform/control-plane/internal/api/middleware"
@@ -17,12 +21,14 @@ import (
 	"github.com/yourname/yourplatform/control-plane/internal/config"
 	"github.com/yourname/yourplatform/control-plane/internal/db/queries"
 	"github.com/yourname/yourplatform/control-plane/internal/mailer"
+	"github.com/yourname/yourplatform/control-plane/internal/ratelimit"
 )
 
 type Auth struct {
-	DB     *sql.DB
-	Cfg    *config.Config
-	Mailer mailer.Sender // password-reset emails (Layer 5A Step 7A)
+	DB      *sql.DB
+	Cfg     *config.Config
+	Mailer  mailer.Sender        // password-reset emails (Layer 5A Step 7A)
+	Limiter *ratelimit.Limiter   // Layer 5A Step 8A — rate limits auth endpoints
 }
 
 // passwordResetTTL is how long a reset link stays valid (Layer 5A Step 7A).
@@ -44,6 +50,34 @@ func writeJSON(w http.ResponseWriter, status int, v interface{}) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	json.NewEncoder(w).Encode(v)
+}
+
+// writeAPIError writes a JSON error with a machine-readable code, a plain
+// message, and the request_id (Layer 5A Step 8C) so users can quote it to
+// support, who can look up the full server-side log line.
+func writeAPIError(w http.ResponseWriter, r *http.Request, status int, code, message string) {
+	body := map[string]interface{}{"error": code, "message": message}
+	if rid := chimw.GetReqID(r.Context()); rid != "" {
+		body["request_id"] = rid
+	}
+	writeJSON(w, status, body)
+}
+
+// writeRateLimit responds 429 with a human-readable retry hint and the
+// Retry-After header (Layer 5A Step 8A). No account is ever locked — the
+// user simply waits a few minutes.
+func (a *Auth) writeRateLimit(w http.ResponseWriter, r *http.Request, action string, retry time.Duration) {
+	minutes := int(math.Ceil(retry.Minutes()))
+	if minutes < 1 {
+		minutes = 1
+	}
+	unit := "minutes"
+	if minutes == 1 {
+		unit = "minute"
+	}
+	w.Header().Set("Retry-After", strconv.Itoa(int(math.Ceil(retry.Seconds()))))
+	writeAPIError(w, r, http.StatusTooManyRequests, "rate_limited",
+		fmt.Sprintf("%s Try again in %d %s.", action, minutes, unit))
 }
 
 // Register implements Layer 5A Step 1C.
@@ -83,7 +117,7 @@ func (a *Auth) Register(w http.ResponseWriter, r *http.Request) {
 	exists, err := queries.EmailExists(a.DB, email)
 	if err != nil {
 		slog.Error("check email exists", "error", err)
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal server error"})
+		writeAPIError(w, r, http.StatusInternalServerError, "internal_error", "Something went wrong. Please try again.")
 		return
 	}
 	if exists {
@@ -94,7 +128,7 @@ func (a *Auth) Register(w http.ResponseWriter, r *http.Request) {
 	hash, err := auth.HashPassword(req.Password)
 	if err != nil {
 		slog.Error("hash password", "error", err)
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal server error"})
+		writeAPIError(w, r, http.StatusInternalServerError, "internal_error", "Something went wrong. Please try again.")
 		return
 	}
 
@@ -107,7 +141,7 @@ func (a *Auth) Register(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		slog.Error("insert user", "error", err)
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal server error"})
+		writeAPIError(w, r, http.StatusInternalServerError, "internal_error", "Something went wrong. Please try again.")
 		return
 	}
 
@@ -150,6 +184,16 @@ func (a *Auth) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Layer 5A Step 8A — throttle brute-force attempts before the expensive
+	// bcrypt compare. Counted per IP and per email; never locks the account.
+	if a.Limiter != nil {
+		email := auth.NormalizeEmail(req.Email)
+		if ok, retry := a.Limiter.LoginAllowed(clientIP(r), email); !ok {
+			a.writeRateLimit(w, r, "Too many login attempts.", retry)
+			return
+		}
+	}
+
 	user, err := queries.GetUserByEmail(a.DB, auth.NormalizeEmail(req.Email))
 	if err == sql.ErrNoRows {
 		// Same message for unknown email and wrong password — prevents
@@ -162,7 +206,7 @@ func (a *Auth) Login(w http.ResponseWriter, r *http.Request) {
 	}
 	if err != nil {
 		slog.Error("query user", "error", err)
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal server error"})
+		writeAPIError(w, r, http.StatusInternalServerError, "internal_error", "Something went wrong. Please try again.")
 		return
 	}
 
@@ -174,7 +218,7 @@ func (a *Auth) Login(w http.ResponseWriter, r *http.Request) {
 	resp, err := a.issueTokens(user, r)
 	if err != nil {
 		slog.Error("issue tokens", "error", err)
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal server error"})
+		writeAPIError(w, r, http.StatusInternalServerError, "internal_error", "Something went wrong. Please try again.")
 		return
 	}
 	writeJSON(w, http.StatusOK, resp)
@@ -204,7 +248,7 @@ func (a *Auth) Refresh(w http.ResponseWriter, r *http.Request) {
 	}
 	if err != nil {
 		slog.Error("query refresh token", "error", err)
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal server error"})
+		writeAPIError(w, r, http.StatusInternalServerError, "internal_error", "Something went wrong. Please try again.")
 		return
 	}
 
@@ -231,7 +275,7 @@ func (a *Auth) Refresh(w http.ResponseWriter, r *http.Request) {
 	revoked, err := queries.RevokeRefreshToken(a.DB, rt.ID)
 	if err != nil {
 		slog.Error("revoke refresh token", "error", err)
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal server error"})
+		writeAPIError(w, r, http.StatusInternalServerError, "internal_error", "Something went wrong. Please try again.")
 		return
 	}
 	if !revoked {
@@ -244,7 +288,7 @@ func (a *Auth) Refresh(w http.ResponseWriter, r *http.Request) {
 	resp, err := a.issueTokens(user, r)
 	if err != nil {
 		slog.Error("issue tokens", "error", err)
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal server error"})
+		writeAPIError(w, r, http.StatusInternalServerError, "internal_error", "Something went wrong. Please try again.")
 		return
 	}
 	writeJSON(w, http.StatusOK, resp)
@@ -348,7 +392,7 @@ func (a *Auth) Logout(w http.ResponseWriter, r *http.Request) {
 	}
 	if err != nil {
 		slog.Error("lookup refresh token", "error", err)
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal server error"})
+		writeAPIError(w, r, http.StatusInternalServerError, "internal_error", "Something went wrong. Please try again.")
 		return
 	}
 
@@ -361,7 +405,7 @@ func (a *Auth) Logout(w http.ResponseWriter, r *http.Request) {
 
 	if _, err := queries.RevokeRefreshToken(a.DB, rt.ID); err != nil {
 		slog.Error("revoke refresh token", "error", err)
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal server error"})
+		writeAPIError(w, r, http.StatusInternalServerError, "internal_error", "Something went wrong. Please try again.")
 		return
 	}
 
@@ -379,7 +423,7 @@ func (a *Auth) LogoutAll(w http.ResponseWriter, r *http.Request) {
 
 	if _, err := queries.RevokeAllRefreshTokens(a.DB, userID); err != nil {
 		slog.Error("revoke all refresh tokens", "error", err)
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal server error"})
+		writeAPIError(w, r, http.StatusInternalServerError, "internal_error", "Something went wrong. Please try again.")
 		return
 	}
 
@@ -411,7 +455,7 @@ func (a *Auth) Sessions(w http.ResponseWriter, r *http.Request) {
 	sessions, err := queries.ListSessionsByUser(a.DB, userID)
 	if err != nil {
 		slog.Error("list sessions", "error", err)
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal server error"})
+		writeAPIError(w, r, http.StatusInternalServerError, "internal_error", "Something went wrong. Please try again.")
 		return
 	}
 
@@ -458,7 +502,7 @@ func (a *Auth) DeleteSession(w http.ResponseWriter, r *http.Request) {
 	revoked, err := queries.RevokeSessionForUser(a.DB, sessionID, userID)
 	if err != nil {
 		slog.Error("revoke session", "error", err)
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal server error"})
+		writeAPIError(w, r, http.StatusInternalServerError, "internal_error", "Something went wrong. Please try again.")
 		return
 	}
 	if !revoked {
@@ -512,6 +556,15 @@ func (a *Auth) ForgotPassword(w http.ResponseWriter, r *http.Request) {
 
 	email := auth.NormalizeEmail(req.Email)
 
+	// Layer 5A Step 8A — throttle reset requests per IP and per email to
+	// blunt both brute force and email-bombing via the reset endpoint.
+	if a.Limiter != nil {
+		if ok, retry := a.Limiter.ForgotAllowed(clientIP(r), email); !ok {
+			a.writeRateLimit(w, r, "Too many password reset requests.", retry)
+			return
+		}
+	}
+
 	user, err := queries.GetUserByEmail(a.DB, email)
 	switch {
 	case err == nil:
@@ -522,7 +575,7 @@ func (a *Auth) ForgotPassword(w http.ResponseWriter, r *http.Request) {
 		// A real DB failure is not a signal about the account; still reply
 		// generically, but surface it in the logs.
 		slog.Error("forgot password: lookup user", "error", err)
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal server error"})
+		writeAPIError(w, r, http.StatusInternalServerError, "internal_error", "Something went wrong. Please try again.")
 		return
 	}
 
@@ -598,6 +651,15 @@ func (a *Auth) ResetPassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Layer 5A Step 8A — throttle per IP. Reset tokens are single-use and
+	// unforgeable, so per-IP limits alone are sufficient.
+	if a.Limiter != nil {
+		if ok, retry := a.Limiter.ResetAllowed(clientIP(r)); !ok {
+			a.writeRateLimit(w, r, "Too many reset attempts.", retry)
+			return
+		}
+	}
+
 	pr, err := queries.GetPasswordResetByHash(a.DB, auth.HashResetToken(req.Token))
 	if errors.Is(err, sql.ErrNoRows) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid or expired reset link"})
@@ -605,7 +667,7 @@ func (a *Auth) ResetPassword(w http.ResponseWriter, r *http.Request) {
 	}
 	if err != nil {
 		slog.Error("reset password: lookup token", "error", err)
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal server error"})
+		writeAPIError(w, r, http.StatusInternalServerError, "internal_error", "Something went wrong. Please try again.")
 		return
 	}
 
@@ -631,20 +693,20 @@ func (a *Auth) ResetPassword(w http.ResponseWriter, r *http.Request) {
 		return
 	} else if err != nil {
 		slog.Error("reset password: load user", "error", err)
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal server error"})
+		writeAPIError(w, r, http.StatusInternalServerError, "internal_error", "Something went wrong. Please try again.")
 		return
 	}
 
 	hash, err := auth.HashPassword(req.NewPassword)
 	if err != nil {
 		slog.Error("reset password: hash new password", "error", err)
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal server error"})
+		writeAPIError(w, r, http.StatusInternalServerError, "internal_error", "Something went wrong. Please try again.")
 		return
 	}
 
 	if err := queries.UpdateUserPassword(a.DB, pr.UserID, hash); err != nil {
 		slog.Error("reset password: update hash", "error", err)
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal server error"})
+		writeAPIError(w, r, http.StatusInternalServerError, "internal_error", "Something went wrong. Please try again.")
 		return
 	}
 
@@ -654,12 +716,12 @@ func (a *Auth) ResetPassword(w http.ResponseWriter, r *http.Request) {
 	// replayed, and failing to revoke sessions would leave the old ones live.
 	if err := queries.MarkPasswordResetUsed(a.DB, pr.ID); err != nil {
 		slog.Error("reset password: mark token used", "error", err)
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal server error"})
+		writeAPIError(w, r, http.StatusInternalServerError, "internal_error", "Something went wrong. Please try again.")
 		return
 	}
 	if _, err := queries.RevokeAllRefreshTokens(a.DB, pr.UserID); err != nil {
 		slog.Error("reset password: revoke sessions", "error", err)
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal server error"})
+		writeAPIError(w, r, http.StatusInternalServerError, "internal_error", "Something went wrong. Please try again.")
 		return
 	}
 
