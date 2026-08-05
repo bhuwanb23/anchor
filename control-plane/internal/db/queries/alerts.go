@@ -349,6 +349,9 @@ func ListQueuedEmails(db *sql.DB, isBatch bool) ([]EmailJob, error) {
 		j.IsBatch = isBatch == 1
 		out = append(out, j)
 	}
+	if out == nil {
+		out = []EmailJob{}
+	}
 	return out, rows.Err()
 }
 
