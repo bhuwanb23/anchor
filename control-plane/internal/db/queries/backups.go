@@ -131,6 +131,9 @@ func GetBackupSnapshotsByServer(db *sql.DB, serverID string, limit int) ([]Backu
 		}
 		snapshots = append(snapshots, s)
 	}
+	if snapshots == nil {
+		snapshots = []BackupSnapshot{}
+	}
 	return snapshots, rows.Err()
 }
 
@@ -182,6 +185,9 @@ func GetBackupJobsByServer(db *sql.DB, serverID string, limit int) ([]BackupJob,
 			return nil, err
 		}
 		jobs = append(jobs, j)
+	}
+	if jobs == nil {
+		jobs = []BackupJob{}
 	}
 	return jobs, rows.Err()
 }
@@ -486,6 +492,9 @@ func GetRestoreJobsByServer(db *sql.DB, serverID string, limit int) ([]BackupJob
 			return nil, err
 		}
 		jobs = append(jobs, j)
+	}
+	if jobs == nil {
+		jobs = []BackupJob{}
 	}
 	return jobs, rows.Err()
 }
