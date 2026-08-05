@@ -69,6 +69,7 @@ func Migrate(database *sql.DB) error {
 		"018_refresh_tokens.sql",
 		"019_teams.sql",
 		"020_password_resets.sql",
+		"021_commands.sql",
 	}
 
 	for _, migration := range migrations {
