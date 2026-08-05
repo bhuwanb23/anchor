@@ -237,3 +237,39 @@ func TestAgentConnection_CommandIDExtraction(t *testing.T) {
 		}
 	}
 }
+
+// --- Agent heartbeat timeout (Step 6B) ---
+
+func TestAgentConnection_CloseAgentFailsPendingCommands(t *testing.T) {
+	hub := NewHub()
+	agentConn := testConn(t)
+	hub.RegisterAgent("srv-1", "agt-1", "user-1", agentConn)
+
+	browserConn, sendB := hub.RegisterBrowser("user-1", testConn(t))
+	hub.Subscribe("srv-1", browserConn)
+	hub.TrackPendingCommand("cmd-dead", browserConn, "srv-1")
+
+	// Simulate heartbeat timeout by closing the agent.
+	hub.closeAgent("srv-1", agentConn)
+
+	// Pending command should be failed with an error message.
+	if got := recvWithTimeout(t, sendB, "agent disconnect error"); got == nil {
+		t.Fatal("expected agent disconnect error for pending command")
+	}
+}
+
+func TestAgentConnection_CloseAgentNotifiesBrowsers(t *testing.T) {
+	hub := NewHub()
+	agentConn := testConn(t)
+	hub.RegisterAgent("srv-1", "agt-1", "user-1", agentConn)
+
+	browserConn, sendB := hub.RegisterBrowser("user-1", testConn(t))
+	hub.Subscribe("srv-1", browserConn)
+
+	hub.closeAgent("srv-1", agentConn)
+
+	// Browser should receive agent_status disconnected notification.
+	if got := recvWithTimeout(t, sendB, "agent status notification"); got == nil {
+		t.Fatal("expected agent_status notification for browser")
+	}
+}
