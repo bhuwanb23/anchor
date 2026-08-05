@@ -372,3 +372,43 @@ func TestBrowserWS_SubscribeDeniedWithoutAccess(t *testing.T) {
 		t.Fatal("unauthorized browser received a broadcast it should not get")
 	}
 }
+
+// --- Browser heartbeat (Step 6A) ---
+
+func TestBrowserConnection_BrowserPongUpdatesTimestamp(t *testing.T) {
+	hub := NewHub()
+	connID, _ := hub.RegisterBrowser("user-1", testConn(t))
+
+	hub.BrowserPong(connID)
+	// Verify via listBrowsers that LastPongAt is set.
+	browsers := hub.listBrowsers()
+	var found bool
+	for _, b := range browsers {
+		if b.ConnID == connID {
+			found = true
+			if b.LastPongAt.IsZero() {
+				t.Fatal("LastPongAt should be set after BrowserPong")
+			}
+		}
+	}
+	if !found {
+		t.Fatal("browser not found in listBrowsers")
+	}
+}
+
+func TestBrowserConnection_CloseBrowserCleanup(t *testing.T) {
+	hub := NewHub()
+	connID, _ := hub.RegisterBrowser("user-1", testConn(t))
+	hub.Subscribe("srv-1", connID)
+
+	hub.closeBrowser(connID)
+	// After close, browser should be gone.
+	browsers := hub.listBrowsers()
+	for _, b := range browsers {
+		if b.ConnID == connID {
+			t.Fatal("browser should be removed after closeBrowser")
+		}
+	}
+	// Subscription should be cleaned up too.
+	hub.ForwardToBrowsers("srv-1", []byte("should-not-reach"))
+}
