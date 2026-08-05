@@ -114,6 +114,7 @@ const (
 	opListBrowsers
 	opCloseBrowser
 	opCloseAgent
+	opGetStats
 	opRegisterLogStream
 	opUnregisterLogStream
 	opLookupLogStream
@@ -163,6 +164,19 @@ type browserSnapshot struct {
 	Conn           *websocket.Conn
 	LastPongAt     time.Time
 	LastPingSentAt time.Time
+}
+
+// HubStats holds current connection metrics for the stats endpoint.
+type HubStats struct {
+	AgentConnections  int     `json:"agent_connections"`
+	BrowserConnections int    `json:"browser_connections"`
+	Subscriptions     int     `json:"subscriptions"`
+	PendingCommands   int     `json:"pending_commands"`
+	ActiveLogStreams  int     `json:"active_log_streams"`
+	MessagesRouted    int64   `json:"messages_routed"`
+	BroadcastCount    int64   `json:"broadcast_count"`
+	AverageFanout     float64 `json:"average_broadcast_fanout"`
+	FailedSends       int64   `json:"failed_sends"`
 }
 
 // NewHub creates the hub and starts its single goroutine immediately. The
@@ -415,6 +429,37 @@ func (h *Hub) handleOp(op hubOp) {
 					default:
 					}
 				}
+			}
+		}
+
+	case opGetStats:
+		if op.reply != nil {
+			// Count active log streams.
+			streamCount := 0
+			for _, conns := range h.streamSubs {
+				if len(conns) > 0 {
+					streamCount++
+				}
+			}
+			// Count subscriptions.
+			subCount := 0
+			for _, subs := range h.subscriptions {
+				subCount += len(subs)
+			}
+			var avgFanout float64
+			if h.broadcastCount > 0 {
+				avgFanout = float64(h.broadcastFanout) / float64(h.broadcastCount)
+			}
+			op.reply <- HubStats{
+				AgentConnections:   len(h.agents),
+				BrowserConnections: len(h.browsers),
+				Subscriptions:      subCount,
+				PendingCommands:    len(h.pendingCommands),
+				ActiveLogStreams:   streamCount,
+				MessagesRouted:     h.messagesRouted,
+				BroadcastCount:     h.broadcastCount,
+				AverageFanout:      avgFanout,
+				FailedSends:        h.failedSends,
 			}
 		}
 
@@ -964,11 +1009,41 @@ func (h *Hub) StartBrowserHeartbeat() {
 						if b.LastPongAt.Before(b.LastPingSentAt) {
 							slog.Warn("browser heartbeat timeout, closing connection",
 								"connection_id", b.ConnID)
-							h.closeBrowser(b.ConnID)
-						}
+						h.closeBrowser(b.ConnID)
 					}
 				}
+				}
 			}
+		}
+	}()
+}
+
+// Stats returns current hub connection metrics.
+func (h *Hub) Stats() HubStats {
+	reply := make(chan interface{}, 1)
+	h.ops <- hubOp{kind: opGetStats, reply: reply}
+	stats, _ := (<-reply).(HubStats)
+	return stats
+}
+
+// StartMetricsLogger logs hub metrics every 5 minutes for debugging and
+// capacity planning.
+func (h *Hub) StartMetricsLogger() {
+	ticker := time.NewTicker(5 * time.Minute)
+	go func() {
+		for range ticker.C {
+			stats := h.Stats()
+			slog.Info("hub metrics",
+				"agent_connections", stats.AgentConnections,
+				"browser_connections", stats.BrowserConnections,
+				"subscriptions", stats.Subscriptions,
+				"pending_commands", stats.PendingCommands,
+				"active_log_streams", stats.ActiveLogStreams,
+				"messages_routed", stats.MessagesRouted,
+				"broadcast_count", stats.BroadcastCount,
+				"average_fanout", fmt.Sprintf("%.1f", stats.AverageFanout),
+				"failed_sends", stats.FailedSends,
+			)
 		}
 	}()
 }
