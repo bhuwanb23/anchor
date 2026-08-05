@@ -114,6 +114,71 @@ func TestBrowserConnection_LogLinesRouteToStreamOwner(t *testing.T) {
 	}
 }
 
+// --- Multi-browser log streaming (Step 5C) ---
+
+func TestBrowserConnection_MultipleBrowsersSameStream(t *testing.T) {
+	hub := NewHub()
+	connIDA, sendA := hub.RegisterBrowser("user-1", testConn(t))
+	connIDB, sendB := hub.RegisterBrowser("user-2", testConn(t))
+
+	hub.RegisterLogStream("ms-1", connIDA)
+	hub.RegisterLogStream("ms-1", connIDB)
+
+	got := hub.LookupLogStream("ms-1")
+	if len(got) != 2 {
+		t.Fatalf("LookupLogStream(ms-1) returned %d connIDs, want 2", len(got))
+	}
+
+	// Both browsers receive the same log line.
+	line := []byte(`{"type":"log_line","payload":{"stream_id":"ms-1","text":"broadcast"}}`)
+	routeLogLines(hub, "srv-1", []byte(`{"stream_id":"ms-1"}`), line)
+	if got := recvWithTimeout(t, sendA, "browser A log"); string(got) != string(line) {
+		t.Fatalf("browser A got %q, want log line", got)
+	}
+	if got := recvWithTimeout(t, sendB, "browser B log"); string(got) != string(line) {
+		t.Fatalf("browser B got %q, want log line", got)
+	}
+}
+
+func TestBrowserConnection_UnregisterOneBrowserLeavesOthers(t *testing.T) {
+	hub := NewHub()
+	connIDA, sendA := hub.RegisterBrowser("user-1", testConn(t))
+	connIDB, sendB := hub.RegisterBrowser("user-2", testConn(t))
+
+	hub.RegisterLogStream("ms-2", connIDA)
+	hub.RegisterLogStream("ms-2", connIDB)
+
+	hub.UnregisterBrowser(connIDA)
+	got := hub.LookupLogStream("ms-2")
+	if len(got) != 1 || got[0] != connIDB {
+		t.Fatalf("after unregister A: LookupLogStream(ms-2) = %v, want [%q]", got, connIDB)
+	}
+
+	// Only browser B gets the line now.
+	line := []byte(`{"type":"log_line","payload":{"stream_id":"ms-2","text":"for B"}}`)
+	routeLogLines(hub, "srv-1", []byte(`{"stream_id":"ms-2"}`), line)
+	assertNoMessage(t, sendA, "unregistered browser A")
+	if got := recvWithTimeout(t, sendB, "browser B still subscribed"); string(got) != string(line) {
+		t.Fatalf("browser B got %q, want log line", got)
+	}
+}
+
+func TestBrowserConnection_UnregisterSecondBrowserCleansUp(t *testing.T) {
+	hub := NewHub()
+	connIDA, _ := hub.RegisterBrowser("user-1", testConn(t))
+	connIDB, _ := hub.RegisterBrowser("user-2", testConn(t))
+
+	hub.RegisterLogStream("ms-3", connIDA)
+	hub.RegisterLogStream("ms-3", connIDB)
+
+	hub.UnregisterBrowser(connIDA)
+	hub.UnregisterBrowser(connIDB)
+	got := hub.LookupLogStream("ms-3")
+	if len(got) != 0 {
+		t.Fatalf("after unregistering both: LookupLogStream(ms-3) = %v, want empty", got)
+	}
+}
+
 // --- Handler-level integration tests (Step 3A/3B/3D end to end) ---
 
 // setupBrowserWSTestDB builds a minimal schema the snapshot queries touch and
