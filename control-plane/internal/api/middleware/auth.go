@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"strings"
 
+	chimw "github.com/go-chi/chi/v5/middleware"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/yourname/yourplatform/control-plane/internal/auth"
 	"github.com/yourname/yourplatform/control-plane/internal/db/queries"
@@ -32,19 +33,21 @@ var claimsContextKey = claimsContextKeyType{}
 
 // authError is the structured error body returned for every auth failure
 // (Layer 5A Step 3C). Codes: authentication_required | invalid_token |
-// token_expired | user_not_found.
+// token_expired | user_not_found. The request_id (Layer 5A Step 8C) lets the
+// user quote it to support, who can look up the full server-side log line.
 type authError struct {
-	Error   string `json:"error"`
-	Message string `json:"message"`
+	Error     string `json:"error"`
+	Message   string `json:"message"`
+	RequestID string `json:"request_id,omitempty"`
 }
 
-func writeAuthError(w http.ResponseWriter, code, message string, extraHeaders map[string]string) {
+func writeAuthError(w http.ResponseWriter, r *http.Request, code, message string, extraHeaders map[string]string) {
 	for k, v := range extraHeaders {
 		w.Header().Set(k, v)
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusUnauthorized)
-	json.NewEncoder(w).Encode(authError{Error: code, Message: message})
+	json.NewEncoder(w).Encode(authError{Error: code, Message: message, RequestID: chimw.GetReqID(r.Context())})
 }
 
 // Auth guards every protected API endpoint (Layer 5A Step 3).
@@ -67,12 +70,12 @@ func Auth(db *sql.DB, jwtSecret string) func(http.Handler) http.Handler {
 			// ?token= separately in the WS handler.)
 			header := r.Header.Get("Authorization")
 			if header == "" {
-				writeAuthError(w, "authentication_required", "Please log in to access this resource", nil)
+				writeAuthError(w, r, "authentication_required", "Please log in to access this resource", nil)
 				return
 			}
 			parts := strings.SplitN(header, " ", 2)
 			if len(parts) != 2 || !strings.EqualFold(parts[0], "Bearer") || parts[1] == "" {
-				writeAuthError(w, "invalid_token", "Your session is invalid. Please log in again.", nil)
+				writeAuthError(w, r, "invalid_token", "Your session is invalid. Please log in again.", nil)
 				return
 			}
 
@@ -83,9 +86,9 @@ func Auth(db *sql.DB, jwtSecret string) func(http.Handler) http.Handler {
 				if errors.Is(err, jwt.ErrTokenExpired) {
 					// Frontend uses this header to trigger a silent refresh
 					// instead of logging the user out.
-					writeAuthError(w, "token_expired", "Your session has expired. Please log in again.", map[string]string{"X-Token-Expired": "true"})
+					writeAuthError(w, r, "token_expired", "Your session has expired. Please log in again.", map[string]string{"X-Token-Expired": "true"})
 				} else {
-					writeAuthError(w, "invalid_token", "Your session is invalid. Please log in again.", nil)
+					writeAuthError(w, r, "invalid_token", "Your session is invalid. Please log in again.", nil)
 				}
 				return
 			}
@@ -94,7 +97,7 @@ func Auth(db *sql.DB, jwtSecret string) func(http.Handler) http.Handler {
 			// deleted while the token was still valid.
 			user, err := queries.GetUserByID(db, claims.UserID())
 			if errors.Is(err, sql.ErrNoRows) {
-				writeAuthError(w, "user_not_found", "Account not found. Please register or log in.", nil)
+				writeAuthError(w, r, "user_not_found", "Account not found. Please register or log in.", nil)
 				return
 			}
 			if err != nil {
@@ -102,7 +105,7 @@ func Auth(db *sql.DB, jwtSecret string) func(http.Handler) http.Handler {
 				// frontend does not loop refresh/login attempts.
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(http.StatusInternalServerError)
-				json.NewEncoder(w).Encode(authError{Error: "internal_error", Message: "Something went wrong. Please try again."})
+				json.NewEncoder(w).Encode(authError{Error: "internal_error", Message: "Something went wrong. Please try again.", RequestID: chimw.GetReqID(r.Context())})
 				return
 			}
 
