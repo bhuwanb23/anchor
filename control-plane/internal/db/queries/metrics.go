@@ -117,6 +117,9 @@ func GetServerContainers(db *sql.DB, serverID string) ([]ContainerStatusRow, err
 		}
 		out = append(out, r)
 	}
+	if out == nil {
+		out = []ContainerStatusRow{}
+	}
 	return out, rows.Err()
 }
 
