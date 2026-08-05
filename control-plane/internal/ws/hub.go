@@ -47,6 +47,12 @@ type Hub struct {
 	// the control plane can re-establish live log views when an agent
 	// reconnects (Layer 4C 3B). Keyed by a project|roles signature.
 	streams map[string]map[string][]byte
+
+	// Metrics counters (owned exclusively by hub goroutine).
+	messagesRouted   int64
+	broadcastCount   int64
+	broadcastFanout  int64
+	failedSends      int64
 }
 
 // AgentConn tracks a connected agent's WebSocket connection.
@@ -479,7 +485,9 @@ func (h *Hub) handleOp(op hubOp) {
 		if browser, ok := h.browsers[op.connID]; ok {
 			select {
 			case browser.Send <- op.msg:
+				h.messagesRouted++
 			default:
+				h.failedSends++
 				slog.Debug("dropped ws message for slow browser", "connection_id", op.connID)
 			}
 		}
@@ -557,6 +565,7 @@ func (h *Hub) sendToAgent(serverID string, msg []byte) bool {
 	if !ok {
 		return false
 	}
+	h.messagesRouted++
 	select {
 	case agent.Send <- msg:
 		return true
@@ -646,20 +655,26 @@ func (h *Hub) removeSubscription(serverID, connID string) {
 // forwardToBrowsers sends a message to every browser watching a server.
 // Hub-goroutine-only helper.
 func (h *Hub) forwardToBrowsers(serverID string, msg []byte) {
+	h.broadcastCount++
+	fanout := 0
 	for connID := range h.subscriptions[serverID] {
 		browser, ok := h.browsers[connID]
 		if !ok {
 			delete(h.subscriptions[serverID], connID)
 			continue
 		}
+		fanout++
 		select {
 		case browser.Send <- msg:
+			h.messagesRouted++
 		default:
 			// Slow consumer: drop the message rather than block routing. Kept
 			// connected so a momentarily busy dashboard is not disconnected.
+			h.failedSends++
 			slog.Debug("dropped ws message for slow browser", "server_id", serverID, "connection_id", connID)
 		}
 	}
+	h.broadcastFanout += int64(fanout)
 }
 
 // --- Public API: all operations enqueue ops and never touch the maps ---
