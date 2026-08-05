@@ -497,7 +497,7 @@ func HandleAgentWS(hub *Hub, db *sql.DB, baseDomain string, delivery *alerts.Del
 		}
 		agentID, agentSecret := parts[0], parts[1]
 
-		serverID, _, _, secretHash, status, err := queries.GetServerByAgentID(db, agentID)
+		serverID, userID, _, secretHash, status, err := queries.GetServerByAgentID(db, agentID)
 		if err != nil {
 			slog.Warn("agent lookup failed", "agent_id", agentID, "error", err)
 			http.Error(w, "agent not found", http.StatusUnauthorized)
@@ -517,7 +517,7 @@ func HandleAgentWS(hub *Hub, db *sql.DB, baseDomain string, delivery *alerts.Del
 			return
 		}
 
-		hub.RegisterAgent(serverID, agentID, conn)
+		hub.RegisterAgent(serverID, agentID, userID, conn)
 		slog.Info("agent connected", "agent_id", agentID, "server_id", serverID, "status", status)
 
 		ack := map[string]string{
