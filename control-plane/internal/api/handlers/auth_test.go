@@ -68,6 +68,16 @@ func setupAuthTestDB(t *testing.T) *sql.DB {
 			joined_at TEXT NOT NULL DEFAULT (datetime('now')),
 			UNIQUE(team_id, user_id)
 		);
+		CREATE TABLE password_resets (
+			id TEXT PRIMARY KEY,
+			token_hash TEXT NOT NULL UNIQUE,
+			user_id TEXT NOT NULL REFERENCES users(id),
+			created_at TEXT NOT NULL,
+			expires_at TEXT NOT NULL,
+			used_at TEXT
+		);
+		CREATE INDEX idx_password_resets_user ON password_resets(user_id);
+		CREATE INDEX idx_password_resets_hash ON password_resets(token_hash);
 	`)
 	if err != nil {
 		t.Fatalf("create users table: %v", err)
