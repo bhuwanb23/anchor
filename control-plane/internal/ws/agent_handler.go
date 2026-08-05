@@ -578,16 +578,17 @@ func HandleAgentWS(hub *Hub, db *sql.DB, baseDomain string, delivery *alerts.Del
 					// Heartbeat response: just refresh the connection's ping time.
 					hub.AgentPong(serverID)
 				case "result", "command_result":
-					// Command finished: deliver to the waiting dashboard and
-					// forget it (fall back to a broadcast if nobody tracked it).
-					routeCommandResult(hub, serverID, msg.Payload, data)
+					// Command finished: deliver to the waiting dashboard, update
+					// the DB, and forget the pending entry (Step 9).
+					routeCommandResult(hub, db, serverID, msg.Payload, data)
 				case "command_ack":
-					// Agent confirmed receipt: notify the waiting dashboard.
-					routeCommandProgress(hub, serverID, msg.Payload, data)
+					// Agent confirmed receipt: notify the waiting dashboard and
+					// advance the command status to in_progress (Step 7).
+					routeCommandProgress(hub, db, serverID, msg.Payload, data)
 					slog.Debug("command_ack", "server_id", serverID)
 				case "command_progress":
 					// Mid-command progress: forward to the waiting dashboard.
-					routeCommandProgress(hub, serverID, msg.Payload, data)
+					routeCommandProgress(hub, db, serverID, msg.Payload, data)
 				case "preflight_result":
 					handlePreflightResult(db, serverID, msg.Payload)
 				case "certificate_alert":
@@ -690,10 +691,13 @@ func commandIDFromPayload(payload json.RawMessage) string {
 }
 
 // routeCommandProgress forwards a mid-flight command update (ack/progress) to
-// the exact dashboard waiting on that command, or broadcasts if the command
-// was not tracked (e.g. a server-initiated command with no waiting browser).
-func routeCommandProgress(hub *Hub, serverID string, payload json.RawMessage, data []byte) {
+// the exact dashboard waiting on that command, advances the command status to
+// in_progress, or broadcasts if the command was not tracked (e.g. a
+// server-initiated command with no waiting browser).
+func routeCommandProgress(hub *Hub, db *sql.DB, serverID string, payload json.RawMessage, data []byte) {
 	if cmdID := commandIDFromPayload(payload); cmdID != "" {
+		// Step 7: agent acknowledged — mark the command in_progress.
+		_ = queries.UpdateCommandStatus(db, cmdID, "in_progress", "")
 		if connID := hub.LookupPendingCommand(cmdID); connID != "" {
 			hub.SendToBrowser(connID, data)
 			return
@@ -702,18 +706,67 @@ func routeCommandProgress(hub *Hub, serverID string, payload json.RawMessage, da
 	hub.ForwardToBrowsers(serverID, data)
 }
 
-// routeCommandResult delivers a completed command's result to the waiting
-// dashboard, removes the pending entry, and falls back to a broadcast when no
-// dashboard tracked the command.
-func routeCommandResult(hub *Hub, serverID string, payload json.RawMessage, data []byte) {
-	slog.Info("command result", "server_id", serverID)
-	if cmdID := commandIDFromPayload(payload); cmdID != "" {
-		if connID := hub.ResolvePendingCommand(cmdID); connID != "" {
-			hub.SendToBrowser(connID, data)
-			return
-		}
+// routeCommandResult delivers a completed command's result (Step 9):
+//  1. Normal path: the waiting dashboard is resolved, the DB is updated, and
+//     the result is delivered exactly there.
+//  2. Late result after a timeout: audit only, never re-delivered (Step 4B).
+//  3. Queued-command result or reconnected dashboard: delivered to an active
+//     connection of the issuing user if any, else kept in the DB only
+//     (Step 4A).
+//  4. Commands with no audit row (server-initiated): broadcast fallback.
+func routeCommandResult(hub *Hub, db *sql.DB, serverID string, payload json.RawMessage, data []byte) {
+	cmdID := commandIDFromPayload(payload)
+	if cmdID == "" {
+		hub.ForwardToBrowsers(serverID, data)
+		return
 	}
-	hub.ForwardToBrowsers(serverID, data)
+
+	// Normal path: a dashboard is waiting on this command.
+	if connID := hub.ResolvePendingCommand(cmdID); connID != "" {
+		_ = queries.UpdateCommandStatus(db, cmdID, commandResultStatus(payload), string(payload))
+		hub.SendToBrowser(connID, data)
+		return
+	}
+
+	rec, _ := queries.GetCommandByID(db, cmdID)
+	if rec == nil {
+		// Server-initiated or legacy command with no audit row: broadcast.
+		hub.ForwardToBrowsers(serverID, data)
+		return
+	}
+	if rec.Status == "timeout" {
+		// Late result after a timeout: record for audit, do not re-deliver.
+		_ = queries.UpdateCommandResult(db, cmdID, string(payload))
+		return
+	}
+
+	// The issuer's dashboard may have reconnected elsewhere — deliver there;
+	// otherwise the result stays in the DB for command history.
+	_ = queries.UpdateCommandStatus(db, cmdID, commandResultStatus(payload), string(payload))
+	if connID := hub.FindBrowserByUser(rec.IssuedBy); connID != "" {
+		hub.SendToBrowser(connID, data)
+	}
+}
+
+// commandResultStatus derives the terminal DB status from a result payload.
+func commandResultStatus(payload json.RawMessage) string {
+	var m map[string]interface{}
+	if err := json.Unmarshal(payload, &m); err != nil {
+		return "success"
+	}
+	if s, _ := m["status"].(string); s == "failed" || s == "error" {
+		return "failed"
+	}
+	if s, _ := m["status"].(string); s == "success" || s == "completed" || s == "ok" {
+		return "success"
+	}
+	if ok, _ := m["success"].(bool); ok {
+		return "success"
+	}
+	if e, _ := m["error"].(string); e != "" {
+		return "failed"
+	}
+	return "success"
 }
 
 func sendHelloAck(conn *websocket.Conn, db *sql.DB, serverID string) {
