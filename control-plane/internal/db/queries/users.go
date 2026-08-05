@@ -45,3 +45,13 @@ func EmailExists(db *sql.DB, email string) (bool, error) {
 	err := db.QueryRow("SELECT COUNT(*) FROM users WHERE email = ?", email).Scan(&exists)
 	return exists > 0, err
 }
+
+// UpdateUserPassword replaces a user's bcrypt password hash (Layer 5A
+// Step 7B.6 — password reset).
+func UpdateUserPassword(db *sql.DB, userID, passwordHash string) error {
+	_, err := db.Exec(
+		"UPDATE users SET password_hash = ?, updated_at = datetime('now') WHERE id = ?",
+		passwordHash, userID,
+	)
+	return err
+}
