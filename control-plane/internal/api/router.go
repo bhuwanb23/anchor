@@ -2,6 +2,7 @@ package api
 
 import (
 	"database/sql"
+	"encoding/json"
 	"net/http"
 	"path/filepath"
 
@@ -37,6 +38,13 @@ func NewRouter(database *sql.DB, cfg *config.Config, hub *ws.Hub, delivery *aler
 
 	r.Get("/ws/agent", ws.HandleAgentWS(hub, database, cfg.BaseDomain, delivery))
 	r.Get("/ws/browser", ws.HandleBrowserWS(hub, database, cfg.JWTSecret))
+
+	// Internal hub stats endpoint (no auth required, internal use only).
+	r.Get("/internal/hub/stats", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		stats := hub.Stats()
+		json.NewEncoder(w).Encode(stats)
+	})
 
 	releaseDir := filepath.Join(".", "release")
 	r.Get("/releases/latest.json", handlers.LatestRelease)
