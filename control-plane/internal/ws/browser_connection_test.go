@@ -220,7 +220,8 @@ func setupBrowserWSTestDB(t *testing.T) *sql.DB {
 			cpu_percent REAL, ram_used_mb INTEGER, ram_total_mb INTEGER, ram_percent REAL,
 			disk_used_gb REAL, disk_total_gb REAL, disk_percent REAL, load_1min REAL, load_per_core REAL,
 			caddy_running INTEGER NOT NULL DEFAULT 0, caddy_routes_count INTEGER NOT NULL DEFAULT 0,
-			last_backup_age_sec INTEGER, container_count INTEGER NOT NULL DEFAULT 0
+			last_backup_age_sec INTEGER, container_count INTEGER NOT NULL DEFAULT 0,
+			granularity TEXT NOT NULL DEFAULT 'raw'
 		);
 		INSERT INTO users (id, email) VALUES ('user-1', 'owner@example.com'), ('user-2', 'intruder@example.com');
 		INSERT INTO servers (id, user_id, name, status) VALUES ('srv-1', 'user-1', 'prod', 'connected');
