@@ -105,6 +105,8 @@ const (
 	opBrowserPong
 	opRecordBrowserPing
 	opSendToBrowser
+	opListBrowsers
+	opCloseBrowser
 	opRegisterLogStream
 	opUnregisterLogStream
 	opLookupLogStream
@@ -142,6 +144,15 @@ type browserRegistration struct {
 type agentSnapshot struct {
 	ServerID string
 	Send     chan []byte
+}
+
+// browserSnapshot is a read-only copy of a connected browser for heartbeat checks.
+type browserSnapshot struct {
+	ConnID         string
+	Send           chan []byte
+	Conn           *websocket.Conn
+	LastPongAt     time.Time
+	LastPingSentAt time.Time
 }
 
 // NewHub creates the hub and starts its single goroutine immediately. The
@@ -308,6 +319,48 @@ func (h *Hub) handleOp(op hubOp) {
 			snap = append(snap, agentSnapshot{ServerID: serverID, Send: agent.Send})
 		}
 		op.reply <- snap
+
+	case opListBrowsers:
+		if op.reply == nil {
+			return
+		}
+		snap := make([]browserSnapshot, 0, len(h.browsers))
+		for connID, b := range h.browsers {
+			snap = append(snap, browserSnapshot{
+				ConnID:         connID,
+				Send:           b.Send,
+				Conn:           b.Conn,
+				LastPongAt:     b.LastPongAt,
+				LastPingSentAt: b.LastPingSentAt,
+			})
+		}
+		op.reply <- snap
+
+	case opCloseBrowser:
+		// Close and unregister a browser connection (used by heartbeat timeout).
+		browser, ok := h.browsers[op.connID]
+		if !ok {
+			return
+		}
+		// Clean up subscriptions.
+		if browser.WatchingServerID != "" {
+			if subs, ok := h.subscriptions[browser.WatchingServerID]; ok {
+				delete(subs, op.connID)
+				if len(subs) == 0 {
+					delete(h.subscriptions, browser.WatchingServerID)
+				}
+			}
+		}
+		// Clean up stream subscriptions.
+		for streamID, conns := range h.streamSubs {
+			delete(conns, op.connID)
+			if len(conns) == 0 {
+				delete(h.streamSubs, streamID)
+			}
+		}
+		delete(h.browsers, op.connID)
+		close(browser.Send)
+		browser.Conn.Close()
 
 	case opTrackPendingCommand:
 		h.pendingCommands[op.commandID] = pendingCommandEntry{connID: op.connID, serverID: op.serverID, createdAt: time.Now()}
@@ -784,4 +837,55 @@ func (h *Hub) listAgents() []agentSnapshot {
 	h.ops <- hubOp{kind: opListAgents, reply: reply}
 	snap, _ := (<-reply).([]agentSnapshot)
 	return snap
+}
+
+// listBrowsers snapshots all connected browsers via a synchronous hub operation.
+func (h *Hub) listBrowsers() []browserSnapshot {
+	reply := make(chan interface{}, 1)
+	h.ops <- hubOp{kind: opListBrowsers, reply: reply}
+	snap, _ := (<-reply).([]browserSnapshot)
+	return snap
+}
+
+// closeBrowser closes and unregisters a browser connection. Used by the
+// heartbeat goroutine to evict stale connections.
+func (h *Hub) closeBrowser(connID string) {
+	h.ops <- hubOp{kind: opCloseBrowser, connID: connID}
+}
+
+// StartBrowserHeartbeat sends pings to all connected browsers every 30 seconds
+// and closes connections that have not responded within 10 seconds.
+func (h *Hub) StartBrowserHeartbeat() {
+	pingTicker := time.NewTicker(30 * time.Second)
+	checkTicker := time.NewTicker(5 * time.Second)
+	go func() {
+		for {
+			select {
+			case <-pingTicker.C:
+				snap := h.listBrowsers()
+				for _, b := range snap {
+					ts := time.Now().UTC().Format(time.RFC3339)
+					pingMsg := []byte(`{"type":"ping","timestamp":"` + ts + `"}`)
+					h.RecordBrowserPing(b.ConnID)
+					select {
+					case b.Send <- pingMsg:
+					default:
+					}
+				}
+			case <-checkTicker.C:
+				snap := h.listBrowsers()
+				now := time.Now()
+				for _, b := range snap {
+					// Close if ping was sent more than 10s ago and no pong received.
+					if !b.LastPingSentAt.IsZero() && now.Sub(b.LastPingSentAt) > 10*time.Second {
+						if b.LastPongAt.Before(b.LastPingSentAt) {
+							slog.Warn("browser heartbeat timeout, closing connection",
+								"connection_id", b.ConnID)
+							h.closeBrowser(b.ConnID)
+						}
+					}
+				}
+			}
+		}
+	}()
 }
