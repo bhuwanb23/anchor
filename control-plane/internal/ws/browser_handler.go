@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 	"github.com/yourname/yourplatform/control-plane/internal/auth"
 	"github.com/yourname/yourplatform/control-plane/internal/db/queries"
@@ -158,21 +159,22 @@ func HandleBrowserWS(hub *Hub, db *sql.DB, jwtSecret string) http.HandlerFunc {
 						hub.SendToBrowser(connID, browserErrorMsg("not subscribed to a server"))
 						continue
 					}
-					agentMsg, _ := json.Marshal(msg)
-					// Track log-stream desires so active views are re-established
-					// when the agent reconnects (Layer 4C 3B).
-					trackStreamCommand(hub, watching, msg, agentMsg)
-					if !hub.SendToAgent(watching, agentMsg) {
-						slog.Warn("no agent connected for command", "user_id", userID, "server_id", watching)
-						// Send error back to browser (through the writer).
-						hub.SendToBrowser(connID, browserErrorMsg("agent not connected"))
-					} else if cmdID := browserCommandID(msg); cmdID != "" {
-						// Delivered: record that this browser is waiting for the
-						// result so the hub can route ack/progress/result (and
-						// disconnect failures) back to exactly this dashboard
-						// (Layer 5B Step 2). Only tracked on success so an
-						// offline agent does not leak a pending entry.
-						hub.TrackPendingCommand(cmdID, connID, watching)
+					// Stream-control commands (legacy protocol) produce no result
+					// and never enter the command lifecycle.
+					if isStreamCommand(msg) {
+						agentMsg, _ := json.Marshal(msg)
+						// Track log-stream desires so active views are
+						// re-established when the agent reconnects (Layer 4C 3B).
+						trackStreamCommand(hub, watching, msg, agentMsg)
+						if !hub.SendToAgent(watching, agentMsg) {
+							hub.SendToBrowser(connID, browserErrorMsg("agent not connected"))
+						}
+						continue
+					}
+					// Full command routing pipeline (Layer 5B Step 4): validate,
+					// store, deduplicate, forward or queue, and track the result.
+					if resp := handleBrowserCommand(hub, db, connID, userID, watching, msg); resp != nil {
+						hub.SendToBrowser(connID, resp)
 					}
 
 				case "subscribe":
@@ -435,21 +437,185 @@ func trackStreamCommand(hub *Hub, serverID string, msg Message, agentMsg []byte)
 	}
 }
 
-// browserCommandID extracts the id of a browser-issued command so its result
-// can be routed back. Stream-control commands (stream_logs / stop_stream_logs)
-// produce no result and are never tracked.
-func browserCommandID(msg Message) string {
+// browserCommand is a normalized command from the dashboard.
+type browserCommand struct {
+	ID           string
+	Type         string
+	Project      string
+	InnerPayload json.RawMessage
+}
+
+// parseBrowserCommand normalizes both command shapes the dashboard may send:
+//   - legacy: {"type":"command","payload":{"type":...,"id":...,"payload":{...}}}
+//   - Step 4: {"type":"command","command_id":...,"command_type":...,"payload":{...}}
+func parseBrowserCommand(msg Message) browserCommand {
+	var m map[string]interface{}
+	if err := json.Unmarshal(msg.Payload, &m); err != nil {
+		return browserCommand{}
+	}
+	cmd := browserCommand{}
+	// New Step 4 shape carries command_id/command_type at the top level.
+	// Note: the envelope's own "type" is always "command" and is never used.
+	if id, _ := m["command_id"].(string); id != "" {
+		cmd.ID = id
+	} else if id, _ := m["id"].(string); id != "" {
+		cmd.ID = id
+	}
+	if t, _ := m["command_type"].(string); t != "" {
+		cmd.Type = t
+	}
+	if raw, ok := m["payload"].(map[string]interface{}); ok {
+		if inner, ok := raw["payload"].(map[string]interface{}); ok {
+			// Legacy shape nests the real payload one level deeper, and its
+			// type/id live on the inner envelope.
+			if cmd.ID == "" {
+				if id, _ := raw["id"].(string); id != "" {
+					cmd.ID = id
+				}
+			}
+			if cmd.Type == "" {
+				if t, _ := raw["type"].(string); t != "" {
+					cmd.Type = t
+				}
+			}
+			b, _ := json.Marshal(inner)
+			cmd.InnerPayload = b
+			projectFrom(inner, &cmd)
+		} else {
+			// Flat payload (Step 4 shape, or a legacy envelope without a
+			// nested payload).
+			if cmd.ID == "" {
+				if id, _ := raw["id"].(string); id != "" {
+					cmd.ID = id
+				}
+			}
+			if cmd.Type == "" {
+				if t, _ := raw["type"].(string); t != "" {
+					cmd.Type = t
+				}
+			}
+			b, _ := json.Marshal(raw)
+			cmd.InnerPayload = b
+			projectFrom(raw, &cmd)
+		}
+	} else {
+		cmd.InnerPayload = msg.Payload
+		projectFrom(m, &cmd)
+	}
+	return cmd
+}
+
+// projectFrom extracts the project identity from a command payload.
+func projectFrom(m map[string]interface{}, cmd *browserCommand) {
+	for _, k := range []string{"project", "project_name", "app_name"} {
+		if v, _ := m[k].(string); v != "" {
+			cmd.Project = v
+			return
+		}
+	}
+}
+
+// isStreamCommand reports whether a browser command is a log-stream control
+// message (legacy protocol) rather than a real command with a result.
+func isStreamCommand(msg Message) bool {
 	var inner struct {
-		ID   string `json:"id"`
 		Type string `json:"type"`
 	}
 	if err := json.Unmarshal(msg.Payload, &inner); err != nil {
-		return ""
+		return false
 	}
-	if inner.Type == "stream_logs" || inner.Type == "stop_stream_logs" {
-		return ""
+	return inner.Type == "stream_logs" || inner.Type == "stop_stream_logs"
+}
+
+// buildCommandEnvelope wraps a normalized command in the envelope the agent
+// understands: {"type":"command","payload":{"type":...,"id":...,"payload":{...}}}.
+func buildCommandEnvelope(cmd browserCommand) []byte {
+	env, _ := json.Marshal(map[string]interface{}{
+		"type": "command",
+		"payload": map[string]interface{}{
+			"type":    cmd.Type,
+			"id":      cmd.ID,
+			"payload": json.RawMessage(cmd.InnerPayload),
+		},
+	})
+	return env
+}
+
+// commandTimeoutFor returns the deadline for a command type: restores get 30
+// minutes, everything else 10 (Layer 5B Step 4B).
+func commandTimeoutFor(cmdType string) time.Duration {
+	if cmdType == "restore" {
+		return 30 * time.Minute
 	}
-	return inner.ID
+	return 10 * time.Minute
+}
+
+// handleBrowserCommand runs the Layer 5B Step 4 command pipeline and returns
+// the envelope to send back to the dashboard (nil = nothing to send).
+func handleBrowserCommand(hub *Hub, db *sql.DB, connID, userID, serverID string, msg Message) []byte {
+	cmd := parseBrowserCommand(msg)
+	if cmd.Type == "" {
+		return browserErrorMsg("command missing a type")
+	}
+	return handleBrowserCommandWithTimeout(hub, db, connID, userID, serverID, msg, cmd, commandTimeoutFor(cmd.Type))
+}
+
+// handleBrowserCommandWithTimeout is the command pipeline with an explicit
+// timeout for testability.
+func handleBrowserCommandWithTimeout(hub *Hub, db *sql.DB, connID, userID, serverID string, msg Message, cmd browserCommand, timeout time.Duration) []byte {
+	if cmd.ID == "" {
+		cmd.ID = uuid.New().String()
+	}
+
+	// Step 4C: reject a duplicate in-progress command for the same project.
+	if cmd.Project != "" {
+		if dup, _ := queries.HasInProgressCommand(db, serverID, cmd.Type, cmd.Project); dup {
+			return browserErrorMsg("A " + cmd.Type + " for " + cmd.Project + " is already in progress. Wait for it to complete before starting another.")
+		}
+	}
+
+	// Step 4: record the command (queued until the agent acknowledges).
+	_ = queries.InsertCommand(db, cmd.ID, serverID, cmd.Type, string(cmd.InnerPayload), cmd.Project, "queued", userID, time.Now().UTC().Format(time.RFC3339))
+
+	agentMsg := buildCommandEnvelope(cmd)
+	if hub.SendToAgent(serverID, agentMsg) {
+		// Steps 3-6: agent is live — track the waiting dashboard, arm the
+		// timeout, and confirm receipt immediately.
+		hub.TrackPendingCommand(cmd.ID, connID, serverID)
+		time.AfterFunc(timeout, func() {
+			// Notify the waiting dashboard (no-op if it already disconnected or
+			// the result arrived in time). The DB update is guarded so a command
+			// that just completed is never overwritten.
+			hub.TimeoutPendingCommand(cmd.ID)
+			_ = queries.UpdateCommandStatusIfActive(db, cmd.ID, "timeout", "Command did not complete within the allotted time.")
+		})
+		return commandAcceptedMsg(cmd.ID)
+	}
+
+	// Step 4A: agent offline — queue for delivery on reconnect, do not track.
+	_ = queries.EnqueuePendingCommand(db, cmd.ID, serverID, cmd.Type, string(cmd.InnerPayload), cmd.Project, "")
+	return commandQueuedMsg(cmd.ID)
+}
+
+// commandAcceptedMsg is the immediate receipt confirmation (Step 6).
+func commandAcceptedMsg(cmdID string) []byte {
+	b, _ := json.Marshal(map[string]interface{}{
+		"type":       "command_accepted",
+		"command_id": cmdID,
+		"message":    "Command sent to your server.",
+	})
+	return b
+}
+
+// commandQueuedMsg informs the dashboard the server is offline and the command
+// is queued (Step 4A).
+func commandQueuedMsg(cmdID string) []byte {
+	b, _ := json.Marshal(map[string]interface{}{
+		"type":       "command_queued",
+		"command_id": cmdID,
+		"message":    "Your server is currently offline. This command will execute automatically when it reconnects.",
+	})
+	return b
 }
 
 // streamCommandKey derives a stable identity (project|roles) for a stream
