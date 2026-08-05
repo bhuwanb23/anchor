@@ -122,6 +122,8 @@ func setupBrowserWSTestDB(t *testing.T) *sql.DB {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// One connection so the in-memory schema is visible to every query.
+	db.SetMaxOpenConns(1)
 	_, err = db.Exec(`
 		CREATE TABLE users (id TEXT PRIMARY KEY, email TEXT UNIQUE NOT NULL);
 		CREATE TABLE servers (
