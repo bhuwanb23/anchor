@@ -502,6 +502,7 @@ func (h *Hub) forwardToBrowsers(serverID string, msg []byte) {
 	for connID := range h.subscriptions[serverID] {
 		browser, ok := h.browsers[connID]
 		if !ok {
+			delete(h.subscriptions[serverID], connID)
 			continue
 		}
 		select {

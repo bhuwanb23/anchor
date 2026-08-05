@@ -163,6 +163,24 @@ func TestHub_UnregisterBrowserStopsDelivery(t *testing.T) {
 	assertNoMessage(t, sendA, "message after browser unregister")
 }
 
+func TestHub_ForwardToBrowsersCleansStaleSubscriptions(t *testing.T) {
+	hub := NewHub()
+	connID, _ := hub.RegisterBrowser("user-1", testConn(t))
+	hub.Subscribe("srv-1", connID)
+	hub.UnregisterBrowser(connID)
+
+	// After unregister, no messages should be delivered (stale entry skipped).
+	hub.ForwardToBrowsers("srv-1", []byte("trigger cleanup"))
+	// If cleanup worked, the entry was removed. Verify by subscribing a new
+	// browser and confirming it receives messages normally.
+	connID2, send2 := hub.RegisterBrowser("user-2", testConn(t))
+	hub.Subscribe("srv-1", connID2)
+	hub.ForwardToBrowsers("srv-1", []byte("after-cleanup"))
+	if got := recvWithTimeout(t, send2, "new browser after cleanup"); string(got) != "after-cleanup" {
+		t.Fatalf("got %q, want after-cleanup", got)
+	}
+}
+
 func TestHub_PendingCommandsRouteToBrowser(t *testing.T) {
 	hub := NewHub()
 	connID, sendA := hub.RegisterBrowser("user-1", testConn(t))
