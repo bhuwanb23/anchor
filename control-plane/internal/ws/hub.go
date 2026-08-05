@@ -96,6 +96,8 @@ const (
 	opLookupPendingCommand
 	opAgentPong
 	opSendToBrowser
+	opTimeoutCommand
+	opFindBrowserByUser
 	opRegisterLogStream
 	opUnregisterLogStream
 	opLookupLogStream
@@ -327,13 +329,41 @@ func (h *Hub) handleOp(op hubOp) {
 		}
 
 	case opSendToBrowser:
-		if browser, ok := h.browsers[op.connID]; ok {
-			select {
-			case browser.Send <- op.msg:
-			default:
-				slog.Debug("dropped ws message for slow browser", "connection_id", op.connID)
+		h.sendToBrowser(op.connID, op.msg)
+
+	case opTimeoutCommand:
+		// A command's deadline passed (Layer 5B Step 4B): remove the pending
+		// entry and tell the waiting dashboard. The caller updates the DB.
+		entry, ok := h.pendingCommands[op.commandID]
+		delete(h.pendingCommands, op.commandID)
+		if op.reply == nil {
+			break
+		}
+		if !ok {
+			op.reply <- ""
+			break
+		}
+		timeoutMsg, _ := json.Marshal(map[string]interface{}{
+			"type":       "command_result",
+			"command_id": op.commandID,
+			"status":     "timeout",
+			"error":      "Command did not complete within the allotted time. Your server may be experiencing issues. Check the server status and try again.",
+		})
+		h.sendToBrowser(entry.connID, timeoutMsg)
+		op.reply <- entry.connID
+
+	case opFindBrowserByUser:
+		if op.reply == nil {
+			break
+		}
+		found := ""
+		for _, b := range h.browsers {
+			if b.UserID == op.userID {
+				found = b.ID
+				break
 			}
 		}
+		op.reply <- found
 
 	case opRegisterLogStream:
 		if _, ok := h.browsers[op.connID]; ok {
@@ -486,17 +516,22 @@ func (h *Hub) removeSubscription(serverID, connID string) {
 // Hub-goroutine-only helper.
 func (h *Hub) forwardToBrowsers(serverID string, msg []byte) {
 	for connID := range h.subscriptions[serverID] {
-		browser, ok := h.browsers[connID]
-		if !ok {
-			continue
-		}
-		select {
-		case browser.Send <- msg:
-		default:
-			// Slow consumer: drop the message rather than block routing. Kept
-			// connected so a momentarily busy dashboard is not disconnected.
-			slog.Debug("dropped ws message for slow browser", "server_id", serverID, "connection_id", connID)
-		}
+		h.sendToBrowser(connID, msg)
+	}
+}
+
+// sendToBrowser pushes a message to one browser's send channel, dropping it
+// for a slow consumer rather than blocking routing.
+// Hub-goroutine-only helper.
+func (h *Hub) sendToBrowser(connID string, msg []byte) {
+	browser, ok := h.browsers[connID]
+	if !ok {
+		return
+	}
+	select {
+	case browser.Send <- msg:
+	default:
+		slog.Debug("dropped ws message for slow browser", "connection_id", connID)
 	}
 }
 
@@ -635,6 +670,27 @@ func (h *Hub) UnregisterLogStream(streamID string) {
 func (h *Hub) LookupLogStream(streamID string) string {
 	reply := make(chan interface{}, 1)
 	h.ops <- hubOp{kind: opLookupLogStream, key: streamID, reply: reply}
+	connID, _ := (<-reply).(string)
+	return connID
+}
+
+// TimeoutPendingCommand fires when a command's deadline passes (Layer 5B
+// Step 4B): it removes the pending entry, notifies the waiting dashboard with
+// a timeout result, and returns the dashboard's connection id ("" when the
+// command already completed and the entry is gone). The caller updates the DB.
+func (h *Hub) TimeoutPendingCommand(commandID string) string {
+	reply := make(chan interface{}, 1)
+	h.ops <- hubOp{kind: opTimeoutCommand, commandID: commandID, reply: reply}
+	connID, _ := (<-reply).(string)
+	return connID
+}
+
+// FindBrowserByUser returns an active browser connection id for the user, or
+// "" if the user has no live dashboard. Used to route late command results to
+// a reconnected dashboard (Layer 5B Step 4A).
+func (h *Hub) FindBrowserByUser(userID string) string {
+	reply := make(chan interface{}, 1)
+	h.ops <- hubOp{kind: opFindBrowserByUser, userID: userID, reply: reply}
 	connID, _ := (<-reply).(string)
 	return connID
 }
