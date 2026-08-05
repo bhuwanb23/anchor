@@ -381,3 +381,46 @@ func TestHub_ConcurrentOperations(t *testing.T) {
 	}
 	wg.Wait()
 }
+
+// --- Metrics (Step 6C) ---
+
+func TestHub_StatsReturnsCurrentCounts(t *testing.T) {
+	hub := NewHub()
+	agentConn := testConn(t)
+	hub.RegisterAgent("srv-1", "agt-1", "user-1", agentConn)
+
+	browserConn, _ := hub.RegisterBrowser("user-1", testConn(t))
+	hub.Subscribe("srv-1", browserConn)
+	hub.TrackPendingCommand("cmd-1", browserConn, "srv-1")
+
+	stats := hub.Stats()
+	if stats.AgentConnections != 1 {
+		t.Fatalf("AgentConnections = %d, want 1", stats.AgentConnections)
+	}
+	if stats.BrowserConnections != 1 {
+		t.Fatalf("BrowserConnections = %d, want 1", stats.BrowserConnections)
+	}
+	if stats.PendingCommands != 1 {
+		t.Fatalf("PendingCommands = %d, want 1", stats.PendingCommands)
+	}
+	if stats.Subscriptions != 1 {
+		t.Fatalf("Subscriptions = %d, want 1", stats.Subscriptions)
+	}
+}
+
+func TestHub_StatsTracksMessagesRouted(t *testing.T) {
+	hub := NewHub()
+	browserConn, _ := hub.RegisterBrowser("user-1", testConn(t))
+	hub.Subscribe("srv-1", browserConn)
+
+	hub.ForwardToBrowsers("srv-1", []byte("msg1"))
+	hub.ForwardToBrowsers("srv-1", []byte("msg2"))
+
+	stats := hub.Stats()
+	if stats.MessagesRouted != 2 {
+		t.Fatalf("MessagesRouted = %d, want 2", stats.MessagesRouted)
+	}
+	if stats.BroadcastCount != 2 {
+		t.Fatalf("BroadcastCount = %d, want 2", stats.BroadcastCount)
+	}
+}
