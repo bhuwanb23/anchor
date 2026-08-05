@@ -259,6 +259,18 @@ export interface BackupUsage {
   history: BackupUsageHistoryPoint[]
 }
 
+export interface StorageStats {
+  total_bytes: number
+  limit_bytes: number
+  percent_used: number
+  snapshot_count: number
+  days_until_full: number
+  retention_daily: number
+  retention_weekly: number
+  retention_monthly: number
+  history: BackupUsageHistoryPoint[]
+}
+
 // Restore types
 export interface RestoreRequest {
   snapshot_id: string
