@@ -28,9 +28,12 @@ func MarkRegistrationTokenUsed(db *sql.DB, tokenID, ip string) error {
 	return err
 }
 
-func DeleteExpiredRegistrationTokens(db *sql.DB) error {
-	_, err := db.Exec(
+func DeleteExpiredRegistrationTokens(db *sql.DB) (int64, error) {
+	result, err := db.Exec(
 		"DELETE FROM registration_tokens WHERE expires_at < datetime('now') AND used_at IS NULL",
 	)
-	return err
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
