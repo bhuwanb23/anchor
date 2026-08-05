@@ -3,7 +3,7 @@
 <head><meta charset="UTF-8" /></head>
 <body>
 <template id="05-value-template">
-  <div id="root-05-value" class="frame-root clip" data-composition-id="05-value" data-start="0" data-duration="12" data-track-index="0" data-width="1920" data-height="1080">
+  <div id="root-05-value" class="clip" data-composition-id="05-value" data-start="0" data-duration="12" data-track-index="0" data-width="1920" data-height="1080">
     <div class="ground"></div>
     <div class="header-block">
       <div class="accent-line" id="v5-accent"></div>
@@ -18,7 +18,8 @@
     <div class="glow" id="v5-glow"></div>
   </div>
   <style>
-    .frame-root { position: relative; width: 1920px; height: 1080px; overflow: hidden; container-type: size; font-family: "Inter", system-ui, sans-serif; }
+    @import url("https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&display=swap");
+    #root-05-value { position: relative; width: 1920px; height: 1080px; overflow: hidden; container-type: size; font-family: "Inter", system-ui, sans-serif; }
     .ground { position: absolute; inset: 0; background: #f6f8fa; }
     .header-block { position: absolute; left: 5cqw; top: 150px; z-index: 2; }
     .accent-line { width: 60px; height: 4px; border-radius: 2px; background: #1f6feb; margin-bottom: 22px; }

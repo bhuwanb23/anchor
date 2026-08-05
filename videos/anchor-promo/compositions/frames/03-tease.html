@@ -3,7 +3,7 @@
 <head><meta charset="UTF-8" /></head>
 <body>
 <template id="03-tease-template">
-  <div id="root-03-tease" class="frame-root clip" data-composition-id="03-tease" data-start="0" data-duration="8" data-track-index="0" data-width="1920" data-height="1080">
+  <div id="root-03-tease" class="clip" data-composition-id="03-tease" data-start="0" data-duration="8" data-track-index="0" data-width="1920" data-height="1080">
     <div class="ground"></div>
     <div class="content-block">
       <div class="accent-line clip" id="t3-accent" data-start="0.15" data-duration="7.85" data-track-index="1"></div>
@@ -14,7 +14,7 @@
   </div>
   <style>
     @import url("https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&display=swap");
-    .frame-root { position: relative; width: 1920px; height: 1080px; overflow: hidden; container-type: size; font-family: "Inter", system-ui, sans-serif; }
+    #root-03-tease { position: relative; width: 1920px; height: 1080px; overflow: hidden; container-type: size; font-family: "Inter", system-ui, sans-serif; }
     .ground { position: absolute; inset: 0; background: #f6f8fa; }
     .content-block { position: absolute; left: 50%; top: 320px; transform: translateX(-50%); width: 78cqw; text-align: center; z-index: 2; }
     .accent-line { width: 240px; height: 4px; border-radius: 2px; background: #1f6feb; margin: 0 auto 32px; }
