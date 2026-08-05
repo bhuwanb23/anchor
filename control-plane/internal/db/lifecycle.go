@@ -10,8 +10,9 @@ import (
 )
 
 // MaintenanceReport summarizes one cleanup run so callers (and tests) can
-// assert exactly what was deleted. Keys are job names; only jobs that
-// deleted rows appear (a job that found nothing is a successful no-op).
+// assert exactly what was deleted. Keys are job names and values are the
+// deleted-row counts; a job that found nothing appears with count 0 (a
+// successful no-op).
 type MaintenanceReport struct {
 	Jobs map[string]int64
 }
@@ -65,7 +66,9 @@ func RunHourlyMaintenance(db *sql.DB) MaintenanceReport {
 	runJob(&report, "hourly", "expired_invitations", func() (int64, error) {
 		return queries.DeleteExpiredInvitations(db)
 	})
-	runJob(&report, "hourly", "hourly_rollup", queries.RollupHourlyMetrics)
+	runJob(&report, "hourly", "hourly_rollup", func() (int64, error) {
+		return queries.RollupHourlyMetrics(db)
+	})
 	runJob(&report, "hourly", "old_raw_metrics", func() (int64, error) {
 		return queries.DeleteOldRawMetrics(db)
 	})
@@ -90,7 +93,9 @@ func RunHourlyMaintenance(db *sql.DB) MaintenanceReport {
 func RunDailyMaintenance(db *sql.DB, dbPath string) MaintenanceReport {
 	report := MaintenanceReport{Jobs: map[string]int64{}}
 
-	runJob(&report, "daily", "daily_rollup", queries.RollupDailyMetrics)
+	runJob(&report, "daily", "daily_rollup", func() (int64, error) {
+		return queries.RollupDailyMetrics(db)
+	})
 	runJob(&report, "daily", "old_daily_metrics", func() (int64, error) {
 		return queries.DeleteOldDailyMetrics(db)
 	})
