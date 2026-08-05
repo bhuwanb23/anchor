@@ -1,74 +1,180 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head><meta charset="UTF-8"></head>
+<head>
+<meta charset="UTF-8" />
+<style>
+  @import url("https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap");
+  #root { position: relative; width: 1920px; height: 1080px; overflow: hidden; container-type: size; font-family: "Inter", system-ui, sans-serif; background: #f6f8fa; }
+  .ground { position: absolute; inset: 0; background: #f6f8fa; }
+  .grid-bg { position: absolute; inset: 0; opacity: 0.5;
+    background-image: linear-gradient(rgba(31,111,235,0.05) 1px, transparent 1px), linear-gradient(90deg, rgba(31,111,235,0.05) 1px, transparent 1px);
+    background-size: 64px 64px; }
+
+  .header { position: absolute; left: 5cqw; top: 110px; z-index: 4; }
+  .accent-line { width: 60px; height: 4px; border-radius: 2px; background: #1f6feb; opacity: 0; }
+  .eyebrow { margin-top: 22px; font-family: "Space Grotesk", sans-serif; font-weight: 600; font-size: 16px; letter-spacing: 0.16em; text-transform: uppercase; color: #1f6feb; opacity: 0; }
+  .h2 { margin: 16px 0 0; font-family: "Space Grotesk", sans-serif; font-weight: 600; font-size: 58px; line-height: 1.08; letter-spacing: -0.025em; color: #0b1b2b; opacity: 0; }
+
+  /* three columns */
+  .stage { position: absolute; left: 5cqw; right: 5cqw; top: 372px; height: 430px; z-index: 3; }
+  .col { position: absolute; top: 0; width: 460px; background: #fff; border: 1.5px solid rgba(31,111,235,0.22); border-radius: 18px; padding: 26px 28px 24px; opacity: 0; }
+  #mc-col-a { left: 0; }
+  #mc-col-b { left: 50%; transform: translateX(-50%); }
+  #mc-col-c { right: 0; }
+
+  .col-tag { font-family: "Space Grotesk", sans-serif; font-size: 13px; font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase; color: #1f6feb; margin-bottom: 8px; }
+  .col-title { font-family: "Space Grotesk", sans-serif; font-weight: 600; font-size: 30px; letter-spacing: -0.02em; color: #0b1b2b; margin-bottom: 6px; }
+  .col-note { font-family: "Inter", sans-serif; font-size: 15px; color: #64748b; margin-bottom: 20px; }
+  .chip { display: flex; align-items: center; gap: 10px; padding: 11px 14px; border-radius: 10px; background: rgba(31,111,235,0.05); border: 1px solid rgba(31,111,235,0.14); margin-bottom: 10px; opacity: 0; }
+  .chip svg { width: 18px; height: 18px; flex: none; }
+  .chip-t { font-family: "Inter", sans-serif; font-size: 16px; color: #0b1b2b; font-weight: 500; }
+  .chip-s { font-family: "JetBrains Mono", monospace; font-size: 13px; color: #94a3b8; margin-left: auto; }
+
+  .owner { margin-top: 14px; padding-top: 14px; border-top: 1px dashed rgba(31,111,235,0.2); font-family: "Inter", sans-serif; font-size: 14px; color: #64748b; }
+  .owner b { color: #1f6feb; font-weight: 600; }
+
+  /* connection lines */
+  .wires { position: absolute; left: 5cqw; right: 5cqw; top: 372px; height: 430px; z-index: 2; pointer-events: none; }
+  .pkt { fill: #1f6feb; opacity: 0; }
+  .wire-label { position: absolute; font-family: "JetBrains Mono", monospace; font-size: 13px; color: #1f6feb; background: #f6f8fa; padding: 3px 9px; border-radius: 5px; opacity: 0; z-index: 4; }
+
+  .footline { position: absolute; left: 5cqw; right: 5cqw; top: 856px; z-index: 3; text-align: center; opacity: 0; }
+  .footline span { font-family: "Space Grotesk", sans-serif; font-weight: 500; font-size: 30px; letter-spacing: -0.02em; color: #0b1b2b; }
+  .footline em { font-style: normal; color: #1f6feb; font-weight: 700; }
+</style>
+</head>
 <body>
-<template id="04-mechanism-template">
-  <div data-hf-id="hf-7tgy" id="root-04-mechanism" class="clip" data-composition-id="04-mechanism" data-start="0" data-duration="12" data-track-index="0" data-width="1920" data-height="1080">
-    <div data-hf-id="hf-ygft" class="ground"></div>
-    <div data-hf-id="hf-sy6j" class="header-block">
-      <div data-hf-id="hf-f4kn" class="accent-line clip" id="m4-accent" data-start="0.15" data-duration="11.85" data-track-index="1"></div>
-      <div data-hf-id="hf-r41b" class="eyebrow clip" id="m4-eyebrow" data-start="0.2" data-duration="11.8" data-track-index="2">HOW IT WORKS</div>
-      <h2 data-hf-id="hf-l3cw" class="h2 clip" id="m4-h2" data-start="0.35" data-duration="11.65" data-track-index="3">Three pieces, one connection.</h2>
-    </div>
-    <div data-hf-id="hf-m7u2" class="diagram-wrap clip" id="m4-diagram" data-start="1.0" data-duration="11.0" data-track-index="4">
-      <img data-hf-id="hf-4fbf" src="assets/architecture.png" alt="Architecture diagram showing Agent on your server, Control Plane, and Dashboard" class="diagram-img">
-    </div>
-    <div data-hf-id="hf-kutb" class="glow clip" id="m4-glow" data-start="1.3" data-duration="10.7" data-track-index="5"></div>
+<div id="root" data-composition-id="04-mechanism" data-width="1920" data-height="1080">
+  <div class="ground"></div>
+  <div class="grid-bg"></div>
+
+  <div class="header">
+    <div class="accent-line" id="mc-accent"></div>
+    <div class="eyebrow" id="mc-eyebrow">HOW IT WORKS</div>
+    <h2 class="h2" id="mc-h2">Three pieces, one connection.</h2>
   </div>
-  <style>
-    @import url("https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&display=swap");
-    #root-04-mechanism { position: relative; width: 1920px; height: 1080px; overflow: hidden; container-type: size; font-family: "Inter", system-ui, sans-serif; }
-    .ground { position: absolute; inset: 0; background: #f6f8fa; }
-    .header-block { position: absolute; left: 5cqw; top: 140px; z-index: 3; }
-    .accent-line { width: 60px; height: 4px; border-radius: 2px; background: #1f6feb; margin-bottom: 22px; }
-    .eyebrow { font-family: "Space Grotesk", sans-serif; font-weight: 600; font-size: 15.4px; letter-spacing: 0.08em; text-transform: uppercase; color: #1f6feb; margin-bottom: 18px; }
-    .h2 { margin: 0; font-family: "Space Grotesk", sans-serif; font-weight: 600; font-size: 50px; line-height: 1.1; letter-spacing: -0.02em; color: #0b1b2b; }
-    .diagram-wrap { position: absolute; left: 5cqw; top: 320px; width: 90cqw; height: 600px; z-index: 2; overflow: hidden; }
-    .diagram-img { width: 100%; height: 100%; object-fit: contain; object-position: left top; opacity: 0.95; }
-    .glow { position: absolute; left: 50%; top: 540px; width: 1100px; height: 620px; transform: translateX(-50%); background: radial-gradient(closest-side, rgba(13,64,142,0.88) 0%, rgba(13,64,142,0) 74%); opacity: 0; transform-origin: 50% 50%; z-index: 1; pointer-events: none; }
-  </style>
-  <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
-  <script>
-    (function () {
-      window.__timelines = window.__timelines || {};
-      var tl = gsap.timeline({ paused: true });
-      var rootFrag = document.getElementById("04-mechanism-template").content;
-      var accent = rootFrag.getElementById("m4-accent");
-      var eyebrow = rootFrag.getElementById("m4-eyebrow");
-      var h2 = rootFrag.getElementById("m4-h2");
-      var diagram = rootFrag.getElementById("m4-diagram");
-      var glow = rootFrag.getElementById("m4-glow");
-      var TOTAL = 12.0;
-      var GLOW_PEAK = 0.15;
-      tl.fromTo(accent, { scaleX: 0, opacity: 0, transformOrigin: "0% 50%" }, { scaleX: 1, opacity: 1, duration: 0.5, ease: "power3.out" }, 0.15);
-      tl.fromTo(eyebrow, { y: 14, opacity: 0 }, { y: 0, opacity: 1, duration: 0.4, ease: "power3.out" }, 0.2);
-      tl.fromTo(h2, { y: 22, opacity: 0 }, { y: 0, opacity: 1, duration: 0.5, ease: "power3.out" }, 0.35);
-      tl.fromTo(diagram, { x: -60, opacity: 0 }, { x: 0, opacity: 1, duration: 0.75, ease: "power3.out" }, 1.0);
-      tl.fromTo(glow, { opacity: 0, scale: 0.9 }, { opacity: GLOW_PEAK, scale: 1, duration: 1.1, ease: "power2.out" }, 1.3);
-      var camX = { val: 0 };
-      tl.to(camX, { val: 180, duration: 8.0, ease: "circ.inOut",
-        onUpdate: function () {
-          diagram.style.transform = "translateX(" + camX.val + "px)";
-        }
-      }, 2.0);
-      var phase = { p: 0 };
-      var BREATHE_START = 2.8;
-      var BREATHE_DUR = TOTAL - BREATHE_START;
-      var CYCLES = BREATHE_DUR / 3.8;
-      var BASE_OP = 0.15, OP_AMP = 0.022, SC_AMP = 0.006, FADE_FRAC = 0.18;
-      tl.to(phase, {
-        p: Math.PI * 2 * CYCLES, duration: BREATHE_DUR, ease: "none",
-        onUpdate: function () {
-          var t = phase.p / (Math.PI * 2 * CYCLES);
-          var env = t < 1 - FADE_FRAC ? 1 : (1 - t) / FADE_FRAC;
-          var s = Math.sin(phase.p);
-          glow.style.opacity = String(BASE_OP + s * OP_AMP * env);
-          glow.style.transform = "translateX(-50%) scale(" + (1 + s * SC_AMP * env) + ")";
-        }
-      }, BREATHE_START);
-      window.__timelines["04-mechanism"] = tl;
-    })();
-  </script>
-</template>
+
+  <svg class="wires" viewBox="0 0 1728 430" fill="none" preserveAspectRatio="none">
+    <path id="mc-wire-1" d="M460 150 H 634" stroke="#1f6feb" stroke-opacity="0.3" stroke-width="2" stroke-dasharray="6 8"/>
+    <path id="mc-wire-2" d="M1094 150 H 1268" stroke="#1f6feb" stroke-opacity="0.3" stroke-width="2" stroke-dasharray="6 8"/>
+    <circle class="pkt" id="mc-pkt-1" r="6" cx="460" cy="150"/>
+    <circle class="pkt" id="mc-pkt-2" r="6" cx="1094" cy="150"/>
+    <circle class="pkt" id="mc-pkt-3" r="6" cx="1094" cy="150"/>
+  </svg>
+
+  <div class="wire-label" id="mc-lbl-1" style="left: calc(5cqw + 470px); top: 486px;">WebSocket</div>
+  <div class="wire-label" id="mc-lbl-2" style="left: calc(5cqw + 1104px); top: 486px;">HTTPS</div>
+
+  <div class="stage">
+    <div class="col" id="mc-col-a">
+      <div class="col-tag">YOURS</div>
+      <div class="col-title">Your server</div>
+      <div class="col-note">Any $5–40 Linux box</div>
+      <div class="chip" id="mc-a1">
+        <svg viewBox="0 0 24 24" fill="none" stroke="#1f6feb" stroke-width="2" stroke-linecap="round"><rect x="3" y="4" width="18" height="7" rx="2"/><rect x="3" y="13" width="18" height="7" rx="2"/><path d="M7 7.5h.01M7 16.5h.01"/></svg>
+        <span class="chip-t">Anchor agent</span><span class="chip-s">Go</span>
+      </div>
+      <div class="chip" id="mc-a2">
+        <svg viewBox="0 0 24 24" fill="none" stroke="#1f6feb" stroke-width="2" stroke-linecap="round"><rect x="3" y="9" width="18" height="9" rx="1.5"/><path d="M7 9V6M11 9V6M15 9V6"/></svg>
+        <span class="chip-t">Docker</span><span class="chip-s">workloads</span>
+      </div>
+      <div class="chip" id="mc-a3">
+        <svg viewBox="0 0 24 24" fill="none" stroke="#1f6feb" stroke-width="2" stroke-linecap="round"><path d="M12 3l8 4v5c0 5-3.4 8.3-8 9-4.6-.7-8-4-8-9V7z"/><path d="M9 12l2 2 4-4"/></svg>
+        <span class="chip-t">Caddy · auto HTTPS</span><span class="chip-s">TLS</span>
+      </div>
+      <div class="owner">Your apps + data <b>never leave this box</b></div>
+    </div>
+
+    <div class="col" id="mc-col-b">
+      <div class="col-tag">ORCHESTRATES ONLY</div>
+      <div class="col-title">Control plane</div>
+      <div class="col-note">Dispatches commands, relays health</div>
+      <div class="chip" id="mc-b1">
+        <svg viewBox="0 0 24 24" fill="none" stroke="#1f6feb" stroke-width="2" stroke-linecap="round"><path d="M4 12h4l3-7 4 14 3-7h2"/></svg>
+        <span class="chip-t">Health every 30s</span><span class="chip-s">live</span>
+      </div>
+      <div class="chip" id="mc-b2">
+        <svg viewBox="0 0 24 24" fill="none" stroke="#1f6feb" stroke-width="2" stroke-linecap="round"><path d="M7 8l-4 4 4 4M17 8l4 4-4 4"/></svg>
+        <span class="chip-t">Command dispatch</span><span class="chip-s">queued</span>
+      </div>
+      <div class="owner">Offline? Commands <b>queue and replay</b></div>
+    </div>
+
+    <div class="col" id="mc-col-c">
+      <div class="col-tag">ALL YOU TOUCH</div>
+      <div class="col-title">Dashboard</div>
+      <div class="col-note">No SSH. No terminal.</div>
+      <div class="chip" id="mc-c1">
+        <svg viewBox="0 0 24 24" fill="none" stroke="#1f6feb" stroke-width="2" stroke-linecap="round"><rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
+        <span class="chip-t">One-click deploy</span><span class="chip-s">git · docker</span>
+      </div>
+      <div class="chip" id="mc-c2">
+        <svg viewBox="0 0 24 24" fill="none" stroke="#1f6feb" stroke-width="2" stroke-linecap="round"><path d="M4 18V9M10 18V5M16 18v-6M22 18h-20"/></svg>
+        <span class="chip-t">Live metrics + logs</span><span class="chip-s">ws</span>
+      </div>
+      <div class="owner">The <b>only interface</b> you ever open</div>
+    </div>
+  </div>
+
+  <div class="footline" id="mc-foot">
+    <span>Your apps stay on hardware you own — <em>the control plane only orchestrates.</em></span>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+<script>
+(function () {
+  window.__timelines = window.__timelines || {};
+  var tl = gsap.timeline({ paused: true });
+  var $ = function (id) { return document.getElementById(id); };
+  var TOTAL = 12;
+
+  tl.fromTo($("mc-accent"), { scaleX: 0, opacity: 0, transformOrigin: "0% 50%" },
+    { scaleX: 1, opacity: 1, duration: 0.5, ease: "power3.out" }, 0.1);
+  tl.fromTo($("mc-eyebrow"), { y: 14, opacity: 0 }, { y: 0, opacity: 1, duration: 0.4, ease: "power3.out" }, 0.2);
+  tl.fromTo($("mc-h2"), { y: 24, opacity: 0 }, { y: 0, opacity: 1, duration: 0.55, ease: "power3.out" }, 0.34);
+
+  // columns build left to right, matching the narration walk
+  tl.fromTo($("mc-col-a"), { opacity: 0, x: -40, scale: 0.97 }, { opacity: 1, x: 0, scale: 1, duration: 0.6, ease: "power3.out" }, 0.9);
+  [["mc-a1", 1.35], ["mc-a2", 1.52], ["mc-a3", 1.69]].forEach(function (p) {
+    tl.fromTo($(p[0]), { opacity: 0, x: -16 }, { opacity: 1, x: 0, duration: 0.34, ease: "power2.out" }, p[1]);
+  });
+
+  // wire 1 draws, packet travels agent -> control plane
+  tl.fromTo($("mc-lbl-1"), { opacity: 0, y: 6 }, { opacity: 1, y: 0, duration: 0.3 }, 2.35);
+  tl.fromTo($("mc-col-b"), { opacity: 0, y: 34, scale: 0.97 }, { opacity: 1, y: 0, scale: 1, duration: 0.6, ease: "power3.out" }, 2.55);
+  [["mc-b1", 3.0], ["mc-b2", 3.17]].forEach(function (p) {
+    tl.fromTo($(p[0]), { opacity: 0, x: -16 }, { opacity: 1, x: 0, duration: 0.34, ease: "power2.out" }, p[1]);
+  });
+
+  tl.fromTo($("mc-lbl-2"), { opacity: 0, y: 6 }, { opacity: 1, y: 0, duration: 0.3 }, 3.9);
+  tl.fromTo($("mc-col-c"), { opacity: 0, x: 40, scale: 0.97 }, { opacity: 1, x: 0, scale: 1, duration: 0.6, ease: "power3.out" }, 4.1);
+  [["mc-c1", 4.55], ["mc-c2", 4.72]].forEach(function (p) {
+    tl.fromTo($(p[0]), { opacity: 0, x: -16 }, { opacity: 1, x: 0, duration: 0.34, ease: "power2.out" }, p[1]);
+  });
+
+  tl.fromTo($("mc-foot"), { opacity: 0, y: 22 }, { opacity: 1, y: 0, duration: 0.55, ease: "power3.out" }, 5.3);
+
+  // continuous data flow — health travels right, commands travel left
+  function flow(el, from, to, start, dur, reps) {
+    var p = { t: 0 };
+    tl.to(p, {
+      t: reps, duration: dur * reps, ease: "none",
+      onUpdate: function () {
+        var f = p.t % 1;
+        el.setAttribute("cx", from + (to - from) * f);
+        // fade in at the ends so packets don't pop
+        el.style.opacity = String(0.9 * Math.sin(Math.PI * f));
+      }
+    }, start);
+  }
+  flow($("mc-pkt-1"), 460, 634, 2.2, 1.15, 8);   // agent -> plane (health)
+  flow($("mc-pkt-2"), 1094, 1268, 3.75, 1.15, 7); // plane -> dashboard
+  flow($("mc-pkt-3"), 1268, 1094, 4.6, 1.5, 4);   // dashboard -> plane (commands)
+
+  tl.to({}, { duration: TOTAL }, 0);
+  window.__timelines["04-mechanism"] = tl;
+})();
+</script>
 </body>
 </html>

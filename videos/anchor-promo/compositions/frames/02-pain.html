@@ -1,83 +1,158 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head><meta charset="UTF-8"></head>
+<head>
+<meta charset="UTF-8" />
+<style>
+  @import url("https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap");
+  #root { position: relative; width: 1920px; height: 1080px; overflow: hidden; container-type: size; font-family: "Inter", system-ui, sans-serif; background: #f6f8fa; }
+  .ground { position: absolute; inset: 0; background: #f6f8fa; }
+  .grid-bg { position: absolute; inset: 0; opacity: 0.55;
+    background-image: linear-gradient(rgba(31,111,235,0.05) 1px, transparent 1px), linear-gradient(90deg, rgba(31,111,235,0.05) 1px, transparent 1px);
+    background-size: 64px 64px; }
+
+  .header { position: absolute; left: 5cqw; top: 118px; z-index: 3; }
+  .accent-line { width: 60px; height: 4px; border-radius: 2px; background: #1f6feb; opacity: 0; }
+  .eyebrow { margin-top: 22px; font-family: "Space Grotesk", sans-serif; font-weight: 600; font-size: 16px; letter-spacing: 0.16em; text-transform: uppercase; color: #1f6feb; opacity: 0; }
+  .h2 { margin: 16px 0 0; font-family: "Space Grotesk", sans-serif; font-weight: 600; font-size: 62px; line-height: 1.08; letter-spacing: -0.025em; color: #0b1b2b; opacity: 0; }
+
+  .row { position: absolute; left: 5cqw; right: 5cqw; top: 350px; display: flex; gap: 30px; z-index: 3; }
+  .card { flex: 1; background: #fff; border: 1.5px solid rgba(31,111,235,0.2); border-radius: 16px; padding: 32px 34px 30px; opacity: 0; }
+  .card-head { display: flex; align-items: center; gap: 12px; margin-bottom: 22px; }
+  .badge { width: 40px; height: 40px; border-radius: 10px; display: flex; align-items: center; justify-content: center; }
+  .badge svg { width: 22px; height: 22px; }
+  .card-time { font-family: "JetBrains Mono", monospace; font-size: 14px; color: #64748b; letter-spacing: 0.02em; }
+  .card-title { font-family: "Space Grotesk", sans-serif; font-weight: 600; font-size: 34px; line-height: 1.2; letter-spacing: -0.02em; color: #0b1b2b; margin-bottom: 20px; }
+
+  /* disk meter */
+  .meter { height: 12px; border-radius: 6px; background: rgba(31,111,235,0.1); overflow: hidden; }
+  .meter-fill { height: 100%; width: 0%; border-radius: 6px; background: #e8833a; }
+  .meter-label { display: flex; justify-content: space-between; margin-top: 12px; font-family: "JetBrains Mono", monospace; font-size: 15px; color: #64748b; }
+  .meter-val { color: #c2410c; font-weight: 500; }
+
+  /* cert countdown */
+  .cert { display: flex; align-items: baseline; gap: 10px; }
+  .cert-num { font-family: "Space Grotesk", sans-serif; font-weight: 700; font-size: 68px; line-height: 1; color: #c2410c; }
+  .cert-unit { font-family: "Inter", sans-serif; font-size: 19px; color: #64748b; }
+  .cert-sub { margin-top: 14px; font-family: "JetBrains Mono", monospace; font-size: 15px; color: #64748b; }
+
+  /* pager */
+  .pager { display: flex; align-items: center; gap: 16px; }
+  .pager-ico { width: 54px; height: 54px; border-radius: 12px; background: rgba(220,38,38,0.08); display: flex; align-items: center; justify-content: center; }
+  .pager-ico svg { width: 28px; height: 28px; }
+  .pager-txt { font-family: "Inter", sans-serif; font-size: 18px; line-height: 1.5; color: #0b1b2b; }
+  .pager-txt b { display: block; font-family: "Space Grotesk", sans-serif; font-weight: 600; color: #b91c1c; font-size: 20px; margin-bottom: 3px; }
+
+  .tally { position: absolute; left: 5cqw; right: 5cqw; top: 742px; z-index: 3;
+    background: rgba(31,111,235,0.07); border-left: 5px solid #1f6feb; border-radius: 14px; padding: 30px 38px; opacity: 0; }
+  .tally-text { font-family: "Space Grotesk", sans-serif; font-weight: 500; font-size: 38px; letter-spacing: -0.02em; color: #0b1b2b; }
+  .tally-text em { font-style: normal; color: #1f6feb; font-weight: 700; }
+</style>
+</head>
 <body>
-<template id="02-pain-template">
-  <div data-hf-id="hf-zpfp" id="root-02-pain" data-composition-id="02-pain" data-start="0" data-duration="9" data-width="1920" data-height="1080">
-    <div data-hf-id="hf-ygft" class="ground"></div>
-    <div data-hf-id="hf-sy6j" class="header-block">
-      <div data-hf-id="hf-okoj" class="eyebrow clip" id="pn-eyebrow" data-start="0.15" data-duration="8.85" data-track-index="1">THE TAX</div>
-      <h2 data-hf-id="hf-2udz" class="h2 clip" id="pn-h2" data-start="0.3" data-duration="8.7" data-track-index="2">The babysit loop.</h2>
+<div id="root" data-composition-id="02-pain" data-width="1920" data-height="1080">
+  <div class="ground"></div>
+  <div class="grid-bg"></div>
+
+  <div class="header">
+    <div class="accent-line" id="pn-accent"></div>
+    <div class="eyebrow" id="pn-eyebrow">THE TAX</div>
+    <h2 class="h2" id="pn-h2">The babysit loop.</h2>
+  </div>
+
+  <div class="row">
+    <div class="card" id="pn-c1">
+      <div class="card-head">
+        <div class="badge" style="background:rgba(232,131,58,0.12)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="#c2410c" stroke-width="2" stroke-linecap="round"><ellipse cx="12" cy="5.5" rx="8" ry="3"/><path d="M4 5.5v13c0 1.7 3.6 3 8 3s8-1.3 8-3v-13"/><path d="M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/></svg>
+        </div>
+        <div class="card-time">tonight · 23:14</div>
+      </div>
+      <div class="card-title">Full disk.</div>
+      <div class="meter"><div class="meter-fill" id="pn-meter"></div></div>
+      <div class="meter-label"><span>/dev/sda1</span><span class="meter-val"><span id="pn-pct">0</span>% used</span></div>
     </div>
-    <div data-hf-id="hf-svst" class="card-row">
-      <div data-hf-id="hf-hvxn" class="pain-card clip" id="pn-card-1" data-start="1.1" data-duration="7.9" data-track-index="3"><div data-hf-id="hf-nmqf" class="card-title">Full disk.</div><div data-hf-id="hf-dqzr" class="card-caption">36 GB free</div></div>
-      <div data-hf-id="hf-anxl" class="pain-card clip" id="pn-card-2" data-start="1.7" data-duration="7.3" data-track-index="4"><div data-hf-id="hf-xjlr" class="card-title">Expired certificate.</div><div data-hf-id="hf-lhtg" class="card-caption">cert 47 days old</div></div>
-      <div data-hf-id="hf-lt9f" class="pain-card clip" id="pn-card-3" data-start="2.3" data-duration="6.7" data-track-index="5"><div data-hf-id="hf-pe3g" class="card-title">2:00 AM page.</div><div data-hf-id="hf-f425" class="card-caption">site down 14 min</div></div>
+
+    <div class="card" id="pn-c2">
+      <div class="card-head">
+        <div class="badge" style="background:rgba(232,131,58,0.12)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="#c2410c" stroke-width="2" stroke-linecap="round"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>
+        </div>
+        <div class="card-time">tomorrow · 04:00</div>
+      </div>
+      <div class="card-title">Expired certificate.</div>
+      <div class="cert"><span class="cert-num" id="pn-days">14</span><span class="cert-unit">days left</span></div>
+      <div class="cert-sub">auto-renew: not configured</div>
     </div>
-    <div data-hf-id="hf-w9h1" class="highlight-wrap">
-      <div data-hf-id="hf-2av4" class="hl-glow clip" id="pn-hl-glow" data-start="3.15" data-duration="5.85" data-track-index="6"></div>
-      <div data-hf-id="hf-544d" class="split-highlight clip" id="pn-highlight" data-start="3.1" data-duration="5.9" data-track-index="7"><div data-hf-id="hf-pd7a" class="hl-text">An hour you will not get back.</div></div>
+
+    <div class="card" id="pn-c3">
+      <div class="card-head">
+        <div class="badge" style="background:rgba(220,38,38,0.1)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="#b91c1c" stroke-width="2" stroke-linecap="round"><path d="M18 8a6 6 0 1 0-12 0c0 7-3 8-3 8h18s-3-1-3-8"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg>
+        </div>
+        <div class="card-time">2:00 AM</div>
+      </div>
+      <div class="card-title">The page.</div>
+      <div class="pager">
+        <div class="pager-ico" id="pn-bell">
+          <svg viewBox="0 0 24 24" fill="none" stroke="#b91c1c" stroke-width="2" stroke-linecap="round"><path d="M12 2v4"/><circle cx="12" cy="14" r="7"/><path d="M12 11v3l2 2"/></svg>
+        </div>
+        <div class="pager-txt"><b>site down · 14 min</b>you, awake, again</div>
+      </div>
     </div>
   </div>
-  <style>
-    @import url("https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&display=swap");
-    #root-02-pain { position: relative; width: 1920px; height: 1080px; overflow: hidden; container-type: size; font-family: "Inter", system-ui, sans-serif; background: #f6f8fa; }
-    .ground { position: absolute; inset: 0; background: #f6f8fa; }
-    .header-block { position: absolute; left: 5cqw; top: 150px; z-index: 2; }
-    .eyebrow { font-family: "Space Grotesk", sans-serif; font-weight: 600; font-size: 15.4px; letter-spacing: 0.08em; text-transform: uppercase; color: #1f6feb; margin-bottom: 18px; }
-    .h2 { margin: 0; font-family: "Space Grotesk", sans-serif; font-weight: 600; font-size: 50px; line-height: 1.1; letter-spacing: -0.02em; color: #0b1b2b; }
-    .card-row { position: absolute; left: 5cqw; top: 330px; display: flex; gap: 27px; z-index: 2; }
-    .pain-card { width: 500px; background: rgba(30,43,250,0.04); border: 1.5px solid rgba(30,43,250,0.2); border-radius: 14px; box-shadow: none; padding: 30px 32px 26px; opacity: 0; will-change: transform, opacity; }
-    .card-title { font-family: "Space Grotesk", sans-serif; font-weight: 500; font-size: 30px; line-height: 1.3; letter-spacing: -0.02em; color: #0b1b2b; margin-bottom: 10px; }
-    .card-caption { font-family: "Inter", sans-serif; font-weight: 400; font-size: 16.3px; line-height: 1.6; color: #0055d6; }
-    .highlight-wrap { position: absolute; left: 5cqw; top: 640px; width: 800px; z-index: 2; }
-    .hl-glow { position: absolute; inset: -120px; background: radial-gradient(closest-side, rgba(13,64,142,0.9) 0%, rgba(13,64,142,0) 74%); opacity: 0; transform-origin: 50% 50%; z-index: 1; pointer-events: none; }
-    .split-highlight { position: relative; z-index: 2; background: rgba(30,43,250,0.08); border-left: 4px solid #1f6feb; border-radius: 12px; padding: 26px 32px; }
-    .hl-text { font-family: "Space Grotesk", sans-serif; font-weight: 500; font-size: 28px; line-height: 1.3; letter-spacing: -0.02em; color: #0b1b2b; }
-  </style>
-  <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
-  <script>
-    (function () {
-      window.__timelines = window.__timelines || {};
-      var tl = gsap.timeline({ paused: true });
-      var rootFrag = document.getElementById("02-pain-template").content;
-      var eyebrow = rootFrag.getElementById("pn-eyebrow");
-      var h2 = rootFrag.getElementById("pn-h2");
-      var card1 = rootFrag.getElementById("pn-card-1");
-      var card2 = rootFrag.getElementById("pn-card-2");
-      var card3 = rootFrag.getElementById("pn-card-3");
-      var highlight = rootFrag.getElementById("pn-highlight");
-      var hlGlow = rootFrag.getElementById("pn-hl-glow");
-      var TOTAL = 9.0;
-      tl.fromTo(eyebrow, { y: 14, opacity: 0 }, { y: 0, opacity: 1, duration: 0.4, ease: "power3.out" }, 0.15);
-      tl.fromTo(h2, { y: 22, opacity: 0 }, { y: 0, opacity: 1, duration: 0.5, ease: "power3.out" }, 0.3);
-      tl.set(card1, { opacity: 1, y: 60 }, 1.1);
-      tl.to(card1, { y: 0, duration: 0.18, ease: "power4.out" }, 1.1);
-      tl.set(card2, { opacity: 1, y: 48 }, 1.7);
-      tl.to(card2, { y: 0, duration: 0.15, ease: "power4.out" }, 1.7);
-      tl.set(card3, { opacity: 1, y: 70 }, 2.3);
-      tl.to(card3, { y: 0, duration: 0.16, ease: "power4.out" }, 2.3);
-      tl.set(highlight, { opacity: 1, y: 40 }, 3.1);
-      tl.to(highlight, { y: 0, duration: 0.18, ease: "power4.out" }, 3.1);
-      tl.fromTo(hlGlow, { opacity: 0, scale: 0.92 }, { opacity: 0.16, scale: 1, duration: 0.9, ease: "power2.out" }, 3.15);
-      var phase = { p: 0 };
-      var BREATHE_START = 4.1;
-      var BREATHE_DUR = TOTAL - BREATHE_START;
-      var CYCLES = BREATHE_DUR / 3.4;
-      var BASE_OP = 0.16, OP_AMP = 0.03, SC_AMP = 0.008, FADE_FRAC = 0.2;
-      tl.to(phase, {
-        p: Math.PI * 2 * CYCLES, duration: BREATHE_DUR, ease: "none",
-        onUpdate: function () {
-          var t = phase.p / (Math.PI * 2 * CYCLES);
-          var env = t < 1 - FADE_FRAC ? 1 : (1 - t) / FADE_FRAC;
-          var s = Math.sin(phase.p);
-          hlGlow.style.opacity = String(BASE_OP + s * OP_AMP * env);
-          hlGlow.style.transform = "scale(" + (1 + s * SC_AMP * env) + ")";
-        }
-      }, BREATHE_START);
-      window.__timelines["02-pain"] = tl;
-    })();
-  </script>
-</template>
+
+  <div class="tally" id="pn-tally">
+    <div class="tally-text">Another hour gone to a machine <em>you already pay for.</em></div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+<script>
+(function () {
+  window.__timelines = window.__timelines || {};
+  var tl = gsap.timeline({ paused: true });
+  var $ = function (id) { return document.getElementById(id); };
+  var TOTAL = 9;
+
+  tl.fromTo($("pn-accent"), { scaleX: 0, opacity: 0, transformOrigin: "0% 50%" },
+    { scaleX: 1, opacity: 1, duration: 0.5, ease: "power3.out" }, 0.1);
+  tl.fromTo($("pn-eyebrow"), { y: 14, opacity: 0 }, { y: 0, opacity: 1, duration: 0.4, ease: "power3.out" }, 0.22);
+  tl.fromTo($("pn-h2"), { y: 26, opacity: 0 }, { y: 0, opacity: 1, duration: 0.55, ease: "power3.out" }, 0.36);
+
+  // three scenarios land in sequence, each with its own data telling the story
+  [["pn-c1", 1.05], ["pn-c2", 1.42], ["pn-c3", 1.79]].forEach(function (p) {
+    tl.fromTo($(p[0]), { opacity: 0, y: 54, scale: 0.97 },
+      { opacity: 1, y: 0, scale: 1, duration: 0.62, ease: "back.out(1.5)" }, p[1]);
+  });
+
+  // disk fills toward the red line
+  var disk = { v: 0 };
+  tl.to(disk, {
+    v: 98, duration: 1.5, ease: "power2.inOut",
+    onUpdate: function () {
+      $("pn-meter").style.width = disk.v + "%";
+      $("pn-pct").textContent = Math.round(disk.v);
+    }
+  }, 1.75);
+
+  // cert counts down
+  var cert = { d: 14 };
+  tl.to(cert, {
+    d: 0, duration: 1.5, ease: "power2.in",
+    onUpdate: function () { $("pn-days").textContent = Math.max(0, Math.round(cert.d)); }
+  }, 2.15);
+
+  // pager shakes
+  tl.to($("pn-bell"), { rotation: 13, duration: 0.07, repeat: 9, yoyo: true, ease: "power1.inOut", transformOrigin: "50% 20%" }, 2.6);
+
+  tl.fromTo($("pn-tally"), { opacity: 0, y: 34 }, { opacity: 1, y: 0, duration: 0.6, ease: "power3.out" }, 4.35);
+
+  // the cost keeps mounting — one living element
+  tl.to($("pn-tally"), { scale: 1.012, duration: 1.6, yoyo: true, repeat: 1, ease: "sine.inOut", transformOrigin: "0% 50%" }, 5.3);
+
+  tl.to({}, { duration: TOTAL }, 0);
+  window.__timelines["02-pain"] = tl;
+})();
+</script>
 </body>
 </html>

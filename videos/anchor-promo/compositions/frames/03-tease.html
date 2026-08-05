@@ -1,61 +1,136 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head><meta charset="UTF-8"></head>
+<head>
+<meta charset="UTF-8" />
+<style>
+  @import url("https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&display=swap");
+  #root { position: relative; width: 1920px; height: 1080px; overflow: hidden; container-type: size; font-family: "Inter", system-ui, sans-serif; background: #f6f8fa; }
+  .ground { position: absolute; inset: 0; background: #f6f8fa; }
+  .grid-bg { position: absolute; inset: 0; opacity: 0;
+    background-image: linear-gradient(rgba(31,111,235,0.045) 1px, transparent 1px), linear-gradient(90deg, rgba(31,111,235,0.045) 1px, transparent 1px);
+    background-size: 64px 64px; }
+  .glow { position: absolute; left: 50%; top: 50%; width: 1300px; height: 760px; transform: translate(-50%, -50%); opacity: 0;
+    background: radial-gradient(closest-side, rgba(31,111,235,0.42) 0%, rgba(31,111,235,0) 70%); pointer-events: none; }
+
+  .copy { position: absolute; left: 0; top: 260px; width: 100%; display: flex; flex-direction: column; align-items: center; z-index: 3; }
+  .accent-line { width: 240px; height: 4px; border-radius: 2px; background: #1f6feb; opacity: 0; }
+  .headline { margin: 32px 0 0; font-family: "Space Grotesk", sans-serif; font-weight: 700; font-size: 96px; line-height: 1.04; letter-spacing: -0.028em; color: #0b1b2b; text-align: center; opacity: 0; }
+  .subline { margin-top: 28px; font-family: "Inter", sans-serif; font-size: 22px; line-height: 1.6; color: #0055d6; text-align: center; opacity: 0; }
+
+  /* dashboard preview */
+  .dash { position: absolute; left: 50%; top: 540px; width: 1140px; transform: translateX(-50%); opacity: 0; z-index: 2; }
+  .dash-row { display: flex; gap: 24px; }
+  .dash-card { flex: 1; background: #fff; border: 1.5px solid rgba(31,111,235,0.2); border-radius: 14px; padding: 26px 28px 24px; }
+  .dash-label { font-family: "Space Grotesk", sans-serif; font-size: 15px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: #1f6feb; margin-bottom: 18px; }
+  .dash-val { font-family: "Space Grotesk", sans-serif; font-size: 58px; font-weight: 700; line-height: 1; color: #0b1b2b; }
+  .dash-unit { font-family: "Inter", sans-serif; font-size: 20px; color: #64748b; margin-left: 8px; }
+  .dash-sub { margin-top: 12px; font-family: "Inter", sans-serif; font-size: 15px; color: #64748b; }
+  
+  /* status dots */
+  .stat-row { display: flex; align-items: center; gap: 14px; margin-top: 16px; }
+  .stat-dot { width: 14px; height: 14px; border-radius: 50%; background: #22c55e; }
+  .stat-label { font-family: "Inter", sans-serif; font-size: 15px; color: #0b1b2b; }
+  .stat-time { font-family: "JetBrains Mono", monospace; font-size: 13px; color: #94a3b8; margin-left: auto; }
+</style>
+</head>
 <body>
-<template id="03-tease-template">
-  <div data-hf-id="hf-19nn" id="root-03-tease" class="clip" data-composition-id="03-tease" data-start="0" data-duration="8" data-track-index="0" data-width="1920" data-height="1080">
-    <div data-hf-id="hf-ygft" class="ground"></div>
-    <div data-hf-id="hf-dqnf" class="content-block">
-      <div data-hf-id="hf-ywcq" class="accent-line clip" id="t3-accent" data-start="0.15" data-duration="7.85" data-track-index="1"></div>
-      <h1 data-hf-id="hf-stdo" class="headline clip" id="t3-headline" data-start="0.3" data-duration="7.7" data-track-index="2">Your server,<br data-hf-id="hf-x5px">managed.</h1>
-      <div data-hf-id="hf-7aqa" class="subline clip" id="t3-subline" data-start="0.9" data-duration="7.1" data-track-index="3">One dashboard. That's the whole interface.</div>
-    </div>
-    <div data-hf-id="hf-9lgd" class="glow clip" id="t3-glow" data-start="1.2" data-duration="6.8" data-track-index="4"></div>
+<div id="root" data-composition-id="03-tease" data-width="1920" data-height="1080">
+  <div class="ground"></div>
+  <div class="grid-bg" id="t3-grid"></div>
+  <div class="glow" id="t3-glow"></div>
+
+  <div class="copy">
+    <div class="accent-line" id="t3-accent"></div>
+    <h1 class="headline" id="t3-headline">Your server,<br>managed.</h1>
+    <div class="subline" id="t3-subline">One dashboard. That's the whole interface.</div>
   </div>
-  <style>
-    @import url("https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&display=swap");
-    #root-03-tease { position: relative; width: 1920px; height: 1080px; overflow: hidden; container-type: size; font-family: "Inter", system-ui, sans-serif; }
-    .ground { position: absolute; inset: 0; background: #f6f8fa; }
-    .content-block { position: absolute; left: 50%; top: 320px; transform: translateX(-50%); width: 78cqw; text-align: center; z-index: 2; }
-    .accent-line { width: 240px; height: 4px; border-radius: 2px; background: #1f6feb; margin: 0 auto 32px; }
-    .headline { margin: 0; font-family: "Space Grotesk", sans-serif; font-weight: 700; font-size: 84px; line-height: 1.08; letter-spacing: -0.02em; color: #0b1b2b; }
-    .subline { margin-top: 36px; font-family: "Inter", sans-serif; font-weight: 400; font-size: 19px; line-height: 1.6; color: #0055d6; }
-    .glow { position: absolute; left: 50%; top: 50%; width: 1200px; height: 720px; transform: translate(-50%, -50%); background: radial-gradient(closest-side, rgba(13,64,142,0.85) 0%, rgba(13,64,142,0) 74%); opacity: 0; transform-origin: 50% 50%; z-index: 1; pointer-events: none; }
-  </style>
-  <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
-  <script>
-    (function () {
-      window.__timelines = window.__timelines || {};
-      var tl = gsap.timeline({ paused: true });
-      var rootFrag = document.getElementById("03-tease-template").content;
-      var accent = rootFrag.getElementById("t3-accent");
-      var headline = rootFrag.getElementById("t3-headline");
-      var subline = rootFrag.getElementById("t3-subline");
-      var glow = rootFrag.getElementById("t3-glow");
-      var TOTAL = 8.0;
-      var GLOW_PEAK = 0.16;
-      tl.fromTo(accent, { scaleX: 0, opacity: 0, transformOrigin: "50% 50%" }, { scaleX: 1, opacity: 1, duration: 0.52, ease: "power3.out" }, 0.15);
-      tl.fromTo(headline, { scale: 0.93, y: 28, opacity: 0 }, { scale: 1, y: 0, opacity: 1, duration: 0.68, ease: "power3.out" }, 0.3);
-      tl.fromTo(subline, { y: 18, opacity: 0 }, { y: 0, opacity: 1, duration: 0.5, ease: "power3.out" }, 0.9);
-      tl.fromTo(glow, { opacity: 0, scale: 0.88 }, { opacity: GLOW_PEAK, scale: 1, duration: 1.0, ease: "power2.out" }, 1.2);
-      var phase = { p: 0 };
-      var BREATHE_START = 2.5;
-      var BREATHE_DUR = TOTAL - BREATHE_START;
-      var CYCLES = BREATHE_DUR / 3.6;
-      var BASE_OP = 0.16, OP_AMP = 0.025, SC_AMP = 0.007, FADE_FRAC = 0.18;
-      tl.to(phase, {
-        p: Math.PI * 2 * CYCLES, duration: BREATHE_DUR, ease: "none",
-        onUpdate: function () {
-          var t = phase.p / (Math.PI * 2 * CYCLES);
-          var env = t < 1 - FADE_FRAC ? 1 : (1 - t) / FADE_FRAC;
-          var s = Math.sin(phase.p);
-          glow.style.opacity = String(BASE_OP + s * OP_AMP * env);
-          glow.style.transform = "translate(-50%, -50%) scale(" + (1 + s * SC_AMP * env) + ")";
-        }
-      }, BREATHE_START);
-      window.__timelines["03-tease"] = tl;
-    })();
-  </script>
-</template>
+
+  <div class="dash" id="t3-dash">
+    <div class="dash-row">
+      <div class="dash-card">
+        <div class="dash-label">CPU</div>
+        <div><span class="dash-val" id="t3-cpu">0</span><span class="dash-unit">%</span></div>
+        <div class="stat-row">
+          <span class="stat-dot"></span>
+          <span class="stat-label">healthy</span>
+          <span class="stat-time" id="t3-cpu-time">—</span>
+        </div>
+      </div>
+      <div class="dash-card">
+        <div class="dash-label">Memory</div>
+        <div><span class="dash-val" id="t3-mem">0</span><span class="dash-unit">%</span></div>
+        <div class="stat-row">
+          <span class="stat-dot"></span>
+          <span class="stat-label">healthy</span>
+          <span class="stat-time" id="t3-mem-time">—</span>
+        </div>
+      </div>
+      <div class="dash-card">
+        <div class="dash-label">Containers</div>
+        <div><span class="dash-val" id="t3-cont">0</span><span class="dash-unit">/5 up</span></div>
+        <div class="stat-row">
+          <span class="stat-dot"></span>
+          <span class="stat-label">all running</span>
+          <span class="stat-time" id="t3-cont-time">—</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+<script>
+(function () {
+  window.__timelines = window.__timelines || {};
+  var tl = gsap.timeline({ paused: true });
+  var $ = function (id) { return document.getElementById(id); };
+  var TOTAL = 8;
+
+  // everything pauses, then the solution materializes
+  tl.fromTo($("t3-accent"), { scaleX: 0, opacity: 0, transformOrigin: "50% 50%" },
+    { scaleX: 1, opacity: 1, duration: 0.58, ease: "power3.out" }, 0.25);
+  tl.fromTo($("t3-headline"), { scale: 0.94, y: 28, opacity: 0 },
+    { scale: 1, y: 0, opacity: 1, duration: 0.72, ease: "power3.out" }, 0.45);
+  tl.fromTo($("t3-subline"), { y: 18, opacity: 0 },
+    { y: 0, opacity: 1, duration: 0.52, ease: "power3.out" }, 1.05);
+
+  tl.fromTo($("t3-grid"), { opacity: 0 }, { opacity: 1, duration: 0.9, ease: "power2.out" }, 0.3);
+  tl.fromTo($("t3-glow"), { opacity: 0, scale: 0.9 }, { opacity: 0.16, scale: 1, duration: 1.1, ease: "power2.out" }, 0.8);
+
+  // dashboard appears below with live data
+  tl.fromTo($("t3-dash"), { opacity: 0, y: 44, scale: 0.98 },
+    { opacity: 1, y: 0, scale: 1, duration: 0.7, ease: "back.out(1.4)" }, 1.85);
+
+  // counters count up (relief — the numbers are good)
+  var cpu = { v: 0 };
+  tl.to(cpu, {
+    v: 12, duration: 1.2, ease: "power2.out",
+    onUpdate: function () { $("t3-cpu").textContent = Math.round(cpu.v); }
+  }, 2.4);
+
+  var mem = { v: 0 };
+  tl.to(mem, {
+    v: 34, duration: 1.3, ease: "power2.out",
+    onUpdate: function () { $("t3-mem").textContent = Math.round(mem.v); }
+  }, 2.5);
+
+  var cont = { v: 0 };
+  tl.to(cont, {
+    v: 5, duration: 1.1, ease: "power2.out",
+    onUpdate: function () { $("t3-cont").textContent = Math.round(cont.v); }
+  }, 2.6);
+
+  // timestamps appear
+  tl.set($("t3-cpu-time"), { textContent: "2m ago" }, 3.6);
+  tl.set($("t3-mem-time"), { textContent: "2m ago" }, 3.6);
+  tl.set($("t3-cont-time"), { textContent: "2m ago" }, 3.6);
+
+  // living element: slow glow breathe
+  tl.to($("t3-glow"), { opacity: 0.21, duration: TOTAL - 4.2, yoyo: true, repeat: 1, ease: "sine.inOut" }, 4.2);
+
+  tl.to({}, { duration: TOTAL }, 0);
+  window.__timelines["03-tease"] = tl;
+})();
+</script>
 </body>
 </html>

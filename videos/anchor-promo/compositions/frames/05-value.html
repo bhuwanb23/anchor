@@ -1,81 +1,172 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head><meta charset="UTF-8"></head>
+<head>
+<meta charset="UTF-8" />
+<style>
+  @import url("https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap");
+  #root { position: relative; width: 1920px; height: 1080px; overflow: hidden; container-type: size; font-family: "Inter", system-ui, sans-serif; background: #f6f8fa; }
+  .ground { position: absolute; inset: 0; background: #f6f8fa; }
+  .grid-bg { position: absolute; inset: 0; opacity: 0.5;
+    background-image: linear-gradient(rgba(31,111,235,0.05) 1px, transparent 1px), linear-gradient(90deg, rgba(31,111,235,0.05) 1px, transparent 1px);
+    background-size: 64px 64px; }
+
+  .header { position: absolute; left: 5cqw; top: 112px; z-index: 3; }
+  .accent-line { width: 60px; height: 4px; border-radius: 2px; background: #1f6feb; opacity: 0; }
+  .eyebrow { margin-top: 22px; font-family: "Space Grotesk", sans-serif; font-weight: 600; font-size: 16px; letter-spacing: 0.16em; text-transform: uppercase; color: #1f6feb; opacity: 0; }
+  .h2 { margin: 16px 0 0; font-family: "Space Grotesk", sans-serif; font-weight: 600; font-size: 58px; line-height: 1.08; letter-spacing: -0.025em; color: #0b1b2b; opacity: 0; }
+
+  .row { position: absolute; left: 5cqw; right: 5cqw; top: 368px; display: flex; gap: 30px; z-index: 3; }
+  .card { flex: 1; background: #fff; border: 1.5px solid rgba(31,111,235,0.2); border-radius: 16px; padding: 30px 32px 28px; opacity: 0; }
+  .card-head { display: flex; align-items: center; gap: 13px; margin-bottom: 20px; }
+  .ico { width: 44px; height: 44px; border-radius: 11px; background: rgba(31,111,235,0.09); display: flex; align-items: center; justify-content: center; }
+  .ico svg { width: 23px; height: 23px; }
+  .ok { margin-left: auto; display: flex; align-items: center; gap: 7px; font-family: "Inter", sans-serif; font-size: 14px; color: #15803d; font-weight: 500; opacity: 0; }
+  .ok-dot { width: 9px; height: 9px; border-radius: 50%; background: #22c55e; }
+  .card-title { font-family: "Space Grotesk", sans-serif; font-weight: 600; font-size: 32px; letter-spacing: -0.02em; color: #0b1b2b; margin-bottom: 8px; }
+  .card-sub { font-family: "Inter", sans-serif; font-size: 16px; line-height: 1.55; color: #64748b; margin-bottom: 22px; }
+  .panel { border-top: 1px solid rgba(31,111,235,0.14); padding-top: 18px; }
+  .kv { display: flex; justify-content: space-between; align-items: baseline; font-family: "JetBrains Mono", monospace; font-size: 14px; color: #64748b; margin-bottom: 9px; }
+  .kv b { font-family: "Space Grotesk", sans-serif; font-weight: 600; font-size: 17px; color: #0b1b2b; }
+
+  .bar { height: 9px; border-radius: 5px; background: rgba(31,111,235,0.1); overflow: hidden; margin-top: 4px; }
+  .bar-fill { height: 100%; width: 0%; border-radius: 5px; background: #1f6feb; }
+
+  /* domain rows */
+  .dom { display: flex; align-items: center; gap: 9px; font-family: "JetBrains Mono", monospace; font-size: 14px; color: #0b1b2b; margin-bottom: 8px; opacity: 0; }
+  .lock { width: 14px; height: 14px; flex: none; }
+  .dom-badge { margin-left: auto; font-size: 12px; color: #15803d; }
+
+  /* alert */
+  .alert { background: rgba(31,111,235,0.05); border-left: 4px solid #1f6feb; border-radius: 9px; padding: 15px 17px; opacity: 0; }
+  .alert-t { font-family: "Space Grotesk", sans-serif; font-weight: 600; font-size: 17px; color: #0b1b2b; margin-bottom: 5px; }
+  .alert-b { font-family: "Inter", sans-serif; font-size: 15px; line-height: 1.5; color: #475569; }
+  .alert-strike { font-family: "JetBrains Mono", monospace; font-size: 13px; color: #cbd5e1; text-decoration: line-through; margin-top: 10px; }
+</style>
+</head>
 <body>
-<template id="05-value-template">
-  <div data-hf-id="hf-yh4o" id="root-05-value" class="clip" data-composition-id="05-value" data-start="0" data-duration="12" data-track-index="0" data-width="1920" data-height="1080">
-    <div data-hf-id="hf-ygft" class="ground"></div>
-    <div data-hf-id="hf-sy6j" class="header-block">
-      <div data-hf-id="hf-ujgn" class="accent-line" id="v5-accent"></div>
-      <div data-hf-id="hf-up2k" class="eyebrow" id="v5-eyebrow">THE PAYOFF</div>
-      <h2 data-hf-id="hf-ttuv" class="h2" id="v5-h2">Three things, every night.</h2>
-    </div>
-    <div data-hf-id="hf-svst" class="card-row">
-      <div data-hf-id="hf-kq96" class="val-card" id="v5-card-1"><div data-hf-id="hf-9m1a" class="card-title">Auto.</div><div data-hf-id="hf-q62a" class="card-caption">HTTPS handled for you</div></div>
-      <div data-hf-id="hf-gs55" class="val-card" id="v5-card-2"><div data-hf-id="hf-s6y2" class="card-title">Every night.</div><div data-hf-id="hf-uzwy" class="card-caption">Backups, verified</div></div>
-      <div data-hf-id="hf-g0hc" class="val-card" id="v5-card-3"><div data-hf-id="hf-dc65" class="card-title">Plain English.</div><div data-hf-id="hf-hfrm" class="card-caption">Alerts you can act on</div></div>
-    </div>
-    <div data-hf-id="hf-872k" class="glow" id="v5-glow"></div>
+<div id="root" data-composition-id="05-value" data-width="1920" data-height="1080">
+  <div class="ground"></div>
+  <div class="grid-bg"></div>
+
+  <div class="header">
+    <div class="accent-line" id="v5-accent"></div>
+    <div class="eyebrow" id="v5-eyebrow">THE PAYOFF</div>
+    <h2 class="h2" id="v5-h2">Handled, every night.</h2>
   </div>
-  <style>
-    @import url("https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&display=swap");
-    #root-05-value { position: relative; width: 1920px; height: 1080px; overflow: hidden; container-type: size; font-family: "Inter", system-ui, sans-serif; }
-    .ground { position: absolute; inset: 0; background: #f6f8fa; }
-    .header-block { position: absolute; left: 5cqw; top: 150px; z-index: 2; }
-    .accent-line { width: 60px; height: 4px; border-radius: 2px; background: #1f6feb; margin-bottom: 22px; }
-    .eyebrow { font-family: "Space Grotesk", sans-serif; font-weight: 600; font-size: 15.4px; letter-spacing: 0.08em; text-transform: uppercase; color: #1f6feb; margin-bottom: 18px; }
-    .h2 { margin: 0; font-family: "Space Grotesk", sans-serif; font-weight: 600; font-size: 50px; line-height: 1.1; letter-spacing: -0.02em; color: #0b1b2b; }
-    .card-row { position: absolute; left: 5cqw; top: 360px; display: flex; gap: 27px; z-index: 2; }
-    .val-card { width: 500px; background: rgba(30,43,250,0.04); border: 1.5px solid rgba(30,43,250,0.2); border-radius: 14px; box-shadow: none; padding: 34px 32px 30px; opacity: 0; will-change: transform, opacity; }
-    .card-title { font-family: "Space Grotesk", sans-serif; font-weight: 500; font-size: 34px; line-height: 1.3; letter-spacing: -0.02em; color: #0b1b2b; margin-bottom: 10px; }
-    .card-caption { font-family: "Inter", sans-serif; font-weight: 400; font-size: 16.3px; line-height: 1.6; color: #0055d6; }
-    .glow { position: absolute; left: 460px; top: 240px; width: 1000px; height: 560px; background: radial-gradient(closest-side, rgba(13,64,142,0.9) 0%, rgba(13,64,142,0) 74%); opacity: 0; transform: scale(0.92); transform-origin: 50% 50%; z-index: 1; pointer-events: none; }
-  </style>
-  <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
-  <script>
-    (function () {
-      window.__timelines = window.__timelines || {};
-      var tl = gsap.timeline({ paused: true });
-      var rootFrag = document.getElementById("05-value-template").content;
-      var accent = rootFrag.getElementById("v5-accent");
-      var eyebrow = rootFrag.getElementById("v5-eyebrow");
-      var h2 = rootFrag.getElementById("v5-h2");
-      var card1 = rootFrag.getElementById("v5-card-1");
-      var card2 = rootFrag.getElementById("v5-card-2");
-      var card3 = rootFrag.getElementById("v5-card-3");
-      var glow = rootFrag.getElementById("v5-glow");
-      var TOTAL = 12.0;
-      var GLOW_PEAK = 0.18;
-      tl.fromTo(accent, { scaleX: 0, opacity: 0, transformOrigin: "0% 50%" }, { scaleX: 1, opacity: 1, duration: 0.5, ease: "power3.out" }, 0.1);
-      tl.fromTo(eyebrow, { y: 14, opacity: 0 }, { y: 0, opacity: 1, duration: 0.4, ease: "power3.out" }, 0.15);
-      tl.fromTo(h2, { y: 22, opacity: 0 }, { y: 0, opacity: 1, duration: 0.5, ease: "power3.out" }, 0.3);
-      tl.set(card1, { opacity: 1, y: 60 }, 1.2);
-      tl.to(card1, { y: 0, duration: 0.18, ease: "power4.out" }, 1.2);
-      tl.set(card2, { opacity: 1, y: 48 }, 1.9);
-      tl.to(card2, { y: 0, duration: 0.15, ease: "power4.out" }, 1.9);
-      tl.set(card3, { opacity: 1, y: 70 }, 2.6);
-      tl.to(card3, { y: 0, duration: 0.16, ease: "power4.out" }, 2.6);
-      tl.fromTo(card2, { scale: 1 }, { scale: 1.04, duration: 0.22, ease: "back.out(2.5)" }, 3.4);
-      tl.to(card2, { scale: 1, duration: 0.28, ease: "power2.inOut" }, 3.62);
-      tl.fromTo(glow, { opacity: 0, scale: 0.92 }, { opacity: GLOW_PEAK, scale: 1, duration: 0.9, ease: "power2.out" }, 3.3);
-      var phase = { p: 0 };
-      var BREATHE_START = 4.2;
-      var BREATHE_DUR = TOTAL - BREATHE_START;
-      var CYCLES = BREATHE_DUR / 3.9;
-      var BASE_OP = 0.18, OP_AMP = 0.03, SC_AMP = 0.008, FADE_FRAC = 0.2;
-      tl.to(phase, {
-        p: Math.PI * 2 * CYCLES, duration: BREATHE_DUR, ease: "none",
-        onUpdate: function () {
-          var t = phase.p / (Math.PI * 2 * CYCLES);
-          var env = t < 1 - FADE_FRAC ? 1 : (1 - t) / FADE_FRAC;
-          var s = Math.sin(phase.p);
-          glow.style.opacity = String(BASE_OP + s * OP_AMP * env);
-          glow.style.transform = "scale(" + (1 + s * SC_AMP * env) + ")";
-        }
-      }, BREATHE_START);
-      window.__timelines["05-value"] = tl;
-    })();
-  </script>
-</template>
+
+  <div class="row">
+    <div class="card" id="v5-c1">
+      <div class="card-head">
+        <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="#1f6feb" stroke-width="2" stroke-linecap="round"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg></div>
+        <div class="ok" id="v5-ok1"><span class="ok-dot"></span>valid</div>
+      </div>
+      <div class="card-title">Automatic HTTPS</div>
+      <div class="card-sub">Caddy is embedded. Real domains and certificates, zero config.</div>
+      <div class="panel">
+        <div class="dom" id="v5-d1">
+          <svg class="lock" viewBox="0 0 24 24" fill="none" stroke="#15803d" stroke-width="2.4" stroke-linecap="round"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>
+          your-domain.com<span class="dom-badge">TLS</span>
+        </div>
+        <div class="dom" id="v5-d2">
+          <svg class="lock" viewBox="0 0 24 24" fill="none" stroke="#15803d" stroke-width="2.4" stroke-linecap="round"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>
+          app.your-domain.com<span class="dom-badge">TLS</span>
+        </div>
+        <div class="kv" style="margin-top:14px"><span>auto-renew</span><b>on</b></div>
+      </div>
+    </div>
+
+    <div class="card" id="v5-c2">
+      <div class="card-head">
+        <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="#1f6feb" stroke-width="2" stroke-linecap="round"><ellipse cx="12" cy="6" rx="8" ry="3"/><path d="M4 6v12c0 1.7 3.6 3 8 3s8-1.3 8-3V6"/><path d="M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/></svg></div>
+        <div class="ok" id="v5-ok2"><span class="ok-dot"></span>verified</div>
+      </div>
+      <div class="card-title">Nightly backups</div>
+      <div class="card-sub">Encrypted restic snapshots, off your box. Restore to yesterday in one click.</div>
+      <div class="panel">
+        <div class="kv"><span>snapshot</span><b id="v5-pct">0%</b></div>
+        <div class="bar"><div class="bar-fill" id="v5-bar"></div></div>
+        <div class="kv" style="margin-top:16px"><span>last backup</span><b id="v5-last">—</b></div>
+        <div class="kv"><span>retained</span><b id="v5-keep">0</b></div>
+      </div>
+    </div>
+
+    <div class="card" id="v5-c3">
+      <div class="card-head">
+        <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="#1f6feb" stroke-width="2" stroke-linecap="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></div>
+        <div class="ok" id="v5-ok3"><span class="ok-dot"></span>readable</div>
+      </div>
+      <div class="card-title">Plain-English alerts</div>
+      <div class="card-sub">What broke, in words you can act on — not a stack trace.</div>
+      <div class="panel">
+        <div class="alert" id="v5-alert">
+          <div class="alert-t">Your disk is almost full</div>
+          <div class="alert-b">Free up space or add a volume — backups may fail tonight.</div>
+          <div class="alert-strike">panic: runtime error at 0x4a1f…</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div style="position:absolute; left:5cqw; right:5cqw; top:836px; text-align:center; z-index:3;">
+    <span id="v5-foot" style="display:inline-block; opacity:0; font-family:'Space Grotesk',sans-serif; font-weight:500; font-size:30px; letter-spacing:-0.02em; color:#0b1b2b;">
+      Deploys, backups, alerts — <em style="font-style:normal;color:#1f6feb;font-weight:700;">without you awake for it.</em>
+    </span>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+<script>
+(function () {
+  window.__timelines = window.__timelines || {};
+  var tl = gsap.timeline({ paused: true });
+  var $ = function (id) { return document.getElementById(id); };
+  var TOTAL = 12;
+
+  tl.fromTo($("v5-accent"), { scaleX: 0, opacity: 0, transformOrigin: "0% 50%" },
+    { scaleX: 1, opacity: 1, duration: 0.5, ease: "power3.out" }, 0.1);
+  tl.fromTo($("v5-eyebrow"), { y: 14, opacity: 0 }, { y: 0, opacity: 1, duration: 0.4, ease: "power3.out" }, 0.2);
+  tl.fromTo($("v5-h2"), { y: 24, opacity: 0 }, { y: 0, opacity: 1, duration: 0.55, ease: "power3.out" }, 0.34);
+
+  // rule of three — each card gets its own beat
+  [["v5-c1", 1.0], ["v5-c2", 1.42], ["v5-c3", 1.84]].forEach(function (p) {
+    tl.fromTo($(p[0]), { opacity: 0, y: 50, scale: 0.975 },
+      { opacity: 1, y: 0, scale: 1, duration: 0.62, ease: "back.out(1.4)" }, p[1]);
+  });
+
+  // card 1 — domains get their locks
+  tl.fromTo($("v5-d1"), { opacity: 0, x: -12 }, { opacity: 1, x: 0, duration: 0.34, ease: "power2.out" }, 2.35);
+  tl.fromTo($("v5-d2"), { opacity: 0, x: -12 }, { opacity: 1, x: 0, duration: 0.34, ease: "power2.out" }, 2.6);
+  tl.fromTo($("v5-ok1"), { opacity: 0, scale: 0.8 }, { opacity: 1, scale: 1, duration: 0.34, ease: "back.out(2.4)" }, 2.95);
+
+  // card 2 — backup actually runs
+  var bk = { v: 0 };
+  tl.to(bk, {
+    v: 100, duration: 1.65, ease: "power2.inOut",
+    onUpdate: function () {
+      $("v5-bar").style.width = bk.v + "%";
+      $("v5-pct").textContent = Math.round(bk.v) + "%";
+    }
+  }, 2.75);
+  tl.set($("v5-last"), { textContent: "12h ago" }, 4.45);
+  var keep = { v: 0 };
+  tl.to(keep, {
+    v: 30, duration: 0.7, ease: "power2.out",
+    onUpdate: function () { $("v5-keep").textContent = Math.round(keep.v) + " days"; }
+  }, 4.5);
+  tl.fromTo($("v5-ok2"), { opacity: 0, scale: 0.8 }, { opacity: 1, scale: 1, duration: 0.34, ease: "back.out(2.4)" }, 4.5);
+
+  // card 3 — the alert reads like a human wrote it
+  tl.fromTo($("v5-alert"), { opacity: 0, x: 22 }, { opacity: 1, x: 0, duration: 0.5, ease: "power3.out" }, 3.5);
+  tl.fromTo($("v5-ok3"), { opacity: 0, scale: 0.8 }, { opacity: 1, scale: 1, duration: 0.34, ease: "back.out(2.4)" }, 4.05);
+
+  tl.fromTo($("v5-foot"), { opacity: 0, y: 22 }, { opacity: 1, y: 0, duration: 0.55, ease: "power3.out" }, 5.4);
+
+  // one living element: the healthy pulse on card 2's bar
+  tl.to($("v5-bar"), { opacity: 0.78, duration: 1.5, yoyo: true, repeat: 2, ease: "sine.inOut" }, 6.0);
+
+  tl.to({}, { duration: TOTAL }, 0);
+  window.__timelines["05-value"] = tl;
+})();
+</script>
 </body>
 </html>

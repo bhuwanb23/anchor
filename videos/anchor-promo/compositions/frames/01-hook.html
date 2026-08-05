@@ -1,92 +1,125 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head><meta charset="UTF-8"></head>
+<head>
+<meta charset="UTF-8" />
+<style>
+  @import url("https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap");
+  #root { position: relative; width: 1920px; height: 1080px; overflow: hidden; container-type: size; font-family: "Inter", system-ui, sans-serif; background: #f6f8fa; }
+  .ground { position: absolute; inset: 0; background: #f6f8fa; }
+  .grid-bg { position: absolute; inset: 0; opacity: 0;
+    background-image: linear-gradient(rgba(31,111,235,0.055) 1px, transparent 1px), linear-gradient(90deg, rgba(31,111,235,0.055) 1px, transparent 1px);
+    background-size: 64px 64px; }
+  .diag-panel { position: absolute; top: 0; right: 0; width: 42%; height: 100%; background: rgba(31,111,235,0.07); clip-path: polygon(26% 0, 100% 0, 100% 100%, 0 100%); }
+  .glow { position: absolute; left: -200px; top: 120px; width: 1500px; height: 820px; opacity: 0;
+    background: radial-gradient(closest-side, rgba(31,111,235,0.5) 0%, rgba(31,111,235,0) 72%); pointer-events: none; }
+
+  .copy { position: absolute; left: 5cqw; top: 232px; width: 60cqw; z-index: 3; }
+  .accent-line { width: 60px; height: 4px; border-radius: 2px; background: #1f6feb; opacity: 0; }
+  .eyebrow { margin-top: 26px; font-family: "Space Grotesk", sans-serif; font-weight: 600; font-size: 16px; letter-spacing: 0.16em; text-transform: uppercase; color: #1f6feb; opacity: 0; }
+  .headline { margin: 18px 0 0; font-family: "Space Grotesk", sans-serif; font-weight: 700; font-size: 92px; line-height: 1.06; letter-spacing: -0.025em; color: #0b1b2b; }
+  .hl-line { display: block; white-space: nowrap; overflow: hidden; }
+  .hl-line span { display: inline-block; }
+
+  /* terminal */
+  .term { position: absolute; right: 5cqw; top: 300px; width: 620px; border-radius: 14px; overflow: hidden;
+    background: #0b1b2b; border: 1.5px solid rgba(31,111,235,0.28); opacity: 0; z-index: 4; }
+  .term-bar { height: 42px; background: #0f2438; display: flex; align-items: center; padding: 0 16px; gap: 8px; }
+  .tdot { width: 11px; height: 11px; border-radius: 50%; }
+  .term-title { margin-left: 12px; font-family: "JetBrains Mono", monospace; font-size: 13px; color: #7fa8d9; }
+  .term-body { padding: 22px 24px 28px; font-family: "JetBrains Mono", monospace; font-size: 18px; line-height: 1.85; }
+  .t-line { color: #cfe2ff; white-space: pre; }
+  .t-prompt { color: #4ea3ff; }
+  .t-warn { color: #ffb454; }
+  .t-crit { color: #ff6b6b; font-weight: 500; }
+  .caret { display: inline-block; width: 10px; height: 20px; background: #4ea3ff; vertical-align: -3px; margin-left: 2px; }
+
+  .dot-grid { position: absolute; right: 150px; top: 116px; display: grid; grid-template-columns: repeat(3, 10px); gap: 15px; z-index: 2; opacity: 0; }
+  .dot { width: 10px; height: 10px; border-radius: 50%; background: #1f6feb; opacity: 0.55; }
+</style>
+</head>
 <body>
-<template id="01-hook-template">
-  <div data-hf-id="hf-1s73" id="root-01-hook" data-composition-id="01-hook" data-start="0" data-duration="7" data-width="1920" data-height="1080">
-    <div data-hf-id="hf-ygft" class="ground"></div>
-    <div data-hf-id="hf-ozks" class="diag-panel"></div>
-    <div data-hf-id="hf-6j8n" class="glow clip" id="hk-glow" data-start="0.7" data-duration="6.3" data-track-index="1"></div>
-    <div data-hf-id="hf-ekdf" class="copy-block">
-      <div data-hf-id="hf-x50b" class="accent-line clip" id="hk-accentline" data-start="0.1" data-duration="6.9" data-track-index="2"></div>
-      <div data-hf-id="hf-z9jd" class="eyebrow clip" id="hk-eyebrow" data-start="0.28" data-duration="6.72" data-track-index="3">ANCHOR</div>
-      <h1 data-hf-id="hf-cyla" class="headline clip" id="hk-headline" data-start="0.2" data-duration="6.8" data-track-index="4">
-        <span data-hf-id="hf-9g2g" class="hl-line">Own your server.</span>
-        <span data-hf-id="hf-1ozh" class="hl-line">Do not babysit it.</span>
-      </h1>
+<div id="root" data-composition-id="01-hook" data-width="1920" data-height="1080">
+  <div class="ground"></div>
+  <div class="grid-bg" id="hk-grid"></div>
+  <div class="diag-panel"></div>
+  <div class="glow" id="hk-glow"></div>
+
+  <div class="dot-grid" id="hk-dots">
+    <span class="dot"></span><span class="dot"></span><span class="dot"></span>
+    <span class="dot"></span><span class="dot"></span><span class="dot"></span>
+    <span class="dot"></span><span class="dot"></span><span class="dot"></span>
+  </div>
+
+  <div class="term" id="hk-term">
+    <div class="term-bar">
+      <span class="tdot" style="background:#ff5f57"></span>
+      <span class="tdot" style="background:#febc2e"></span>
+      <span class="tdot" style="background:#28c840"></span>
+      <span class="term-title">ssh you@your-vps</span>
     </div>
-    <div data-hf-id="hf-25iq" class="dot-grid clip" id="hk-dotgrid" data-start="0.9" data-duration="6.1" data-track-index="5">
-      <span data-hf-id="hf-9gry" class="dot"></span><span data-hf-id="hf-zcc2" class="dot"></span><span data-hf-id="hf-zqn3" class="dot"></span>
-      <span data-hf-id="hf-04y4" class="dot"></span><span data-hf-id="hf-0j95" class="dot"></span><span data-hf-id="hf-0xk6" class="dot"></span>
-      <span data-hf-id="hf-1bv7" class="dot"></span><span data-hf-id="hf-1q68" class="dot"></span><span data-hf-id="hf-vrkt" class="dot"></span>
+    <div class="term-body">
+      <div class="t-line" id="hk-t1"><span class="t-prompt">$</span> <span id="hk-cmd"></span><span class="caret" id="hk-caret"></span></div>
+      <div class="t-line t-warn" id="hk-t2">/dev/sda1   98% used   36G free</div>
+      <div class="t-line t-crit" id="hk-t3">! disk pressure — 3 containers evicted</div>
     </div>
   </div>
-  <style>
-    @import url("https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&display=swap");
-    #root-01-hook { position: relative; width: 1920px; height: 1080px; overflow: hidden; container-type: size; font-family: "Inter", system-ui, sans-serif; background: #f6f8fa; }
-    .ground { position: absolute; inset: 0; background: #f6f8fa; }
-    .diag-panel { position: absolute; top: 0; right: 0; width: 36%; height: 100%; background: rgba(30,43,250,0.08); clip-path: polygon(26% 0, 100% 0, 100% 100%, 0 100%); }
-    .glow { position: absolute; left: -160px; top: 140px; width: 1400px; height: 760px; background: radial-gradient(closest-side, rgba(13,64,142,0.95) 0%, rgba(13,64,142,0) 74%); opacity: 0; transform-origin: 50% 50%; z-index: 1; pointer-events: none; }
-    .copy-block { position: absolute; left: 5cqw; top: 250px; width: 52cqw; z-index: 2; }
-    .accent-line { width: 60px; height: 4px; border-radius: 2px; background: #1f6feb; margin-bottom: 26px; }
-    .eyebrow { font-family: "Space Grotesk", sans-serif; font-weight: 600; font-size: 15.4px; letter-spacing: 0.08em; text-transform: uppercase; color: #1f6feb; margin-bottom: 20px; }
-    .headline { margin: 0; font-family: "Space Grotesk", sans-serif; font-weight: 700; font-size: 76px; line-height: 1.08; letter-spacing: -0.02em; color: #0b1b2b; transform-origin: 50% 50%; will-change: transform, opacity; }
-    .hl-line { display: block; white-space: nowrap; }
-    .dot-grid { position: absolute; right: 132px; top: 122px; display: grid; grid-template-columns: repeat(3, 10px); gap: 14px; z-index: 1; width: 58px; height: 58px; }
-    .dot { width: 10px; height: 10px; border-radius: 50%; background: #1f6feb; opacity: 0.6; display: block; }
-  </style>
-  <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
-  <script>
-    (function () {
-      window.__timelines = window.__timelines || {};
-      var tl = gsap.timeline({ paused: true });
-      var rootFrag = document.getElementById("01-hook-template").content;
-      var headline = rootFrag.getElementById("hk-headline");
-      var glow = rootFrag.getElementById("hk-glow");
-      var accentLine = rootFrag.getElementById("hk-accentline");
-      var eyebrow = rootFrag.getElementById("hk-eyebrow");
-      var dotGrid = rootFrag.getElementById("hk-dotgrid");
-      var GLOW_PEAK = 0.22;
-      var IDLE_START = 2.2;
-      var TOTAL = 7.0;
-      var IDLE_DUR = TOTAL - IDLE_START;
-      var IDLE_PERIOD = 3.0;
-      var CYCLES = IDLE_DUR / IDLE_PERIOD;
-      var SCALE_AMP = 0.01;
-      var Y_AMP = 2.5;
-      var FADE_FRAC = 0.2;
-      tl.fromTo(headline, { scale: 0.92, y: 24, opacity: 0 }, { scale: 1, y: 0, opacity: 1, duration: 0.66, ease: "power3.out" }, 0.2);
-      tl.fromTo(accentLine, { scaleX: 0, opacity: 0, transformOrigin: "0% 50%" }, { scaleX: 1, opacity: 1, duration: 0.5, ease: "power3.out" }, 0.1);
-      tl.fromTo(eyebrow, { y: 14, opacity: 0 }, { y: 0, opacity: 1, duration: 0.45, ease: "power3.out" }, 0.28);
-      tl.fromTo(dotGrid, { scale: 0.6, opacity: 0 }, { scale: 1, opacity: 1, duration: 0.55, ease: "power3.out" }, 0.9);
-      tl.fromTo(glow, { opacity: 0, scale: 0.9 }, { opacity: GLOW_PEAK, scale: 1, duration: 1.1, ease: "power2.out" }, 0.7);
-      var glowPhase = { p: 0 };
-      var GLOW_IDLE_START = 1.8;
-      var GLOW_IDLE_DUR = TOTAL - GLOW_IDLE_START;
-      var GLOW_CYCLES = GLOW_IDLE_DUR / 3.4;
-      tl.to(glowPhase, {
-        p: Math.PI * 2 * GLOW_CYCLES, duration: GLOW_IDLE_DUR, ease: "none",
-        onUpdate: function () {
-          var t = glowPhase.p / (Math.PI * 2 * GLOW_CYCLES);
-          var env = t < 1 - FADE_FRAC ? 1 : (1 - t) / FADE_FRAC;
-          var s = Math.sin(glowPhase.p);
-          glow.style.opacity = String(GLOW_PEAK + s * 0.02 * env);
-          glow.style.transform = "scale(" + (1 + s * 0.008 * env) + ")";
-        }
-      }, GLOW_IDLE_START);
-      var phase = { p: 0 };
-      tl.to(phase, {
-        p: Math.PI * 2 * CYCLES, duration: IDLE_DUR, ease: "none",
-        onUpdate: function () {
-          var t = phase.p / (Math.PI * 2 * CYCLES);
-          var env = t < 1 - FADE_FRAC ? 1 : (1 - t) / FADE_FRAC;
-          var s = Math.sin(phase.p);
-          headline.style.transform = "translateY(" + (s * Y_AMP * env) + "px) scale(" + (1 + s * SCALE_AMP * env) + ")";
-        }
-      }, IDLE_START);
-      window.__timelines["01-hook"] = tl;
-    })();
-  </script>
-</template>
+
+  <div class="copy">
+    <div class="accent-line" id="hk-accent"></div>
+    <div class="eyebrow" id="hk-eyebrow">ANCHOR</div>
+    <h1 class="headline">
+      <span class="hl-line"><span id="hk-l1">Own your server.</span></span>
+      <span class="hl-line"><span id="hk-l2">Don't babysit it.</span></span>
+    </h1>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+<script>
+(function () {
+  window.__timelines = window.__timelines || {};
+  var tl = gsap.timeline({ paused: true });
+  var $ = function (id) { return document.getElementById(id); };
+  var TOTAL = 8;
+
+  gsap.set([$("hk-t2"), $("hk-t3")], { opacity: 0 });
+  gsap.set([$("hk-l1"), $("hk-l2")], { yPercent: 115, opacity: 0 });
+
+  // terminal arrives first — establishes the pain
+  tl.fromTo($("hk-term"), { opacity: 0, y: 28, scale: 0.985 },
+    { opacity: 1, y: 0, scale: 1, duration: 0.6, ease: "power3.out" }, 0.15);
+
+  // typed command (seek-safe: derived from tween progress, not callbacks)
+  var CMD = "df -h  # again?";
+  var typer = { n: 0 };
+  tl.to(typer, {
+    n: CMD.length, duration: 1.05, ease: "none",
+    onUpdate: function () { $("hk-cmd").textContent = CMD.slice(0, Math.round(typer.n)); }
+  }, 0.55);
+
+  tl.to($("hk-caret"), { opacity: 0, duration: 0.36, repeat: 6, yoyo: true, ease: "steps(1)" }, 1.6);
+  tl.fromTo($("hk-t2"), { opacity: 0, x: -10 }, { opacity: 1, x: 0, duration: 0.3, ease: "power2.out" }, 1.75);
+  tl.fromTo($("hk-t3"), { opacity: 0, x: -10 }, { opacity: 1, x: 0, duration: 0.3, ease: "power2.out" }, 2.15);
+  // the alert stings
+  tl.fromTo($("hk-t3"), { scale: 1 }, { scale: 1.035, duration: 0.14, yoyo: true, repeat: 1, ease: "power2.inOut", transformOrigin: "0% 50%" }, 2.4);
+
+  // headline answers the terminal
+  tl.fromTo($("hk-accent"), { scaleX: 0, opacity: 0, transformOrigin: "0% 50%" },
+    { scaleX: 1, opacity: 1, duration: 0.5, ease: "power3.out" }, 2.7);
+  tl.fromTo($("hk-eyebrow"), { y: 14, opacity: 0 }, { y: 0, opacity: 1, duration: 0.42, ease: "power3.out" }, 2.9);
+  tl.to($("hk-l1"), { yPercent: 0, opacity: 1, duration: 0.72, ease: "power4.out" }, 3.05);
+  tl.to($("hk-l2"), { yPercent: 0, opacity: 1, duration: 0.72, ease: "power4.out" }, 3.28);
+
+  tl.fromTo($("hk-grid"), { opacity: 0 }, { opacity: 1, duration: 1.0, ease: "power2.out" }, 2.8);
+  tl.fromTo($("hk-dots"), { opacity: 0, scale: 0.6 }, { opacity: 1, scale: 1, duration: 0.55, ease: "back.out(2)" }, 3.5);
+  tl.fromTo($("hk-glow"), { opacity: 0, scale: 0.92 }, { opacity: 0.22, scale: 1, duration: 1.1, ease: "power2.out" }, 3.0);
+
+  // single living element: slow camera drift on the terminal
+  tl.to($("hk-term"), { y: -14, duration: TOTAL - 3.4, ease: "sine.inOut" }, 3.4);
+
+  tl.to({}, { duration: TOTAL }, 0);
+  window.__timelines["01-hook"] = tl;
+})();
+</script>
 </body>
 </html>

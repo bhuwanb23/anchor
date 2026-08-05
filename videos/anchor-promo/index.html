@@ -1,12 +1,12 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
   <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=1920, height=1080">
-    <title>Anchor Promo</title>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1920, height=1080" />
+    <title>Anchor — Own your server. Don't babysit it.</title>
     <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
     <style>
-      @import url("https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&display=swap");
+      @import url("https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap");
       * {
         margin: 0;
         padding: 0;
@@ -23,64 +23,116 @@
       body {
         font-family: "Inter", system-ui, sans-serif;
       }
-      code,
-      pre,
-      .monospace {
-        font-family: "JetBrains Mono", monospace;
-      }
-      .progress-bar {
-        position: fixed;
-        bottom: 0;
-        left: 0;
-        height: 3px;
-        background: #1f6feb;
-        z-index: 9999;
-        transform-origin: 0 0;
-      }
     </style>
   </head>
   <body>
-    <div data-hf-id="hf-qbnw" id="root" data-composition-id="main" data-start="0" data-duration="60" data-width="1920" data-height="1080">
-      <!-- Frame 1: Hook - "Own your server. Don't babysit it." -->
-      <div data-hf-id="hf-7tbs" id="frame-01-hook" class="clip" data-composition-id="01-hook" data-composition-src="compositions/frames/01-hook.html" data-start="0" data-duration="7" data-track-index="1"></div>
+    <div
+      id="root"
+      data-composition-id="main"
+      data-start="0"
+      data-duration="60"
+      data-width="1920"
+      data-height="1080"
+    >
+      <!-- Frame 1: Hook - terminal + "Own your server. Don't babysit it." -->
+      <div
+        id="frame-01"
+        class="clip"
+        data-composition-id="01-hook"
+        data-composition-src="compositions/frames/01-hook.html"
+        data-start="0"
+        data-duration="8"
+        data-track-index="1"
+      ></div>
 
-      <!-- Frame 2: Pain - "The babysit loop" -->
-      <div data-hf-id="hf-5sac" id="frame-02-pain" class="clip" data-composition-id="02-pain" data-composition-src="compositions/frames/02-pain.html" data-start="7" data-duration="9" data-track-index="2"></div>
+      <!-- Frame 2: Pain - three animated scenarios -->
+      <div
+        id="frame-02"
+        class="clip"
+        data-composition-id="02-pain"
+        data-composition-src="compositions/frames/02-pain.html"
+        data-start="8"
+        data-duration="9"
+        data-track-index="2"
+      ></div>
 
-      <!-- Frame 3: Tease - "Your server, managed." -->
-      <div data-hf-id="hf-sw0h" id="frame-03-tease" class="clip" data-composition-id="03-tease" data-composition-src="compositions/frames/03-tease.html" data-start="16" data-duration="8" data-track-index="3"></div>
+      <!-- Frame 3: Tease - dashboard preview -->
+      <div
+        id="frame-03"
+        class="clip"
+        data-composition-id="03-tease"
+        data-composition-src="compositions/frames/03-tease.html"
+        data-start="17"
+        data-duration="8"
+        data-track-index="3"
+      ></div>
 
-      <!-- Frame 4: Mechanism - How it works -->
-      <div data-hf-id="hf-wf8o" id="frame-04-mechanism" class="clip" data-composition-id="04-mechanism" data-composition-src="compositions/frames/04-mechanism.html" data-start="24" data-duration="12" data-track-index="4"></div>
+      <!-- Frame 4: Mechanism - animated architecture -->
+      <div
+        id="frame-04"
+        class="clip"
+        data-composition-id="04-mechanism"
+        data-composition-src="compositions/frames/04-mechanism.html"
+        data-start="25"
+        data-duration="12"
+        data-track-index="4"
+      ></div>
 
-      <!-- Frame 5: Value - What the agent does -->
-      <div data-hf-id="hf-z5h3" id="frame-05-value" class="clip" data-composition-id="05-value" data-composition-src="compositions/frames/05-value.html" data-start="36" data-duration="12" data-track-index="5"></div>
+      <!-- Frame 5: Value - three live benefit panels -->
+      <div
+        id="frame-05"
+        class="clip"
+        data-composition-id="05-value"
+        data-composition-src="compositions/frames/05-value.html"
+        data-start="37"
+        data-duration="12"
+        data-track-index="5"
+      ></div>
 
-      <!-- Frame 6: CTA - "Bring your own server" -->
-      <div data-hf-id="hf-3lf7" id="frame-06-cta" class="clip" data-composition-id="06-cta" data-composition-src="compositions/frames/06-cta.html" data-start="48" data-duration="12" data-track-index="6"></div>
+      <!-- Frame 6: CTA - GitHub call to action -->
+      <div
+        id="frame-06"
+        class="clip"
+        data-composition-id="06-cta"
+        data-composition-src="compositions/frames/06-cta.html"
+        data-start="49"
+        data-duration="11"
+        data-track-index="6"
+      ></div>
 
-      <!-- Progress bar -->
-      <div data-hf-id="hf-jbhb" id="progress-bar" class="progress-bar clip" data-start="0" data-duration="60" data-track-index="100"></div>
+      <!-- Captions track -->
+      <div
+        id="captions"
+        class="clip"
+        data-composition-id="captions"
+        data-composition-src="compositions/captions.html"
+        data-start="0"
+        data-duration="60"
+        data-track-index="100"
+      ></div>
+
+      <!-- Audio tracks -->
+      <audio id="sfx-whoosh-1" src="C:/Users/bhuwan.bhawarlal/.agents/skills/hyperframes-media/assets/sfx/whoosh.mp3" data-start="7.9" data-track-index="200"></audio>
+      <audio id="sfx-impact-1" src="C:/Users/bhuwan.bhawarlal/.agents/skills/hyperframes-media/assets/sfx/impact-bass-1.mp3" data-start="9.05" data-track-index="201"></audio>
+      <audio id="sfx-notification" src="C:/Users/bhuwan.bhawarlal/.agents/skills/hyperframes-media/assets/sfx/notification.mp3" data-start="10.6" data-track-index="202"></audio>
+      <audio id="sfx-whoosh-2" src="C:/Users/bhuwan.bhawarlal/.agents/skills/hyperframes-media/assets/sfx/whoosh.mp3" data-start="16.9" data-track-index="203"></audio>
+      <audio id="sfx-chime" src="C:/Users/bhuwan.bhawarlal/.agents/skills/hyperframes-media/assets/sfx/chime.mp3" data-start="18.5" data-track-index="204"></audio>
+      <audio id="sfx-whoosh-3" src="C:/Users/bhuwan.bhawarlal/.agents/skills/hyperframes-media/assets/sfx/whoosh.mp3" data-start="24.9" data-track-index="205"></audio>
+      <audio id="sfx-click-1" src="C:/Users/bhuwan.bhawarlal/.agents/skills/hyperframes-media/assets/sfx/click.mp3" data-start="27.35" data-track-index="206"></audio>
+      <audio id="sfx-click-2" src="C:/Users/bhuwan.bhawarlal/.agents/skills/hyperframes-media/assets/sfx/click.mp3" data-start="30.0" data-track-index="207"></audio>
+      <audio id="sfx-whoosh-4" src="C:/Users/bhuwan.bhawarlal/.agents/skills/hyperframes-media/assets/sfx/whoosh.mp3" data-start="36.9" data-track-index="208"></audio>
+      <audio id="sfx-pop-1" src="C:/Users/bhuwan.bhawarlal/.agents/skills/hyperframes-media/assets/sfx/pop.mp3" data-start="38.0" data-track-index="209"></audio>
+      <audio id="sfx-pop-2" src="C:/Users/bhuwan.bhawarlal/.agents/skills/hyperframes-media/assets/sfx/pop.mp3" data-start="38.42" data-track-index="210"></audio>
+      <audio id="sfx-pop-3" src="C:/Users/bhuwan.bhawarlal/.agents/skills/hyperframes-media/assets/sfx/pop.mp3" data-start="38.84" data-track-index="211"></audio>
+      <audio id="sfx-whoosh-5" src="C:/Users/bhuwan.bhawarlal/.agents/skills/hyperframes-media/assets/sfx/whoosh.mp3" data-start="48.9" data-track-index="212"></audio>
     </div>
 
     <script>
       window.__timelines = window.__timelines || {};
       const tl = gsap.timeline({ paused: true });
-      
-      // Progress bar animation
-      const progressBar = document.getElementById("progress-bar");
-      if (progressBar) {
-        tl.fromTo(
-          progressBar,
-          { scaleX: 0 },
-          { scaleX: 1, duration: 60, ease: "none" },
-          0
-        );
-      }
-
+      tl.to({}, { duration: 60 }, 0);
       window.__timelines["main"] = tl;
 
-      // Listen for hf-seek events to sync the timeline
       document.addEventListener("hf-seek", (event) => {
         const time = event.detail.time;
         if (window.__timelines["main"]) {
