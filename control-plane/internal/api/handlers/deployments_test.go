@@ -69,6 +69,37 @@ func setupTestDB(t *testing.T) *sql.DB {
 			FOREIGN KEY (deployment_id) REFERENCES deployments(id) ON DELETE CASCADE
 		);
 		CREATE UNIQUE INDEX idx_custom_domains_domain ON custom_domains(domain);
+		CREATE TABLE pending_commands (
+			id TEXT PRIMARY KEY,
+			server_id TEXT NOT NULL,
+			command_type TEXT NOT NULL,
+			payload TEXT,
+			project_key TEXT,
+			expires_at TEXT NOT NULL,
+			created_at TEXT NOT NULL DEFAULT (datetime('now')),
+			executed_at TEXT
+		);
+		CREATE TABLE teams (
+			id TEXT PRIMARY KEY,
+			name TEXT NOT NULL,
+			owner_id TEXT NOT NULL,
+			created_at TEXT NOT NULL DEFAULT (datetime('now')),
+			updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+		);
+		CREATE TABLE team_members (
+			id TEXT PRIMARY KEY,
+			team_id TEXT NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
+			user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+			role TEXT NOT NULL DEFAULT 'member',
+			invited_by TEXT,
+			joined_at TEXT NOT NULL DEFAULT (datetime('now')),
+			UNIQUE(team_id, user_id)
+		);
+		CREATE TABLE server_team (
+			server_id TEXT NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
+			team_id TEXT NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
+			PRIMARY KEY (server_id, team_id)
+		);
 	`)
 	if err != nil {
 		t.Fatalf("create tables: %v", err)

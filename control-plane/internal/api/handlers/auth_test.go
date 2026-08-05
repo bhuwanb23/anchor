@@ -52,6 +52,22 @@ func setupAuthTestDB(t *testing.T) *sql.DB {
 		);
 		CREATE INDEX idx_refresh_tokens_user ON refresh_tokens(user_id);
 		CREATE INDEX idx_refresh_tokens_hash ON refresh_tokens(token_hash);
+		CREATE TABLE teams (
+			id TEXT PRIMARY KEY,
+			name TEXT NOT NULL,
+			owner_id TEXT NOT NULL REFERENCES users(id),
+			created_at TEXT NOT NULL DEFAULT (datetime('now')),
+			updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+		);
+		CREATE TABLE team_members (
+			id TEXT PRIMARY KEY,
+			team_id TEXT NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
+			user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+			role TEXT NOT NULL DEFAULT 'member',
+			invited_by TEXT REFERENCES users(id),
+			joined_at TEXT NOT NULL DEFAULT (datetime('now')),
+			UNIQUE(team_id, user_id)
+		);
 	`)
 	if err != nil {
 		t.Fatalf("create users table: %v", err)
