@@ -205,7 +205,8 @@ func MarkRegistrationTokenUsed(db *sql.DB, tokenID, ip string) error {
 }
 
 func DeleteExpiredRegistrationTokens(db *sql.DB) error {
-	return queries.DeleteExpiredRegistrationTokens(db)
+	_, err := queries.DeleteExpiredRegistrationTokens(db)
+	return err
 }
 
 func InsertServerWithAgent(db *sql.DB, id, userID, name, agentID, agentSecretHash, osInfo, arch string, ramMB, diskGB int, ipAddress string) error {
