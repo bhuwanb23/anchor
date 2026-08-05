@@ -4,48 +4,52 @@ import (
 	"database/sql"
 )
 
-// ServerEvent represents an audit log entry for a server.
+// ServerEvent represents an audit log entry for a server. The columns mirror
+// the server_events schema from migration 006 (event_type, check_name,
+// message, details) — not the plan's title/detail variant, which was never
+// migrated.
 type ServerEvent struct {
-	ID          string
-	ServerID    string
-	ProjectName sql.NullString
-	EventType   string
-	Title       string
-	Detail      sql.NullString
-	ActorID     sql.NullString
-	ActorType   sql.NullString
-	RelatedID   sql.NullString
-	RelatedType sql.NullString
-	OccurredAt  string
-	CreatedAt   string
+	ID        string
+	ServerID  string
+	EventType string
+	CheckName sql.NullString
+	Message   sql.NullString
+	Details   sql.NullString
+	CreatedAt string
 }
 
-// InsertServerEvent creates a new server event.
-func InsertServerEvent(db *sql.DB, id, serverID, eventType, title string) error {
+const eventColumns = `id, server_id, event_type, check_name, message, details, created_at`
+
+func scanEvent(scanner interface{ Scan(...any) error }) (ServerEvent, error) {
+	var e ServerEvent
+	if err := scanner.Scan(&e.ID, &e.ServerID, &e.EventType, &e.CheckName, &e.Message, &e.Details, &e.CreatedAt); err != nil {
+		return e, err
+	}
+	return e, nil
+}
+
+// InsertServerEvent creates a new server event. check_name names the check or
+// subsystem that produced it (e.g. "auto_fixed", "warning", "auto_remediation",
+// "backup_storage_warning"); message and details carry the human-readable
+// content. Used by the WS handlers and alert delivery (Layer 6 / 4C).
+func InsertServerEvent(db *sql.DB, id, serverID, eventType, checkName, message, details string) error {
 	_, err := db.Exec(
-		`INSERT INTO server_events (id, server_id, event_type, title, created_at)
-		 VALUES (?, ?, ?, ?, datetime('now'))`,
-		id, serverID, eventType, title,
+		`INSERT INTO server_events (id, server_id, event_type, check_name, message, details)
+		 VALUES (?, ?, ?, ?, ?, ?)`,
+		id, serverID, eventType, nullString(checkName), nullString(message), nullString(details),
 	)
 	return err
 }
 
-// InsertServerEventDetailed creates a server event with full details.
-func InsertServerEventDetailed(db *sql.DB, id, serverID, eventType, title, detail, actorID, actorType, relatedID, relatedType string) error {
-	_, err := db.Exec(
-		`INSERT INTO server_events (id, server_id, event_type, title, detail, actor_id, actor_type, related_id, related_type, created_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
-		id, serverID, eventType, title, detail, actorID, actorType, relatedID, relatedType,
-	)
-	return err
-}
-
-// ListEventsByServer returns events for a server, most recent first.
+// ListEventsByServer returns events for a server, most recent first
+// (Pattern 3). limit defaults to 50; the empty result is an empty slice,
+// never nil.
 func ListEventsByServer(db *sql.DB, serverID string, limit int) ([]ServerEvent, error) {
+	if limit <= 0 {
+		limit = 50
+	}
 	rows, err := db.Query(
-		`SELECT id, server_id, event_type, title, detail, created_at
-		 FROM server_events WHERE server_id = ?
-		 ORDER BY created_at DESC LIMIT ?`,
+		"SELECT "+eventColumns+" FROM server_events WHERE server_id = ? ORDER BY created_at DESC LIMIT ?",
 		serverID, limit,
 	)
 	if err != nil {
@@ -55,10 +59,8 @@ func ListEventsByServer(db *sql.DB, serverID string, limit int) ([]ServerEvent, 
 
 	var events []ServerEvent
 	for rows.Next() {
-		var e ServerEvent
-		if err := rows.Scan(
-			&e.ID, &e.ServerID, &e.EventType, &e.Title, &e.Detail, &e.CreatedAt,
-		); err != nil {
+		e, err := scanEvent(rows)
+		if err != nil {
 			return nil, err
 		}
 		events = append(events, e)
@@ -66,7 +68,7 @@ func ListEventsByServer(db *sql.DB, serverID string, limit int) ([]ServerEvent, 
 	if events == nil {
 		events = []ServerEvent{}
 	}
-	return events, nil
+	return events, rows.Err()
 }
 
 // DeleteOldEvents removes events older than the given number of days.
