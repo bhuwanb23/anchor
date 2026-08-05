@@ -42,7 +42,7 @@ func runMigrations(db *sql.DB, dir string) error {
 		"008_backups.sql", "009_backup_metadata.sql", "010_restore_jobs.sql",
 		"011_backup_verification.sql", "012_backup_storage.sql", "013_pending_commands.sql",
 		"014_metrics.sql", "015_alerts.sql", "016_alert_delivery.sql", "017_users_auth.sql",
-		"018_refresh_tokens.sql",
+		"018_refresh_tokens.sql", "019_teams.sql", "020_password_resets.sql",
 	}
 	for _, m := range migs {
 		var applied int
@@ -102,5 +102,44 @@ func TestMigrations_InsertUserWithName(t *testing.T) {
 	}
 	if _, err := db.Exec("INSERT INTO users (id, email, name, password_hash) VALUES (?, ?, ?, ?)", "u1", "a@b.com", "Alice", "hash"); err != nil {
 		t.Fatalf("insert user: %v", err)
+	}
+}
+
+func TestMigrations_PasswordResetsTable(t *testing.T) {
+	db := openMigrateTestDB(t)
+	if err := runMigrations(db, migrateDir()); err != nil {
+		t.Fatalf("migration: %v", err)
+	}
+	// The 020 migration must create password_resets with the reset columns.
+	var count int
+	if err := db.QueryRow("SELECT COUNT(*) FROM pragma_table_info('password_resets') WHERE name IN ('token_hash','expires_at','used_at')").Scan(&count); err != nil {
+		t.Fatalf("pragma password_resets: %v", err)
+	}
+	if count != 3 {
+		t.Errorf("expected token_hash, expires_at, used_at columns, found %d", count)
+	}
+}
+
+func TestMigrations_TeamsTables(t *testing.T) {
+	db := openMigrateTestDB(t)
+	if err := runMigrations(db, migrateDir()); err != nil {
+		t.Fatalf("migration: %v", err)
+	}
+	// The 019 migration must create the team tables used by Layer 5A Step 5.
+	var teams, members, serverTeam, invitations int
+	if err := db.QueryRow("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='teams'").Scan(&teams); err != nil {
+		t.Fatalf("pragma teams: %v", err)
+	}
+	if err := db.QueryRow("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='team_members'").Scan(&members); err != nil {
+		t.Fatalf("pragma team_members: %v", err)
+	}
+	if err := db.QueryRow("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='server_team'").Scan(&serverTeam); err != nil {
+		t.Fatalf("pragma server_team: %v", err)
+	}
+	if err := db.QueryRow("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='invitations'").Scan(&invitations); err != nil {
+		t.Fatalf("pragma invitations: %v", err)
+	}
+	if teams != 1 || members != 1 || serverTeam != 1 || invitations != 1 {
+		t.Errorf("team tables missing: teams=%d members=%d server_team=%d invitations=%d", teams, members, serverTeam, invitations)
 	}
 }
