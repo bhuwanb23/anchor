@@ -278,6 +278,27 @@ func GenerateRestoreID() string {
 	return "rst-" + time.Now().Format("20060102150405") + "-" + randomHex(6)
 }
 
+// SendStorageStats sends storage statistics to the control plane.
+func (r *BackupReporter) SendStorageStats(serverID string, stats *StatsResult) {
+	if r.wsClient == nil {
+		return
+	}
+
+	msg := map[string]interface{}{
+		"type": "backup_stats",
+		"payload": map[string]interface{}{
+			"server_id":      serverID,
+			"total_size":     stats.TotalSize,
+			"file_count":     stats.TotalFileCount,
+			"snapshot_count": stats.SnapshotsCount,
+		},
+	}
+
+	if err := r.wsClient.SendJSON(msg); err != nil {
+		slog.Warn("failed to send storage stats", "error", err)
+	}
+}
+
 // SendVerificationResult sends a backup verification result to the control plane.
 func (r *BackupReporter) SendVerificationResult(serverID, backupID string, result *VerificationStatus) {
 	if r.wsClient == nil {
