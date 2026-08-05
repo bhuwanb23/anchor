@@ -99,3 +99,18 @@ func GetDeploymentByServerAndApp(db *sql.DB, serverID, appName string) (id strin
 	).Scan(&id)
 	return
 }
+
+// GetServerStatus returns the current connection status of a server
+// (e.g. "connected", "disconnected"). Used for the server_state snapshot a
+// browser receives on subscribe (Layer 5B Step 3B).
+func GetServerStatus(db *sql.DB, serverID string) (string, error) {
+	var status string
+	err := db.QueryRow(
+		"SELECT status FROM servers WHERE id = ?",
+		serverID,
+	).Scan(&status)
+	if err != nil {
+		return "", err
+	}
+	return status, nil
+}
