@@ -49,6 +49,9 @@ func GetCustomDomainsByDeployment(db *sql.DB, deploymentID string) ([]CustomDoma
 		}
 		domains = append(domains, d)
 	}
+	if domains == nil {
+		domains = []CustomDomain{}
+	}
 	return domains, rows.Err()
 }
 
@@ -80,6 +83,9 @@ func GetPendingCustomDomains(db *sql.DB) ([]CustomDomain, error) {
 			return nil, err
 		}
 		domains = append(domains, d)
+	}
+	if domains == nil {
+		domains = []CustomDomain{}
 	}
 	return domains, rows.Err()
 }
