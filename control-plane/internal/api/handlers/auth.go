@@ -3,6 +3,7 @@ package handlers
 import (
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net"
 	"net/http"
@@ -15,12 +16,17 @@ import (
 	"github.com/yourname/yourplatform/control-plane/internal/auth"
 	"github.com/yourname/yourplatform/control-plane/internal/config"
 	"github.com/yourname/yourplatform/control-plane/internal/db/queries"
+	"github.com/yourname/yourplatform/control-plane/internal/mailer"
 )
 
 type Auth struct {
-	DB  *sql.DB
-	Cfg *config.Config
+	DB     *sql.DB
+	Cfg    *config.Config
+	Mailer mailer.Sender // password-reset emails (Layer 5A Step 7A)
 }
+
+// passwordResetTTL is how long a reset link stays valid (Layer 5A Step 7A).
+const passwordResetTTL = time.Hour
 
 // dummyPasswordHash is compared against when the requested email does not
 // exist, so unknown-email and wrong-password responses take the same time.
@@ -486,4 +492,176 @@ func (a *Auth) Me(w http.ResponseWriter, r *http.Request) {
 // "constraint failed: UNIQUE constraint failed: t.email (2067)".
 func isUniqueViolation(err error) bool {
 	return strings.Contains(err.Error(), "UNIQUE constraint failed")
+}
+
+// ForgotPassword implements Layer 5A Step 7A — the reset request flow.
+//
+// It returns the SAME 200 response whether or not the account exists, so an
+// attacker cannot learn which emails are registered (anti-enumeration). If
+// the user exists, a single-use "pw_" token is stored (hashed) with a 1-hour
+// expiry and emailed to them with a reset link. Old unused tokens for the
+// user are left in place — they expire naturally within the hour.
+func (a *Auth) ForgotPassword(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Email string `json:"email"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request body"})
+		return
+	}
+
+	email := auth.NormalizeEmail(req.Email)
+
+	user, err := queries.GetUserByEmail(a.DB, email)
+	switch {
+	case err == nil:
+		a.issuePasswordReset(user)
+	case errors.Is(err, sql.ErrNoRows):
+		// No account — nothing to do, but reply identically.
+	default:
+		// A real DB failure is not a signal about the account; still reply
+		// generically, but surface it in the logs.
+		slog.Error("forgot password: lookup user", "error", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal server error"})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{
+		"message": "If an account exists with this email, a reset link has been sent.",
+	})
+}
+
+// issuePasswordReset creates and stores a reset token for a user and emails
+// them the link. It is best-effort: failures are logged, never surfaced to
+// the requester (the response is identical either way).
+func (a *Auth) issuePasswordReset(user queries.User) {
+	rawToken, hashedToken, err := auth.GenerateResetToken()
+	if err != nil {
+		slog.Error("forgot password: generate token", "error", err)
+		return
+	}
+
+	expiresAt := time.Now().UTC().Add(passwordResetTTL).Format(time.RFC3339)
+	if err := queries.CreatePasswordReset(a.DB, uuid.New().String(), hashedToken, user.ID, expiresAt); err != nil {
+		slog.Error("forgot password: store token", "error", err)
+		return
+	}
+
+	if err := a.sendPasswordResetEmail(user, rawToken); err != nil {
+		slog.Error("forgot password: send email", "error", err, "user_id", user.ID)
+	}
+	slog.Info("password reset requested", "user_id", user.ID)
+}
+
+// sendPasswordResetEmail sends the reset link containing the RAW token (the
+// hash is only ever in the database). No mailer configured (e.g. tests) is
+// not an error — the token is still stored and redeemable.
+func (a *Auth) sendPasswordResetEmail(user queries.User, rawToken string) error {
+	if a.Mailer == nil {
+		slog.Warn("forgot password: no mailer configured, reset email not sent", "user_id", user.ID)
+		return nil
+	}
+
+	resetURL := strings.TrimRight(a.resetBaseURL(), "/") + "/reset?token=" + rawToken
+	subject := "Reset your password"
+	body := "We received a request to reset your password.\n\n" +
+		"Click the link below to choose a new one (it expires in 1 hour):\n\n" +
+		resetURL + "\n\n" +
+		"If you did not request this, you can safely ignore this email — " +
+		"your password will not change."
+	return a.Mailer.Send(user.Email, subject, body)
+}
+
+// resetBaseURL returns the dashboard origin used to build reset links.
+func (a *Auth) resetBaseURL() string {
+	if a.Cfg != nil && a.Cfg.FrontendURL != "" {
+		return a.Cfg.FrontendURL
+	}
+	return "https://yourplatform.com"
+}
+
+// ResetPassword implements Layer 5A Step 7B — the reset completion flow.
+// Given a valid, unused, unexpired token and a new password it updates the
+// password hash, marks the token consumed, and revokes every session so the
+// user is forced to log in again everywhere.
+func (a *Auth) ResetPassword(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Token       string `json:"token"`
+		NewPassword string `json:"new_password"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request body"})
+		return
+	}
+	if req.Token == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "token is required"})
+		return
+	}
+
+	pr, err := queries.GetPasswordResetByHash(a.DB, auth.HashResetToken(req.Token))
+	if errors.Is(err, sql.ErrNoRows) {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid or expired reset link"})
+		return
+	}
+	if err != nil {
+		slog.Error("reset password: lookup token", "error", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal server error"})
+		return
+	}
+
+	if pr.UsedAt.Valid {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "This reset link has already been used"})
+		return
+	}
+	expiresAt, err := time.Parse(time.RFC3339, pr.ExpiresAt)
+	if err != nil || time.Now().After(expiresAt) {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "This reset link has expired. Please request a new one."})
+		return
+	}
+
+	// Same password rules as registration (length over complexity).
+	if err := auth.ValidatePassword(req.NewPassword); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+
+	// Account may have been deleted while the token was pending.
+	if _, err := queries.GetUserByID(a.DB, pr.UserID); errors.Is(err, sql.ErrNoRows) {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid or expired reset link"})
+		return
+	} else if err != nil {
+		slog.Error("reset password: load user", "error", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal server error"})
+		return
+	}
+
+	hash, err := auth.HashPassword(req.NewPassword)
+	if err != nil {
+		slog.Error("reset password: hash new password", "error", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal server error"})
+		return
+	}
+
+	if err := queries.UpdateUserPassword(a.DB, pr.UserID, hash); err != nil {
+		slog.Error("reset password: update hash", "error", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal server error"})
+		return
+	}
+
+	// Mark consumed, then revoke every session — someone else may have been
+	// using the account, so force a fresh login everywhere (Step 7B.8). These
+	// writes are not best-effort: failing to consume the token would let it be
+	// replayed, and failing to revoke sessions would leave the old ones live.
+	if err := queries.MarkPasswordResetUsed(a.DB, pr.ID); err != nil {
+		slog.Error("reset password: mark token used", "error", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal server error"})
+		return
+	}
+	if _, err := queries.RevokeAllRefreshTokens(a.DB, pr.UserID); err != nil {
+		slog.Error("reset password: revoke sessions", "error", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal server error"})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{"message": "Password updated. Please log in."})
 }
