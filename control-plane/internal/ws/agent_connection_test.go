@@ -15,7 +15,8 @@ func drain(t *testing.T, ch <-chan []byte, what string) []byte {
 
 func TestAgentConnection_BrowserNotifiedOnConnect(t *testing.T) {
 	hub := NewHub()
-	_, sendA := hub.RegisterBrowser("srv-1", "user-1", testConn(t))
+	connIDA, sendA := hub.RegisterBrowser("user-1", testConn(t))
+	hub.Subscribe("srv-1", connIDA)
 
 	conn := testConn(t)
 	hub.RegisterAgent("srv-1", "agt-1", "user-1", conn)
@@ -32,7 +33,8 @@ func TestAgentConnection_BrowserNotifiedOnConnect(t *testing.T) {
 
 func TestAgentConnection_BrowserNotifiedOnDisconnect(t *testing.T) {
 	hub := NewHub()
-	_, sendA := hub.RegisterBrowser("srv-1", "user-1", testConn(t))
+	connIDA, sendA := hub.RegisterBrowser("user-1", testConn(t))
+	hub.Subscribe("srv-1", connIDA)
 
 	conn := testConn(t)
 	hub.RegisterAgent("srv-1", "agt-1", "user-1", conn)
@@ -99,7 +101,8 @@ func TestAgentConnection_DuplicateReplacesOldConnection(t *testing.T) {
 
 func TestAgentConnection_PendingCommandFailedOnAgentDisconnect(t *testing.T) {
 	hub := NewHub()
-	connID, sendA := hub.RegisterBrowser("srv-1", "user-1", testConn(t))
+	connID, sendA := hub.RegisterBrowser("user-1", testConn(t))
+	hub.Subscribe("srv-1", connID)
 
 	conn := testConn(t)
 	hub.RegisterAgent("srv-1", "agt-1", "user-1", conn)
@@ -141,8 +144,10 @@ func TestAgentConnection_PendingCommandFailedOnAgentDisconnect(t *testing.T) {
 
 func TestAgentConnection_CommandResultRoutesToWaitingBrowserOnly(t *testing.T) {
 	hub := NewHub()
-	connIDA, sendA := hub.RegisterBrowser("srv-1", "user-1", testConn(t))
-	_, sendB := hub.RegisterBrowser("srv-1", "user-2", testConn(t))
+	connIDA, sendA := hub.RegisterBrowser("user-1", testConn(t))
+	hub.Subscribe("srv-1", connIDA)
+	connIDB, sendB := hub.RegisterBrowser("user-2", testConn(t))
+	hub.Subscribe("srv-1", connIDB)
 	conn := testConn(t)
 	hub.RegisterAgent("srv-1", "agt-1", "user-1", conn)
 	t.Cleanup(func() { hub.UnregisterAgent("srv-1", conn) })
@@ -168,7 +173,8 @@ func TestAgentConnection_CommandResultRoutesToWaitingBrowserOnly(t *testing.T) {
 
 func TestAgentConnection_CommandProgressKeepsPending(t *testing.T) {
 	hub := NewHub()
-	connID, sendA := hub.RegisterBrowser("srv-1", "user-1", testConn(t))
+	connID, sendA := hub.RegisterBrowser("user-1", testConn(t))
+	hub.Subscribe("srv-1", connID)
 	conn := testConn(t)
 	hub.RegisterAgent("srv-1", "agt-1", "user-1", conn)
 	t.Cleanup(func() { hub.UnregisterAgent("srv-1", conn) })
@@ -190,8 +196,10 @@ func TestAgentConnection_CommandProgressKeepsPending(t *testing.T) {
 
 func TestAgentConnection_CommandResultFallbackBroadcasts(t *testing.T) {
 	hub := NewHub()
-	_, sendA := hub.RegisterBrowser("srv-1", "user-1", testConn(t))
-	_, sendB := hub.RegisterBrowser("srv-1", "user-2", testConn(t))
+	connIDA, sendA := hub.RegisterBrowser("user-1", testConn(t))
+	hub.Subscribe("srv-1", connIDA)
+	connIDB, sendB := hub.RegisterBrowser("user-2", testConn(t))
+	hub.Subscribe("srv-1", connIDB)
 	conn := testConn(t)
 	hub.RegisterAgent("srv-1", "agt-1", "user-1", conn)
 	t.Cleanup(func() { hub.UnregisterAgent("srv-1", conn) })
