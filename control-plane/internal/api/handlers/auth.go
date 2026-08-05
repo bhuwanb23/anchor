@@ -105,6 +105,11 @@ func (a *Auth) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Create personal team for the new user
+	if _, err := queries.EnsureUserPersonalTeam(a.DB, userID, name); err != nil {
+		slog.Error("failed to create personal team", "error", err, "user_id", userID)
+	}
+
 	slog.Info("user registered", "user_id", userID)
 	writeJSON(w, http.StatusCreated, map[string]string{"message": "Account created successfully"})
 }
