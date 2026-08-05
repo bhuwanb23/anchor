@@ -213,7 +213,9 @@ func HandleBrowserWS(hub *Hub, db *sql.DB, jwtSecret string) http.HandlerFunc {
 					}
 
 				case "ping":
-					// Browser heartbeat: respond with pong (Step 3D).
+					// Browser heartbeat: respond with pong and record pong
+					// timestamp for connection health tracking (Step 6A).
+					hub.BrowserPong(connID)
 					hub.SendToBrowser(connID, []byte(`{"type":"pong"}`))
 
 				case "start_log_stream":
