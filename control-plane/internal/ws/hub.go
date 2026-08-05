@@ -20,6 +20,7 @@ import (
 //   - subscriptions:   server_id -> set of browser connection_ids watching it
 //   - pendingCommands: command_id -> {browser connection_id, server_id} awaiting
 //     the result (server_id lets the hub fail them when the agent disconnects)
+//   - streamSubs:      stream_id -> browser connection_id (log routing)
 //
 // Every operation is delivered through the ops channel. The hub goroutine is
 // the ONLY reader of the maps, so no locks are needed and all state changes
@@ -37,6 +38,9 @@ type Hub struct {
 	browsers        map[string]*BrowserConn
 	subscriptions   map[string]map[string]struct{}
 	pendingCommands map[string]pendingCommandEntry
+	// streamSubs routes agent log output (by stream_id) to the exact browser
+	// connection that requested it (Layer 5B Step 3D).
+	streamSubs map[string]string
 	// streams records per-server log-stream desires requested by dashboards so
 	// the control plane can re-establish live log views when an agent
 	// reconnects (Layer 4C 3B). Keyed by a project|roles signature.
@@ -92,6 +96,9 @@ const (
 	opLookupPendingCommand
 	opAgentPong
 	opSendToBrowser
+	opRegisterLogStream
+	opUnregisterLogStream
+	opLookupLogStream
 	opRecordStream
 	opClearStream
 	opClearServerStreams
@@ -138,6 +145,7 @@ func NewHub() *Hub {
 		browsers:        make(map[string]*BrowserConn),
 		subscriptions:   make(map[string]map[string]struct{}),
 		pendingCommands: make(map[string]pendingCommandEntry),
+		streamSubs:      make(map[string]string),
 		streams:         make(map[string]map[string][]byte),
 	}
 	h.started.Do(func() { go h.run() })
@@ -212,17 +220,18 @@ func (h *Hub) handleOp(op hubOp) {
 		}
 
 	case opRegisterBrowser:
+		// A browser connects WITHOUT a server subscription (Layer 5B Step 3A:
+		// "connected but not viewing any server"); it subscribes explicitly via
+		// a subscribe message or an immediate URL-driven subscribe.
 		connID := uuid.New().String()
 		browser := &BrowserConn{
-			ID:               connID,
-			UserID:           op.userID,
-			Conn:             op.conn,
-			Send:             make(chan []byte, 256),
-			WatchingServerID: op.serverID,
-			ActiveStreams:    make(map[string]struct{}),
+			ID:            connID,
+			UserID:        op.userID,
+			Conn:          op.conn,
+			Send:          make(chan []byte, 256),
+			ActiveStreams: make(map[string]struct{}),
 		}
 		h.browsers[connID] = browser
-		h.addSubscription(op.serverID, connID)
 		if op.reply != nil {
 			op.reply <- browserRegistration{ID: connID, Send: browser.Send}
 		}
@@ -236,6 +245,12 @@ func (h *Hub) handleOp(op hubOp) {
 					delete(h.pendingCommands, cmdID)
 				}
 			}
+			// Release every log stream this connection started (Step 3C Way 2).
+			for streamID, owner := range h.streamSubs {
+				if owner == op.connID {
+					delete(h.streamSubs, streamID)
+				}
+			}
 			close(browser.Send)
 			browser.Conn.Close()
 			delete(h.browsers, op.connID)
@@ -243,6 +258,11 @@ func (h *Hub) handleOp(op hubOp) {
 
 	case opSubscribe:
 		if browser, ok := h.browsers[op.connID]; ok {
+			// Navigating to a different server auto-unsubscribes from the
+			// previous one (Layer 5B Step 3C Way 3).
+			if browser.WatchingServerID != "" && browser.WatchingServerID != op.serverID {
+				h.removeSubscription(browser.WatchingServerID, op.connID)
+			}
 			h.addSubscription(op.serverID, op.connID)
 			browser.WatchingServerID = op.serverID
 		}
@@ -312,6 +332,24 @@ func (h *Hub) handleOp(op hubOp) {
 			case browser.Send <- op.msg:
 			default:
 				slog.Debug("dropped ws message for slow browser", "connection_id", op.connID)
+			}
+		}
+
+	case opRegisterLogStream:
+		if _, ok := h.browsers[op.connID]; ok {
+			h.streamSubs[op.key] = op.connID
+		}
+
+	case opUnregisterLogStream:
+		delete(h.streamSubs, op.key)
+
+	case opLookupLogStream:
+		if op.reply != nil {
+			connID, ok := h.streamSubs[op.key]
+			if !ok {
+				op.reply <- ""
+			} else {
+				op.reply <- connID
 			}
 		}
 
@@ -491,11 +529,12 @@ func (h *Hub) UnregisterAgent(serverID string, conn *websocket.Conn) bool {
 }
 
 // RegisterBrowser registers a connected dashboard under a fresh connection ID
-// and subscribes it to the given server. It returns the connection ID and the
-// buffered channel the browser's writer goroutine should drain.
-func (h *Hub) RegisterBrowser(serverID, userID string, conn *websocket.Conn) (string, <-chan []byte) {
+// WITHOUT subscribing it to any server (Step 3A: connected but not viewing a
+// server; the dashboard subscribes explicitly). It returns the connection ID
+// and the buffered channel the browser's writer goroutine should drain.
+func (h *Hub) RegisterBrowser(userID string, conn *websocket.Conn) (string, <-chan []byte) {
 	reply := make(chan interface{}, 1)
-	h.ops <- hubOp{kind: opRegisterBrowser, serverID: serverID, userID: userID, conn: conn, reply: reply}
+	h.ops <- hubOp{kind: opRegisterBrowser, userID: userID, conn: conn, reply: reply}
 	reg := (<-reply).(browserRegistration)
 	return reg.ID, reg.Send
 }
@@ -578,6 +617,26 @@ func (h *Hub) AgentPong(serverID string) {
 // dashboard that issued the command.
 func (h *Hub) SendToBrowser(connID string, msg []byte) {
 	h.ops <- hubOp{kind: opSendToBrowser, connID: connID, msg: msg}
+}
+
+// RegisterLogStream routes agent log output for a stream to the given browser
+// connection (Layer 5B Step 3D start_log_stream).
+func (h *Hub) RegisterLogStream(streamID, connID string) {
+	h.ops <- hubOp{kind: opRegisterLogStream, key: streamID, connID: connID}
+}
+
+// UnregisterLogStream stops routing log output for a stream (stop_log_stream).
+func (h *Hub) UnregisterLogStream(streamID string) {
+	h.ops <- hubOp{kind: opUnregisterLogStream, key: streamID}
+}
+
+// LookupLogStream returns the browser connection currently receiving log
+// output for a stream, or "" if nobody is subscribed.
+func (h *Hub) LookupLogStream(streamID string) string {
+	reply := make(chan interface{}, 1)
+	h.ops <- hubOp{kind: opLookupLogStream, key: streamID, reply: reply}
+	connID, _ := (<-reply).(string)
+	return connID
 }
 
 // RecordStreamCommand remembers a stream_logs desire for a server so it can be
