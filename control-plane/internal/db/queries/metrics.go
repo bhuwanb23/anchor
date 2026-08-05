@@ -119,3 +119,93 @@ func GetServerContainers(db *sql.DB, serverID string) ([]ContainerStatusRow, err
 	}
 	return out, rows.Err()
 }
+
+// MetricRow is one metrics_history sample with nullable fields (older rows or
+// partial reports may leave columns NULL).
+type MetricRow struct {
+	ID               string
+	ServerID         string
+	RecordedAt       string
+	CollectedInMS    *int64
+	CPUPercent       *float64
+	RAMUsedMB        *int64
+	RAMTotalMB       *int64
+	RAMPercent       *float64
+	DiskUsedGB       *float64
+	DiskTotalGB      *float64
+	DiskPercent      *float64
+	Load1Min         *float64
+	LoadPerCore      *float64
+	CaddyRunning     *bool
+	CaddyRoutesCount *int
+	LastBackupAgeSec *int64
+	ContainerCount   *int
+}
+
+// GetLatestMetric returns the most recent health metrics sample for a server,
+// or nil if the server has no samples yet. Used for the server_state snapshot
+// a browser receives on subscribe (Layer 5B Step 3B).
+func GetLatestMetric(db *sql.DB, serverID string) (*MetricRow, error) {
+	row := db.QueryRow(`
+		SELECT id, server_id, recorded_at, collected_in_ms,
+		       cpu_percent, ram_used_mb, ram_total_mb, ram_percent,
+		       disk_used_gb, disk_total_gb, disk_percent,
+		       load_1min, load_per_core,
+		       caddy_running, caddy_routes_count, last_backup_age_sec, container_count
+		FROM metrics_history
+		WHERE server_id = ?
+		ORDER BY recorded_at DESC
+		LIMIT 1`, serverID)
+
+	var m MetricRow
+	var collected, ramUsed, ramTotal, backupAge sql.NullInt64
+	var cpu, ramPct, diskUsed, diskTotal, diskPct, load1, loadPerCore sql.NullFloat64
+	var caddyRunning, caddyRoutes, containerCount sql.NullInt64
+	if err := row.Scan(&m.ID, &m.ServerID, &m.RecordedAt, &collected,
+		&cpu, &ramUsed, &ramTotal, &ramPct,
+		&diskUsed, &diskTotal, &diskPct,
+		&load1, &loadPerCore,
+		&caddyRunning, &caddyRoutes, &backupAge, &containerCount); err != nil {
+		return nil, err
+	}
+	m.CollectedInMS = nullInt64Ptr(collected)
+	m.CPUPercent = nullFloat64Ptr(cpu)
+	m.RAMUsedMB = nullInt64Ptr(ramUsed)
+	m.RAMTotalMB = nullInt64Ptr(ramTotal)
+	m.RAMPercent = nullFloat64Ptr(ramPct)
+	m.DiskUsedGB = nullFloat64Ptr(diskUsed)
+	m.DiskTotalGB = nullFloat64Ptr(diskTotal)
+	m.DiskPercent = nullFloat64Ptr(diskPct)
+	m.Load1Min = nullFloat64Ptr(load1)
+	m.LoadPerCore = nullFloat64Ptr(loadPerCore)
+	if caddyRunning.Valid {
+		running := caddyRunning.Int64 != 0
+		m.CaddyRunning = &running
+	}
+	if caddyRoutes.Valid {
+		r := int(caddyRoutes.Int64)
+		m.CaddyRoutesCount = &r
+	}
+	m.LastBackupAgeSec = nullInt64Ptr(backupAge)
+	if containerCount.Valid {
+		c := int(containerCount.Int64)
+		m.ContainerCount = &c
+	}
+	return &m, nil
+}
+
+func nullInt64Ptr(v sql.NullInt64) *int64 {
+	if !v.Valid {
+		return nil
+	}
+	out := v.Int64
+	return &out
+}
+
+func nullFloat64Ptr(v sql.NullFloat64) *float64 {
+	if !v.Valid {
+		return nil
+	}
+	out := v.Float64
+	return &out
+}
