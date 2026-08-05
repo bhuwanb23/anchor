@@ -47,3 +47,24 @@ func HashRefreshToken(token string) string {
 	hash := sha256.Sum256([]byte(token))
 	return hex.EncodeToString(hash[:])
 }
+
+// GenerateResetToken creates a single-use password-reset token (Layer 5A
+// Step 7A). Like registration and refresh tokens it is opaque (not a JWT),
+// prefixed "pw_" for identification, and stored only as its SHA-256 hash.
+func GenerateResetToken() (rawToken string, hashedToken string, err error) {
+	b := make([]byte, 32)
+	if _, err = rand.Read(b); err != nil {
+		return "", "", fmt.Errorf("generate reset token: %w", err)
+	}
+
+	rawToken = "pw_" + hex.EncodeToString(b)
+	hashedToken = HashResetToken(rawToken)
+	return rawToken, hashedToken, nil
+}
+
+// HashResetToken hashes a password-reset token with SHA-256 so only the hash
+// is ever stored (same policy as registration and refresh tokens).
+func HashResetToken(token string) string {
+	hash := sha256.Sum256([]byte(token))
+	return hex.EncodeToString(hash[:])
+}
