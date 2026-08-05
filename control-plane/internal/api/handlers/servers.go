@@ -256,6 +256,15 @@ func (s *Server) serverOwnedBy(userID, serverID string) bool {
 	return err == nil && count > 0
 }
 
+// getServerTeam returns the team that owns the given server.
+func (s *Server) getServerTeam(serverID string) (string, error) {
+	team, err := queries.GetServerTeam(s.DB, serverID)
+	if err != nil {
+		return "", err
+	}
+	return team.ID, nil
+}
+
 func (s *Server) CreateServer(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.UserIDFromContext(r.Context())
 	if userID == "" {
@@ -315,4 +324,48 @@ func (s *Server) CreateServer(w http.ResponseWriter, r *http.Request) {
 		"token":           token,
 		"install_command": "curl -fsSL https://get.yourplatform.com/install.sh | sudo sh -s -- --token=" + token,
 	})
+}
+
+// DeleteServer removes a server. Requires admin role in the server's team.
+func (s *Server) DeleteServer(w http.ResponseWriter, r *http.Request) {
+	serverID := chi.URLParam(r, "serverID")
+	if serverID == "" {
+		http.Error(w, "server ID required", http.StatusBadRequest)
+		return
+	}
+
+	userID := middleware.UserIDFromContext(r.Context())
+	if userID == "" {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	// Check team-based access: user must be admin or owner in the server's team
+	teamID, err := s.getServerTeam(serverID)
+	if err != nil {
+		http.Error(w, "server not found", http.StatusNotFound)
+		return
+	}
+
+	role, err := queries.GetUserTeamRole(s.DB, teamID, userID)
+	if err != nil || role == "" {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+	if role != "owner" && role != "admin" {
+		http.Error(w, "insufficient permissions", http.StatusForbidden)
+		return
+	}
+
+	// Mark server as deleted
+	if _, err := s.DB.Exec(
+		"UPDATE servers SET status = 'deleted' WHERE id = ?",
+		serverID,
+	); err != nil {
+		slog.Error("delete server", "error", err)
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
 }

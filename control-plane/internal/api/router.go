@@ -66,6 +66,7 @@ func NewRouter(database *sql.DB, cfg *config.Config, hub *ws.Hub, delivery *aler
 			r.Delete("/auth/sessions/{sessionID}", authHandler.DeleteSession)
 			r.Get("/servers", server.ListServers)
 			r.Post("/servers", server.CreateServer)
+			r.Delete("/servers/{serverID}", server.DeleteServer)
 			r.Get("/servers/{serverID}/events", server.ListEvents)
 			r.Get("/servers/{serverID}/alerts", server.ListAlerts)
 			r.Post("/servers/{serverID}/alerts/{alertID}/ack", server.AcknowledgeAlert)
