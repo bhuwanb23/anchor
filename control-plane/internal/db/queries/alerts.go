@@ -98,6 +98,39 @@ func ListAlertsByServer(db *sql.DB, serverID string, limit int) ([]AlertRecord, 
 		}
 		out = append(out, a)
 	}
+	if out == nil {
+		out = []AlertRecord{}
+	}
+	return out, rows.Err()
+}
+
+// ListActiveAlertsByServer returns only the currently active (unresolved,
+// unacknowledged) alerts for a server, newest first (Layer 5C Step 3C #3).
+// Used for the server_state snapshot and alert-history views that show the
+// live incident list.
+func ListActiveAlertsByServer(db *sql.DB, serverID string) ([]AlertRecord, error) {
+	rows, err := db.Query(
+		`SELECT `+alertColumns+` FROM alerts
+		 WHERE alerts.server_id = ? AND alerts.status = 'active'
+		 ORDER BY alerts.fired_at DESC`,
+		serverID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []AlertRecord
+	for rows.Next() {
+		a, err := scanAlert(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, a)
+	}
+	if out == nil {
+		out = []AlertRecord{}
+	}
 	return out, rows.Err()
 }
 
@@ -136,6 +169,9 @@ func ListRecentAlertsForUser(db *sql.DB, userID string, limit int) ([]AlertRecor
 		if name, err := ServerName(db, out[i].ServerID); err == nil {
 			out[i].ServerName = name
 		}
+	}
+	if out == nil {
+		out = []AlertRecord{}
 	}
 	return out, nil
 }
