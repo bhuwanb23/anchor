@@ -2,6 +2,7 @@ package queries
 
 import (
 	"database/sql"
+	"fmt"
 	"testing"
 
 	_ "modernc.org/sqlite"
@@ -110,7 +111,7 @@ func TestRollupDailyMetrics_FromHourly(t *testing.T) {
 		if _, err := db.Exec(
 			`INSERT INTO metrics_history (id, server_id, recorded_at, cpu_percent, granularity)
 			 VALUES (?, 'srv-1', strftime('%Y-%m-%dT%H:00:00Z', datetime('now', '-2 days', '-2 hours')), ?, 'hourly')`,
-			"h1-"+string(rune('a'+i)), cpu,
+			fmt.Sprintf("h1-%d", i), cpu,
 		); err != nil {
 			t.Fatal(err)
 		}
@@ -174,7 +175,7 @@ func TestMetricsRetentionTiers(t *testing.T) {
 		if _, err := db.Exec(
 			`INSERT INTO metrics_history (id, server_id, recorded_at, cpu_percent, granularity)
 			 VALUES (?, 'srv-1', datetime('now', ?), 1, ?)`,
-			id, sqlIntDays(days), gran,
+			id, fmt.Sprintf("%d days", days), gran,
 		); err != nil {
 			t.Fatal(err)
 		}
@@ -209,13 +210,4 @@ func TestMetricsRetentionTiers(t *testing.T) {
 	if remaining != 3 {
 		t.Fatalf("remaining=%d want 3 (one per tier)", remaining)
 	}
-}
-
-// sqlIntDays converts a negative day count to a SQLite modifier string
-// ("-8 days") for datetime('now', ?).
-func sqlIntDays(days int) string {
-	if days < 0 {
-		return "-" + string(rune('0'+(-days))) + " days"
-	}
-	return "+" + string(rune('0'+days)) + " days"
 }
