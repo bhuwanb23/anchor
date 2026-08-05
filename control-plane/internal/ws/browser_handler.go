@@ -164,11 +164,35 @@ func HandleBrowserWS(hub *Hub, db *sql.DB, jwtSecret string) http.HandlerFunc {
 							},
 						})
 						_ = conn.WriteMessage(websocket.TextMessage, errResp)
+					} else if cmdID := browserCommandID(msg); cmdID != "" {
+						// Delivered: record that this browser is waiting for the
+						// result so the hub can route ack/progress/result (and
+						// disconnect failures) back to exactly this dashboard
+						// (Layer 5B Step 2). Only tracked on success so an offline
+						// agent does not leak a pending entry.
+						hub.TrackPendingCommand(cmdID, connID, serverID)
 					}
 				}
 			}
 		}()
 	}
+}
+
+// browserCommandID extracts the id of a browser-issued command so its result
+// can be routed back. Stream-control commands (stream_logs / stop_stream_logs)
+// produce no result and are never tracked.
+func browserCommandID(msg Message) string {
+	var inner struct {
+		ID   string `json:"id"`
+		Type string `json:"type"`
+	}
+	if err := json.Unmarshal(msg.Payload, &inner); err != nil {
+		return ""
+	}
+	if inner.Type == "stream_logs" || inner.Type == "stop_stream_logs" {
+		return ""
+	}
+	return inner.ID
 }
 
 // trackStreamCommand records or clears the hub's per-server log-stream
