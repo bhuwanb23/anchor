@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import api from "@/lib/api";
-import type { BackupJob, BackupSchedule, BackupUsage, RestoreRequest, RestoreJob, VerificationSchedule } from "@/types";
+import type { BackupJob, BackupSchedule, BackupUsage, RestoreRequest, RestoreJob, VerificationSchedule, StorageStats } from "@/types";
 
 export function useBackupHistory(serverId: string, pollIntervalMs = 10000) {
   const [jobs, setJobs] = useState<BackupJob[]>([]);
@@ -300,4 +300,72 @@ export function useTriggerVerification(serverId: string) {
   }, [serverId]);
 
   return { triggerVerification, isTriggering, error };
+}
+
+// ---------------------------------------------------------------------------
+// Storage stats hooks
+// ---------------------------------------------------------------------------
+
+export function useStorageStats(serverId: string) {
+  const [stats, setStats] = useState<StorageStats | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const mountedRef = useRef(true);
+
+  const fetchStats = useCallback(async () => {
+    try {
+      const res = await api.get<StorageStats>(
+        `/api/v1/servers/${serverId}/backup/storage/stats`
+      );
+      if (mountedRef.current) {
+        setStats(res.data);
+        setError(null);
+      }
+    } catch (e) {
+      if (mountedRef.current) {
+        setError(e instanceof Error ? e.message : "Failed to fetch storage stats");
+      }
+    } finally {
+      if (mountedRef.current) {
+        setIsLoading(false);
+      }
+    }
+  }, [serverId]);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    fetchStats();
+    return () => {
+      mountedRef.current = false;
+    };
+  }, [fetchStats]);
+
+  return { stats, isLoading, error, refetch: fetchStats };
+}
+
+export function useTriggerMaintenance(serverId: string) {
+  const [isTriggering, setIsTriggering] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const triggerMaintenance = useCallback(
+    async (operation: string = "all") => {
+      setIsTriggering(true);
+      setError(null);
+      try {
+        await api.post(
+          `/api/v1/servers/${serverId}/backup/storage/maintenance`,
+          { operation }
+        );
+        setIsTriggering(false);
+        return true;
+      } catch (e) {
+        setIsTriggering(false);
+        setError(e instanceof Error ? e.message : "Failed to trigger maintenance");
+        return false;
+      }
+    },
+    [serverId]
+  );
+
+  return { triggerMaintenance, isTriggering, error };
 }
