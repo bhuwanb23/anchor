@@ -127,7 +127,11 @@ func gzipFile(src, dst string) error {
 	_ = out.Chmod(0o600)
 
 	// NewWriterLevel only errors on an invalid level; BestCompression is valid.
-	gz := gzip.NewWriterLevel(out, gzip.BestCompression)
+	gz, err := gzip.NewWriterLevel(out, gzip.BestCompression)
+	if err != nil {
+		out.Close()
+		return err
+	}
 
 	if _, err := io.Copy(gz, in); err != nil {
 		gz.Close()
