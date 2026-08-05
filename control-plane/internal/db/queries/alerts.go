@@ -387,3 +387,17 @@ func SupersedeAlertBatchEmails(db *sql.DB, alertID string) error {
 	)
 	return err
 }
+
+// DeleteOldAlertEmails removes delivery-queue rows older than the given
+// number of days (Layer 5C Step 4B — daily retention, 30 days). Sent and
+// failed rows are pure history once their window passes.
+func DeleteOldAlertEmails(db *sql.DB, days int) (int64, error) {
+	result, err := db.Exec(
+		`DELETE FROM alert_emails WHERE created_at < datetime('now', '-' || ? || ' days')`,
+		days,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
