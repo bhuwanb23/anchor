@@ -98,6 +98,7 @@ const (
 	opResolvePendingCommand
 	opLookupPendingCommand
 	opFailTimedOutCommand
+	opHasInFlightCommand
 	opAgentPong
 	opSendToBrowser
 	opRegisterLogStream
@@ -337,6 +338,19 @@ func (h *Hub) handleOp(op hubOp) {
 			} else {
 				op.reply <- entry.connID
 			}
+		}
+
+	case opHasInFlightCommand:
+		// Check if any pending command targets the given server.
+		if op.reply != nil {
+			found := false
+			for _, entry := range h.pendingCommands {
+				if entry.serverID == op.serverID {
+					found = true
+					break
+				}
+			}
+			op.reply <- found
 		}
 
 	case opAgentPong:
@@ -646,6 +660,15 @@ func (h *Hub) LookupPendingCommand(commandID string) string {
 	h.ops <- hubOp{kind: opLookupPendingCommand, commandID: commandID, reply: reply}
 	connID, _ := (<-reply).(string)
 	return connID
+}
+
+// HasInFlightCommand reports whether there is any pending command for the given
+// server (used to deduplicate concurrent browser commands).
+func (h *Hub) HasInFlightCommand(serverID string) bool {
+	reply := make(chan interface{}, 1)
+	h.ops <- hubOp{kind: opHasInFlightCommand, serverID: serverID, reply: reply}
+	found, _ := (<-reply).(bool)
+	return found
 }
 
 // AgentPong records that the agent answered a heartbeat ping.

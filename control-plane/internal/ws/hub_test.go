@@ -239,6 +239,37 @@ func TestHub_CommandTimeoutNoOpForResolvedCommand(t *testing.T) {
 	// No crash, no panic — just a no-op.
 }
 
+func TestHub_HasInFlightCommand(t *testing.T) {
+	hub := NewHub()
+	connID, _ := hub.RegisterBrowser("user-1", testConn(t))
+	hub.Subscribe("srv-1", connID)
+
+	if hub.HasInFlightCommand("srv-1") {
+		t.Fatal("no in-flight commands yet")
+	}
+
+	hub.TrackPendingCommand("cmd-1", connID, "srv-1")
+	if !hub.HasInFlightCommand("srv-1") {
+		t.Fatal("expected in-flight command after TrackPendingCommand")
+	}
+
+	hub.ResolvePendingCommand("cmd-1")
+	if hub.HasInFlightCommand("srv-1") {
+		t.Fatal("no in-flight commands after ResolvePendingCommand")
+	}
+}
+
+func TestHub_HasInFlightCommandIgnoresOtherServers(t *testing.T) {
+	hub := NewHub()
+	connID, _ := hub.RegisterBrowser("user-1", testConn(t))
+	hub.Subscribe("srv-1", connID)
+
+	hub.TrackPendingCommand("cmd-1", connID, "srv-1")
+	if hub.HasInFlightCommand("srv-2") {
+		t.Fatal("command on srv-1 should not affect srv-2")
+	}
+}
+
 func TestHub_ReplayStreamCommands(t *testing.T) {
 	hub := NewHub()
 	hub.RegisterAgent("srv-1", "agt-1", "user-1", testConn(t))

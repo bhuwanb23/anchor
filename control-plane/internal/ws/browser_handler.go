@@ -158,6 +158,11 @@ func HandleBrowserWS(hub *Hub, db *sql.DB, jwtSecret string) http.HandlerFunc {
 						hub.SendToBrowser(connID, browserErrorMsg("not subscribed to a server"))
 						continue
 					}
+					// Deduplicate: reject if a command is already in flight.
+					if hub.HasInFlightCommand(watching) {
+						hub.SendToBrowser(connID, browserErrorMsg("a command is already in progress for this server"))
+						continue
+					}
 					agentMsg, _ := json.Marshal(msg)
 					// Track log-stream desires so active views are re-established
 					// when the agent reconnects (Layer 4C 3B).
