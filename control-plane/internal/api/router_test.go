@@ -103,9 +103,10 @@ func TestRouter_UnknownRouteReturnsJSON404(t *testing.T) {
 			t.Errorf("GET %s: error code = %v, want not_found", path, body["error"])
 		}
 	}
-}
-
-// Unknown methods on a known path return 405 JSON, not HTML.
+}	// Unknown methods on a known path return 405 JSON, not HTML. (The Allow
+	// header RFC 7231 prescribes for 405 is deliberately omitted — chi's
+	// custom MethodNotAllowed API does not expose the allowed-methods list;
+	// see the tradeoff note in router.go.)
 func TestRouter_UnknownMethodReturnsJSON405(t *testing.T) {
 	router := newTestRouter(t)
 
@@ -142,9 +143,11 @@ func TestRouter_PublicRoutesHaveNoAuth(t *testing.T) {
 		t.Errorf("GET /health = %d, want 200", w.Code)
 	}
 
-	// Public auth endpoints must NOT be blocked by Auth middleware. Register
-	// with an invalid body: a 400 means the handler ran (no auth gate); a 401
-	// would mean the route was accidentally protected.
+	// Public auth endpoints must NOT be blocked by Auth middleware. Sending
+	// an empty body hits the handler's JSON decode, which returns exactly 400
+	// "invalid request body" — a 401 would mean the route was accidentally
+	// protected, a 404 that it was never registered. Asserting the precise
+	// 400 also catches a silent 500.
 	for _, c := range []struct{ method, path string }{
 		{http.MethodPost, "/api/v1/auth/register"},
 		{http.MethodPost, "/api/v1/auth/login"},
@@ -153,11 +156,8 @@ func TestRouter_PublicRoutesHaveNoAuth(t *testing.T) {
 		{http.MethodPost, "/api/v1/auth/reset-password"},
 	} {
 		w := doRequest(router, c.method, c.path)
-		if w.Code == http.StatusUnauthorized {
-			t.Errorf("%s %s returned 401 — public route must not require auth", c.method, c.path)
-		}
-		if w.Code == http.StatusNotFound {
-			t.Errorf("%s %s returned 404 — public route not registered", c.method, c.path)
+		if w.Code != http.StatusBadRequest {
+			t.Errorf("%s %s = %d, want 400 (handler ran without auth gate)", c.method, c.path, w.Code)
 		}
 	}
 }

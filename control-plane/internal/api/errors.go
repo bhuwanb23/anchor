@@ -20,6 +20,10 @@ import (
 // by the router's NotFound / MethodNotAllowed handlers so that unknown routes
 // and methods return JSON (not chi's default plain-text page) — the done
 // conditions for Layer 6 Step 1.
+//
+// NOTE: this deliberately mirrors handlers.writeAPIError (same {error,
+// message, request_id} shape). The two live in different packages because api
+// imports handlers; if the error shape ever changes, update both.
 func writeError(w http.ResponseWriter, r *http.Request, status int, code, message string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)

@@ -35,6 +35,12 @@ func NewRouter(database *sql.DB, cfg *config.Config, hub *ws.Hub, delivery *aler
 	// return 405 JSON (Layer 6 Step 1 done conditions) — not chi's default
 	// plain-text page. Registered after middleware so they inherit the same
 	// RequestID/CORS/security treatment as real routes.
+	//
+	// Tradeoff: chi's custom MethodNotAllowed API does not hand the handler
+	// the list of allowed methods (only its default text handler receives
+	// them), so this 405 response omits the RFC 7231 Allow header. Buffering
+	// responses to recover it is not worth it — /releases/* streams large
+	// binaries. Accepted and documented; revisit only if a client needs Allow.
 	r.NotFound(func(w http.ResponseWriter, r *http.Request) {
 		writeError(w, r, http.StatusNotFound, "not_found", "The requested resource was not found")
 	})
@@ -61,10 +67,9 @@ func NewRouter(database *sql.DB, cfg *config.Config, hub *ws.Hub, delivery *aler
 	r.Get("/releases/latest.json", handlers.LatestRelease)
 	r.Handle("/releases/*", http.StripPrefix("/releases/", http.FileServer(http.Dir(releaseDir))))
 
-	// ------------------------------------------------------------------
-	// /api/v1 — versioned API. Public group (no auth), then the protected
-	// group behind the JWT middleware (Layer 6 Step 1 route layout).
-	// ------------------------------------------------------------------
+	// /api/v1 — versioned API (Layer 6 Step 1 route layout): a public group
+	// (no auth) for registration/login/refresh, then the protected group
+	// behind the JWT middleware for everything else.
 
 	// Create DNS client if Cloudflare credentials are configured
 	var dnsClient *dns.Client
