@@ -90,12 +90,13 @@ func TestHub_AgentUnknownServerSendFails(t *testing.T) {
 
 func TestHub_AgentUnregisterClosesSend(t *testing.T) {
 	hub := NewHub()
-	hub.RegisterAgent("srv-1", "agt-1", "user-1", testConn(t))
+	conn := testConn(t)
+	hub.RegisterAgent("srv-1", "agt-1", "user-1", conn)
 	if !hub.SendToAgent("srv-1", []byte("ping")) {
 		t.Fatal("agent should be sendable before unregister")
 	}
 
-	hub.UnregisterAgent("srv-1")
+	hub.UnregisterAgent("srv-1", conn)
 	if hub.SendToAgent("srv-1", []byte("ping")) {
 		t.Fatal("SendToAgent should return false after unregister")
 	}
@@ -160,7 +161,7 @@ func TestHub_PendingCommandsRouteToBrowser(t *testing.T) {
 	hub := NewHub()
 	connID, sendA := hub.RegisterBrowser("srv-1", "user-1", testConn(t))
 
-	hub.TrackPendingCommand("cmd-1", connID)
+	hub.TrackPendingCommand("cmd-1", connID, "srv-1")
 	if got := hub.ResolvePendingCommand("cmd-1"); got != connID {
 		t.Fatalf("ResolvePendingCommand(cmd-1) = %q, want %q", got, connID)
 	}
@@ -174,7 +175,7 @@ func TestHub_PendingCommandsRouteToBrowser(t *testing.T) {
 	}
 
 	// A result arriving from the agent is routed to the waiting browser.
-	hub.TrackPendingCommand("cmd-2", connID)
+	hub.TrackPendingCommand("cmd-2", connID, "srv-1")
 	hub.ForwardToBrowsers("srv-1", []byte(`{"type":"result","command_id":"cmd-2"}`))
 	if got := recvWithTimeout(t, sendA, "result message"); got == nil {
 		t.Fatal("result not delivered to waiting browser")
@@ -244,8 +245,9 @@ func TestHub_StartupLogsConfirmation(t *testing.T) {
 	defer slog.SetDefault(prev)
 
 	hub := NewHub()
-	t.Cleanup(func() { hub.UnregisterAgent("srv-1") })
-	hub.RegisterAgent("srv-1", "agt-1", "user-1", testConn(t))
+	conn := testConn(t)
+	t.Cleanup(func() { hub.UnregisterAgent("srv-1", conn) })
+	hub.RegisterAgent("srv-1", "agt-1", "user-1", conn)
 	if !hub.SendToAgent("srv-1", []byte("ping")) {
 		t.Fatal("hub goroutine did not start: send failed")
 	}
@@ -283,7 +285,7 @@ func TestHub_ConcurrentOperations(t *testing.T) {
 			connID, sendCh := hub.RegisterBrowser(serverID, "user-1", conns[i+20])
 			hub.Subscribe(serverID, connID)
 			hub.Unsubscribe(serverID, connID)
-			hub.TrackPendingCommand("cmd-"+serverID, connID)
+			hub.TrackPendingCommand("cmd-"+serverID, connID, serverID)
 			_ = hub.ResolvePendingCommand("cmd-" + serverID)
 			hub.ForwardToBrowsers(serverID, []byte("hi"))
 			_ = sendCh
