@@ -2,6 +2,7 @@ package ws
 
 import (
 	"database/sql"
+	"encoding/json"
 	"log/slog"
 	"sync"
 	"time"
@@ -17,7 +18,8 @@ import (
 //   - agents:          server_id -> connected agent
 //   - browsers:        connection_id -> connected dashboard (browser)
 //   - subscriptions:   server_id -> set of browser connection_ids watching it
-//   - pendingCommands: command_id -> browser connection_id awaiting the result
+//   - pendingCommands: command_id -> {browser connection_id, server_id} awaiting
+//     the result (server_id lets the hub fail them when the agent disconnects)
 //
 // Every operation is delivered through the ops channel. The hub goroutine is
 // the ONLY reader of the maps, so no locks are needed and all state changes
@@ -34,7 +36,7 @@ type Hub struct {
 	agentsByAgentID map[string]*AgentConn
 	browsers        map[string]*BrowserConn
 	subscriptions   map[string]map[string]struct{}
-	pendingCommands map[string]string
+	pendingCommands map[string]pendingCommandEntry
 	// streams records per-server log-stream desires requested by dashboards so
 	// the control plane can re-establish live log views when an agent
 	// reconnects (Layer 4C 3B). Keyed by a project|roles signature.
@@ -51,6 +53,14 @@ type AgentConn struct {
 	ConnectedAt  time.Time
 	LastPingAt   time.Time
 	AgentVersion string
+}
+
+// pendingCommandEntry records which browser connection is waiting for a
+// command result and which server the command was sent to (the latter allows
+// the hub to fail pending commands when the agent disconnects).
+type pendingCommandEntry struct {
+	connID   string
+	serverID string
 }
 
 // BrowserConn tracks a connected dashboard (browser) WebSocket connection.
@@ -79,6 +89,9 @@ const (
 	opListAgents
 	opTrackPendingCommand
 	opResolvePendingCommand
+	opLookupPendingCommand
+	opAgentPong
+	opSendToBrowser
 	opRecordStream
 	opClearStream
 	opClearServerStreams
@@ -124,7 +137,7 @@ func NewHub() *Hub {
 		agentsByAgentID: make(map[string]*AgentConn),
 		browsers:        make(map[string]*BrowserConn),
 		subscriptions:   make(map[string]map[string]struct{}),
-		pendingCommands: make(map[string]string),
+		pendingCommands: make(map[string]pendingCommandEntry),
 		streams:         make(map[string]map[string][]byte),
 	}
 	h.started.Do(func() { go h.run() })
@@ -150,6 +163,16 @@ func (h *Hub) run() {
 func (h *Hub) handleOp(op hubOp) {
 	switch op.kind {
 	case opRegisterAgent:
+		// Duplicate connection (e.g. the agent restarted before its old socket
+		// timed out): close the old connection and replace it. The old reader
+		// goroutine's eventual UnregisterAgent call becomes a no-op because its
+		// conn no longer matches the registered one.
+		if old, ok := h.agents[op.serverID]; ok {
+			delete(h.agentsByAgentID, old.AgentID)
+			close(old.Send)
+			go old.Conn.Close() // never block routing on a possibly-slow socket
+			slog.Info("replaced duplicate agent connection", "server_id", op.serverID)
+		}
 		agent := &AgentConn{
 			Conn:        op.conn,
 			ServerID:    op.serverID,
@@ -161,13 +184,31 @@ func (h *Hub) handleOp(op hubOp) {
 		}
 		h.agents[op.serverID] = agent
 		h.agentsByAgentID[op.agentID] = agent
+		if op.reply != nil {
+			op.reply <- agent.Send
+		}
+		// Notify dashboards watching this server that the agent is live.
+		h.notifyAgentConnection(op.serverID, true)
 
 	case opUnregisterAgent:
-		if agent, ok := h.agents[op.serverID]; ok {
+		// Only unregister if the conn matches the registered agent. This makes
+		// a duplicate-connection replacement safe: the stale reader's
+		// unregister (with the old conn) is a no-op and cannot kill the new
+		// agent.
+		if agent, ok := h.agents[op.serverID]; ok && agent.Conn == op.conn {
 			delete(h.agentsByAgentID, agent.AgentID)
 			close(agent.Send)
-			agent.Conn.Close()
+			go agent.Conn.Close() // never block routing on a possibly-slow socket
 			delete(h.agents, op.serverID)
+			// Anything the waiting dashboards asked for is now impossible:
+			// fail those commands and tell the waiters.
+			h.failPendingCommandsForServer(op.serverID)
+			h.notifyAgentConnection(op.serverID, false)
+			if op.reply != nil {
+				op.reply <- true
+			}
+		} else if op.reply != nil {
+			op.reply <- false
 		}
 
 	case opRegisterBrowser:
@@ -190,8 +231,8 @@ func (h *Hub) handleOp(op hubOp) {
 		if browser, ok := h.browsers[op.connID]; ok {
 			h.removeSubscription(browser.WatchingServerID, op.connID)
 			// Drop any command results this browser is still waiting on.
-			for cmdID, owner := range h.pendingCommands {
-				if owner == op.connID {
+			for cmdID, entry := range h.pendingCommands {
+				if entry.connID == op.connID {
 					delete(h.pendingCommands, cmdID)
 				}
 			}
@@ -239,13 +280,39 @@ func (h *Hub) handleOp(op hubOp) {
 		op.reply <- snap
 
 	case opTrackPendingCommand:
-		h.pendingCommands[op.commandID] = op.connID
+		h.pendingCommands[op.commandID] = pendingCommandEntry{connID: op.connID, serverID: op.serverID}
 
 	case opResolvePendingCommand:
-		connID := h.pendingCommands[op.commandID]
+		entry := h.pendingCommands[op.commandID]
 		delete(h.pendingCommands, op.commandID)
 		if op.reply != nil {
-			op.reply <- connID
+			op.reply <- entry.connID
+		}
+
+	case opLookupPendingCommand:
+		// Non-destructive lookup for progress messages: the entry stays until
+		// the final result arrives.
+		if op.reply != nil {
+			entry, ok := h.pendingCommands[op.commandID]
+			if !ok {
+				op.reply <- ""
+			} else {
+				op.reply <- entry.connID
+			}
+		}
+
+	case opAgentPong:
+		if agent, ok := h.agents[op.serverID]; ok {
+			agent.LastPingAt = time.Now().UTC()
+		}
+
+	case opSendToBrowser:
+		if browser, ok := h.browsers[op.connID]; ok {
+			select {
+			case browser.Send <- op.msg:
+			default:
+				slog.Debug("dropped ws message for slow browser", "connection_id", op.connID)
+			}
 		}
 
 	case opRecordStream:
@@ -283,7 +350,9 @@ func (h *Hub) handleOp(op hubOp) {
 }
 
 // sendToAgent performs a non-blocking send to an agent's send channel.
-// Hub-goroutine-only helper.
+// Hub-goroutine-only helper. If the buffer is full (agent too slow), the
+// OLDEST queued message is dropped to make room for the newest (Layer 5B
+// Step 2C: drop-oldest on overflow, never block routing).
 func (h *Hub) sendToAgent(serverID string, msg []byte) bool {
 	agent, ok := h.agents[serverID]
 	if !ok {
@@ -293,7 +362,65 @@ func (h *Hub) sendToAgent(serverID string, msg []byte) bool {
 	case agent.Send <- msg:
 		return true
 	default:
-		return false
+		slog.Warn("agent send buffer full, dropping oldest", "server_id", serverID)
+		// Free one slot (the hub is the only writer and the writer goroutine
+		// is the only reader, so draining one slot guarantees the push below
+		// succeeds).
+		select {
+		case <-agent.Send:
+		default:
+		}
+		select {
+		case agent.Send <- msg:
+			return true
+		default:
+			return false
+		}
+	}
+}
+
+// notifyAgentConnection pushes an agent_connected / agent_disconnected event
+// to every dashboard watching the server (Layer 5B Steps 2A/2D).
+// Hub-goroutine-only helper.
+func (h *Hub) notifyAgentConnection(serverID string, connected bool) {
+	msgType := "agent_disconnected"
+	if connected {
+		msgType = "agent_connected"
+	}
+	msg, _ := json.Marshal(map[string]interface{}{
+		"type": msgType,
+		"payload": map[string]interface{}{
+			"server_id": serverID,
+		},
+	})
+	h.forwardToBrowsers(serverID, msg)
+}
+
+// failPendingCommandsForServer fails every command the disconnected server was
+// still executing: it removes the pending entry and sends a command_error to
+// the waiting browser (Layer 5B Step 2D).
+// Hub-goroutine-only helper.
+func (h *Hub) failPendingCommandsForServer(serverID string) {
+	for cmdID, entry := range h.pendingCommands {
+		if entry.serverID != serverID {
+			continue
+		}
+		delete(h.pendingCommands, cmdID)
+		browser, ok := h.browsers[entry.connID]
+		if !ok {
+			continue
+		}
+		failMsg, _ := json.Marshal(map[string]interface{}{
+			"type": "command_error",
+			"payload": map[string]interface{}{
+				"command_id": cmdID,
+				"message":    "Server disconnected before command completed",
+			},
+		})
+		select {
+		case browser.Send <- failMsg:
+		default:
+		}
 	}
 }
 
@@ -337,14 +464,30 @@ func (h *Hub) forwardToBrowsers(serverID string, msg []byte) {
 
 // --- Public API: all operations enqueue ops and never touch the maps ---
 
-// RegisterAgent registers a connected agent under its server and agent IDs.
-func (h *Hub) RegisterAgent(serverID, agentID, userID string, conn *websocket.Conn) {
-	h.ops <- hubOp{kind: opRegisterAgent, serverID: serverID, agentID: agentID, userID: userID, conn: conn}
+// RegisterAgent registers a connected agent under its server and agent IDs and
+// returns the buffered send channel its writer goroutine should drain. If the
+// server already had an agent, the old connection is closed and replaced.
+func (h *Hub) RegisterAgent(serverID, agentID, userID string, conn *websocket.Conn) <-chan []byte {
+	reply := make(chan interface{}, 1)
+	h.ops <- hubOp{kind: opRegisterAgent, serverID: serverID, agentID: agentID, userID: userID, conn: conn, reply: reply}
+	ch, _ := (<-reply).(chan []byte)
+	if ch == nil {
+		ch = make(chan []byte)
+		close(ch)
+	}
+	return ch
 }
 
-// UnregisterAgent removes an agent connection and closes its channels.
-func (h *Hub) UnregisterAgent(serverID string) {
-	h.ops <- hubOp{kind: opUnregisterAgent, serverID: serverID}
+// UnregisterAgent removes an agent connection and closes its channels. conn
+// must be the connection that was registered; passing a stale connection (e.g.
+// a reader goroutine of a replaced duplicate) makes this a safe no-op. Returns
+// true if the connection was actually removed, false if it was already gone or
+// the conn did not match (duplicate replacement).
+func (h *Hub) UnregisterAgent(serverID string, conn *websocket.Conn) bool {
+	reply := make(chan interface{}, 1)
+	h.ops <- hubOp{kind: opUnregisterAgent, serverID: serverID, conn: conn, reply: reply}
+	removed, _ := (<-reply).(bool)
+	return removed
 }
 
 // RegisterBrowser registers a connected dashboard under a fresh connection ID
@@ -400,9 +543,10 @@ func (h *Hub) GetAgentSend(serverID string) <-chan []byte {
 }
 
 // TrackPendingCommand records which browser connection is waiting for a
-// command result so the result can be routed to exactly that dashboard.
-func (h *Hub) TrackPendingCommand(commandID, connID string) {
-	h.ops <- hubOp{kind: opTrackPendingCommand, commandID: commandID, connID: connID}
+// command result sent to the given server, so the result (or a disconnect
+// failure) can be routed to exactly that dashboard.
+func (h *Hub) TrackPendingCommand(commandID, connID, serverID string) {
+	h.ops <- hubOp{kind: opTrackPendingCommand, commandID: commandID, connID: connID, serverID: serverID}
 }
 
 // ResolvePendingCommand returns (and removes) the browser connection waiting
@@ -412,6 +556,28 @@ func (h *Hub) ResolvePendingCommand(commandID string) string {
 	h.ops <- hubOp{kind: opResolvePendingCommand, commandID: commandID, reply: reply}
 	connID, _ := (<-reply).(string)
 	return connID
+}
+
+// LookupPendingCommand returns the browser connection waiting for a command
+// result WITHOUT removing the entry (used for progress updates that keep the
+// command pending until its final result). Returns "" if not pending.
+func (h *Hub) LookupPendingCommand(commandID string) string {
+	reply := make(chan interface{}, 1)
+	h.ops <- hubOp{kind: opLookupPendingCommand, commandID: commandID, reply: reply}
+	connID, _ := (<-reply).(string)
+	return connID
+}
+
+// AgentPong records that the agent answered a heartbeat ping.
+func (h *Hub) AgentPong(serverID string) {
+	h.ops <- hubOp{kind: opAgentPong, serverID: serverID}
+}
+
+// SendToBrowser sends a message directly to one browser connection, ignoring
+// the per-server subscription. Used to route command results to the exact
+// dashboard that issued the command.
+func (h *Hub) SendToBrowser(connID string, msg []byte) {
+	h.ops <- hubOp{kind: opSendToBrowser, connID: connID, msg: msg}
 }
 
 // RecordStreamCommand remembers a stream_logs desire for a server so it can be
