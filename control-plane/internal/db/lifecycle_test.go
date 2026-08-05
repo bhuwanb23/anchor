@@ -156,9 +156,11 @@ func TestRunHourlyMaintenance(t *testing.T) {
 		t.Error("hourly pass must not touch daily rows")
 	}
 
-	// The rollup ran and deleted something.
-	if report.Jobs["hourly_rollup"] < 0 {
-		t.Fatal("negative rollup count")
+	// The rollup ran and produced rows: the seeded raw-fresh row at -1 day is
+	// inside the rollup window and must have been aggregated into an hourly
+	// average. A broken rollup would leave this at 0 and fail the test.
+	if report.Jobs["hourly_rollup"] < 1 {
+		t.Fatalf("hourly_rollup=%d want >= 1", report.Jobs["hourly_rollup"])
 	}
 }
 
