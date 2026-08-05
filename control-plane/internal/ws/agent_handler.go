@@ -517,7 +517,10 @@ func HandleAgentWS(hub *Hub, db *sql.DB, baseDomain string, delivery *alerts.Del
 			return
 		}
 
-		hub.RegisterAgent(serverID, agentID, userID, conn)
+		// Register the connection in the hub and grab the writer's send channel.
+		// The hub closes any duplicate connection and notifies watching
+		// dashboards (Layer 5B Step 2A).
+		sendCh := hub.RegisterAgent(serverID, agentID, userID, conn)
 		slog.Info("agent connected", "agent_id", agentID, "server_id", serverID, "status", status)
 
 		ack := map[string]string{
@@ -540,9 +543,14 @@ func HandleAgentWS(hub *Hub, db *sql.DB, baseDomain string, delivery *alerts.Del
 
 		go func() {
 			defer func() {
-				hub.UnregisterAgent(serverID)
-				_ = queries.UpdateServerConnection(db, serverID, "disconnected")
-				slog.Info("agent disconnected", "agent_id", agentID, "server_id", serverID)
+				// Only when the hub actually removed THIS connection do we mark
+				// the server disconnected: a stale reader whose connection was
+				// replaced by a duplicate must not stamp the DB (or log) while a
+				// newer agent is live.
+				if hub.UnregisterAgent(serverID, conn) {
+					_ = queries.UpdateServerConnection(db, serverID, "disconnected")
+					slog.Info("agent disconnected", "agent_id", agentID, "server_id", serverID)
+				}
 			}()
 
 			conn.SetReadDeadline(time.Time{})
@@ -566,14 +574,20 @@ func HandleAgentWS(hub *Hub, db *sql.DB, baseDomain string, delivery *alerts.Del
 				switch msg.Type {
 				case "hello":
 					sendHelloAck(conn, db, serverID)
-				case "result":
-					slog.Info("command result", "server_id", serverID, "payload", string(msg.Payload))
-					hub.ForwardToBrowsers(serverID, data)
+				case "pong":
+					// Heartbeat response: just refresh the connection's ping time.
+					hub.AgentPong(serverID)
+				case "result", "command_result":
+					// Command finished: deliver to the waiting dashboard and
+					// forget it (fall back to a broadcast if nobody tracked it).
+					routeCommandResult(hub, serverID, msg.Payload, data)
 				case "command_ack":
-					hub.ForwardToBrowsers(serverID, data)
-					slog.Debug("command_ack", "server_id", serverID, "payload", string(msg.Payload))
+					// Agent confirmed receipt: notify the waiting dashboard.
+					routeCommandProgress(hub, serverID, msg.Payload, data)
+					slog.Debug("command_ack", "server_id", serverID)
 				case "command_progress":
-					hub.ForwardToBrowsers(serverID, data)
+					// Mid-command progress: forward to the waiting dashboard.
+					routeCommandProgress(hub, serverID, msg.Payload, data)
 				case "preflight_result":
 					handlePreflightResult(db, serverID, msg.Payload)
 				case "certificate_alert":
@@ -600,7 +614,7 @@ func HandleAgentWS(hub *Hub, db *sql.DB, baseDomain string, delivery *alerts.Del
 				case "backup_verification":
 					handleBackupVerification(db, serverID, msg.Payload)
 					hub.ForwardToBrowsers(serverID, data)
-				case "log_line", "log_lines", "log_history", "stream_ended", "pull_progress", "docker_status", "reconciliation_result":
+				case "log_line", "log_lines", "log_history", "stream_ended", "pull_progress", "docker_status", "reconciliation_result", "state_update", "backup_result":
 					hub.ForwardToBrowsers(serverID, data)
 				case "health_report":
 					handleHealthReport(db, serverID, msg.Payload)
@@ -614,11 +628,10 @@ func HandleAgentWS(hub *Hub, db *sql.DB, baseDomain string, delivery *alerts.Del
 			}
 		}()
 
+		// Writer goroutine: drains the buffered send channel the hub handed back
+		// for THIS connection (Layer 5B Step 2C). The channel is closed by the
+		// hub on unregister or duplicate replacement, which exits this loop.
 		go func() {
-			sendCh := hub.GetAgentSend(serverID)
-			if sendCh == nil {
-				return
-			}
 			for msg := range sendCh {
 				if err := conn.WriteMessage(websocket.TextMessage, msg); err != nil {
 					slog.Warn("ws write to agent", "server_id", serverID, "error", err)
@@ -627,6 +640,48 @@ func HandleAgentWS(hub *Hub, db *sql.DB, baseDomain string, delivery *alerts.Del
 			}
 		}()
 	}
+}
+
+// commandIDFromPayload extracts a command id from an agent message payload.
+// The agent protocol may carry it as "id", "command_id" or "cmd_id".
+func commandIDFromPayload(payload json.RawMessage) string {
+	var m map[string]interface{}
+	if err := json.Unmarshal(payload, &m); err != nil {
+		return ""
+	}
+	for _, key := range []string{"id", "command_id", "cmd_id"} {
+		if v, ok := m[key].(string); ok && v != "" {
+			return v
+		}
+	}
+	return ""
+}
+
+// routeCommandProgress forwards a mid-flight command update (ack/progress) to
+// the exact dashboard waiting on that command, or broadcasts if the command
+// was not tracked (e.g. a server-initiated command with no waiting browser).
+func routeCommandProgress(hub *Hub, serverID string, payload json.RawMessage, data []byte) {
+	if cmdID := commandIDFromPayload(payload); cmdID != "" {
+		if connID := hub.LookupPendingCommand(cmdID); connID != "" {
+			hub.SendToBrowser(connID, data)
+			return
+		}
+	}
+	hub.ForwardToBrowsers(serverID, data)
+}
+
+// routeCommandResult delivers a completed command's result to the waiting
+// dashboard, removes the pending entry, and falls back to a broadcast when no
+// dashboard tracked the command.
+func routeCommandResult(hub *Hub, serverID string, payload json.RawMessage, data []byte) {
+	slog.Info("command result", "server_id", serverID)
+	if cmdID := commandIDFromPayload(payload); cmdID != "" {
+		if connID := hub.ResolvePendingCommand(cmdID); connID != "" {
+			hub.SendToBrowser(connID, data)
+			return
+		}
+	}
+	hub.ForwardToBrowsers(serverID, data)
 }
 
 func sendHelloAck(conn *websocket.Conn, db *sql.DB, serverID string) {
