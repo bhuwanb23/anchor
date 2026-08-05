@@ -264,7 +264,8 @@ func (s *Server) CreateServer(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req struct {
-		Name string `json:"name"`
+		Name   string `json:"name"`
+		TeamID string `json:"team_id"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "invalid request body", http.StatusBadRequest)
@@ -287,6 +288,23 @@ func (s *Server) CreateServer(w http.ResponseWriter, r *http.Request) {
 		slog.Error("insert server", "error", err)
 		http.Error(w, "internal server error", http.StatusInternalServerError)
 		return
+	}
+
+	// Link server to team if team_id provided, otherwise link to user's personal team
+	teamID := req.TeamID
+	if teamID == "" {
+		// Get or create user's personal team
+		var err error
+		teamID, err = queries.EnsureUserPersonalTeam(s.DB, userID, "")
+		if err != nil {
+			slog.Error("failed to get personal team", "error", err, "user_id", userID)
+		}
+	}
+
+	if teamID != "" {
+		if err := queries.LinkServerToTeam(s.DB, serverID, teamID); err != nil {
+			slog.Error("failed to link server to team", "error", err, "server_id", serverID, "team_id", teamID)
+		}
 	}
 
 	w.Header().Set("Content-Type", "application/json")
