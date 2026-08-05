@@ -21,6 +21,7 @@ import (
 
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
+	"golang.org/x/crypto/pbkdf2"
 )
 
 // BackupSettings carries everything the database-backup runner needs. The
@@ -50,6 +51,11 @@ const (
 	// backupEncVersion prefixes every encrypted blob so future format
 	// changes can be detected on restore.
 	backupEncVersion = 1
+	// backupSaltSize and backupKDFIterations harden the passphrase-derived
+	// key: PBKDF2 with a random per-backup salt makes brute-forcing a weak
+	// passphrase impractical (a raw SHA-256 of the passphrase would not).
+	backupSaltSize      = 16
+	backupKDFIterations = 100_000
 )
 
 // S3Configured reports whether the S3 upload half can run.
@@ -86,6 +92,9 @@ func snapshotInto(db *sql.DB, dstPath string) error {
 func CreateLocalBackup(db *sql.DB, dbPath, backupDir string) (string, error) {
 	if dbPath == "" {
 		return "", errors.New("database path is empty")
+	}
+	if backupDir == "" {
+		return "", errors.New("backup directory is empty")
 	}
 	if err := os.MkdirAll(backupDir, 0o700); err != nil {
 		return "", fmt.Errorf("create backup dir: %w", err)
@@ -174,11 +183,18 @@ func pruneLocalBackups(dir string, keep int) (int, error) {
 // Encryption (AES-256-GCM)
 // ---------------------------------------------------------------------------
 
-// encryptBytes seals data with AES-256-GCM using a key derived from the
-// passphrase via SHA-256. Output layout: [version][12-byte nonce][ciphertext].
+// encryptBytes seals data with AES-256-GCM. The key is derived from the
+// passphrase with PBKDF2 (a random per-backup salt is stored in the blob),
+// and the format version byte is authenticated as GCM additional data so it
+// cannot be tampered with. Output layout:
+// [version][16-byte salt][12-byte nonce][ciphertext].
 func encryptBytes(data, passphrase []byte) ([]byte, error) {
-	key := sha256.Sum256(passphrase)
-	block, err := aes.NewCipher(key[:])
+	salt := make([]byte, backupSaltSize)
+	if _, err := io.ReadFull(rand.Reader, salt); err != nil {
+		return nil, err
+	}
+	key := pbkdf2.Key(passphrase, salt, backupKDFIterations, 32, sha256.New)
+	block, err := aes.NewCipher(key)
 	if err != nil {
 		return nil, err
 	}
@@ -190,9 +206,10 @@ func encryptBytes(data, passphrase []byte) ([]byte, error) {
 	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
 		return nil, err
 	}
-	sealed := gcm.Seal(nil, nonce, data, nil)
-	out := make([]byte, 0, 1+gcm.NonceSize()+len(sealed))
+	sealed := gcm.Seal(nil, nonce, data, []byte{backupEncVersion})
+	out := make([]byte, 0, 1+backupSaltSize+gcm.NonceSize()+len(sealed))
 	out = append(out, backupEncVersion)
+	out = append(out, salt...)
 	out = append(out, nonce...)
 	out = append(out, sealed...)
 	return out, nil
@@ -200,8 +217,15 @@ func encryptBytes(data, passphrase []byte) ([]byte, error) {
 
 // decryptBytes reverses encryptBytes.
 func decryptBytes(data, passphrase []byte) ([]byte, error) {
-	key := sha256.Sum256(passphrase)
-	block, err := aes.NewCipher(key[:])
+	if len(data) < 1+backupSaltSize {
+		return nil, errors.New("ciphertext too short")
+	}
+	version, salt := data[0], data[1:1+backupSaltSize]
+	if version != backupEncVersion {
+		return nil, fmt.Errorf("unsupported backup format version %d", version)
+	}
+	key := pbkdf2.Key(passphrase, salt, backupKDFIterations, 32, sha256.New)
+	block, err := aes.NewCipher(key)
 	if err != nil {
 		return nil, err
 	}
@@ -210,13 +234,11 @@ func decryptBytes(data, passphrase []byte) ([]byte, error) {
 		return nil, err
 	}
 	nonceSize := gcm.NonceSize()
-	if len(data) < 1+nonceSize {
+	if len(data) < 1+backupSaltSize+nonceSize {
 		return nil, errors.New("ciphertext too short")
 	}
-	if data[0] != backupEncVersion {
-		return nil, fmt.Errorf("unsupported backup format version %d", data[0])
-	}
-	return gcm.Open(nil, data[1:1+nonceSize], data[1+nonceSize:], nil)
+	nonce := data[1+backupSaltSize : 1+backupSaltSize+nonceSize]
+	return gcm.Open(nil, nonce, data[1+backupSaltSize+nonceSize:], []byte{version})
 }
 
 // ---------------------------------------------------------------------------
@@ -238,6 +260,9 @@ func newS3Client(s BackupSettings) (*minio.Client, error) {
 // UploadBackupToS3 uploads a .gz backup as an encrypted object under
 // control-plane/<filename>.enc, then prunes old objects keeping the newest
 // 30. Returns the object key.
+//
+// The whole .gz file is held in memory for the GCM seal — fine at the plan's
+// ~200MB scale; revisit before supporting multi-GB databases.
 func UploadBackupToS3(ctx context.Context, client *minio.Client, bucket, gzPath, passphrase string) (string, error) {
 	data, err := os.ReadFile(gzPath)
 	if err != nil {
@@ -312,7 +337,8 @@ func RestoreFromLocal(gzPath, dstPath string) error {
 }
 
 // RestoreFromS3 downloads an encrypted object, decrypts it, and decompresses
-// it into dstPath.
+// it into dstPath. The whole object is held in memory while it is decrypted
+// (GCM is not a stream cipher); same scale caveat as UploadBackupToS3.
 func RestoreFromS3(ctx context.Context, client *minio.Client, bucket, objectName, dstPath, passphrase string) error {
 	obj, err := client.GetObject(ctx, bucket, objectName, minio.GetObjectOptions{})
 	if err != nil {
@@ -342,6 +368,12 @@ func writeRestoredFile(r io.Reader, dstPath string) error {
 		out.Close()
 		return err
 	}
+	// fsync so a crash immediately after a restore cannot leave the live
+	// database file truncated on disk.
+	if err := out.Sync(); err != nil {
+		out.Close()
+		return err
+	}
 	return out.Close()
 }
 
@@ -351,16 +383,19 @@ func writeRestoredFile(r io.Reader, dstPath string) error {
 
 // StartDatabaseBackups launches the background backup goroutine (Layer 5C
 // Step 5A): a local compressed backup every LocalInterval (default 6h) and an
-// encrypted S3 upload every 24h when S3 is configured. One of each also runs
-// ~30s after startup so a fresh install gets protection immediately.
+// encrypted S3 upload every 24h when S3 is configured. A first backup also
+// runs ~30s after startup so a fresh install gets protection immediately.
 // Failures are logged and never stop the loop.
 func StartDatabaseBackups(db *sql.DB, settings BackupSettings) {
 	go func() {
 		time.Sleep(30 * time.Second)
 
-		runLocalBackup(db, settings)
-		if settings.S3Configured() {
-			runS3Backup(db, settings)
+		// One snapshot serves both destinations at startup: keep it locally
+		// and, when configured, upload the same file to S3.
+		if gzPath, err := CreateLocalBackup(db, settings.DBPath, settings.BackupDir); err != nil {
+			slog.Warn("database backup failed at startup", "error", err)
+		} else if settings.S3Configured() {
+			runS3Backup(gzPath, settings)
 		}
 
 		localInterval := settings.LocalInterval
@@ -377,9 +412,17 @@ func StartDatabaseBackups(db *sql.DB, settings BackupSettings) {
 			case <-localTicker.C:
 				runLocalBackup(db, settings)
 			case <-s3Ticker.C:
-				if settings.S3Configured() {
-					runS3Backup(db, settings)
+				if !settings.S3Configured() {
+					continue
 				}
+				// The daily S3 upload takes its own fresh snapshot, which the
+				// local retention also keeps.
+				gzPath, err := CreateLocalBackup(db, settings.DBPath, settings.BackupDir)
+				if err != nil {
+					slog.Warn("s3 database backup failed (snapshot)", "error", err)
+					continue
+				}
+				runS3Backup(gzPath, settings)
 			}
 		}
 	}()
@@ -391,14 +434,8 @@ func runLocalBackup(db *sql.DB, s BackupSettings) {
 	}
 }
 
-// runS3Backup takes a fresh snapshot (which the local retention also keeps),
-// then uploads and prunes it. A single snapshot serves both destinations.
-func runS3Backup(db *sql.DB, s BackupSettings) {
-	gzPath, err := CreateLocalBackup(db, s.DBPath, s.BackupDir)
-	if err != nil {
-		slog.Warn("s3 database backup failed (snapshot)", "error", err)
-		return
-	}
+// runS3Backup uploads an already-created snapshot and prunes old objects.
+func runS3Backup(gzPath string, s BackupSettings) {
 	client, err := newS3Client(s)
 	if err != nil {
 		slog.Warn("s3 database backup failed (client)", "error", err)

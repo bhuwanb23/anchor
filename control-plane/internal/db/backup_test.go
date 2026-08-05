@@ -3,6 +3,7 @@ package db
 import (
 	"bytes"
 	"database/sql"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -114,15 +115,22 @@ func TestPruneLocalBackups(t *testing.T) {
 }
 
 // Step 5A — S3 object pruning keeps the newest 30 and returns the older keys.
+// Distinct sortable names verify the OLDEST objects are pruned, not just a
+// count.
 func TestS3ObjectsToPrune(t *testing.T) {
+	// 20260701-000000 … 000034, lexicographically oldest first.
 	var names []string
 	for i := 0; i < 35; i++ {
-		names = append(names, "control-plane/yourplatform-20260701-000000.db.gz.enc")
+		names = append(names, fmt.Sprintf("control-plane/yourplatform-20260701-%05d.db.gz.enc", i))
 	}
 
 	toPrune := s3ObjectsToPrune(names, s3BackupKeep)
 	if len(toPrune) != 5 {
 		t.Fatalf("toPrune = %d, want 5", len(toPrune))
+	}
+	if toPrune[0] != "control-plane/yourplatform-20260701-00000.db.gz.enc" ||
+		toPrune[4] != "control-plane/yourplatform-20260701-00004.db.gz.enc" {
+		t.Errorf("pruned the wrong objects (want the 5 oldest): %v", toPrune)
 	}
 
 	// Fewer than the keep count → nothing to prune.
