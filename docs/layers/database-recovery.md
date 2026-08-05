@@ -18,7 +18,9 @@ Local (on the control-plane host):
 S3 (when configured):
   s3://<S3_BUCKET>/control-plane/yourplatform-YYYYMMDD-HHMMSS.db.gz.enc
     → gzip-compressed snapshot, encrypted with AES-256-GCM
-    → key derived (SHA-256) from DB_BACKUP_ENCRYPTION_KEY
+    → key derived from DB_BACKUP_ENCRYPTION_KEY via PBKDF2 (100k iterations)
+      with a random per-backup salt stored in the blob; the version byte is
+      authenticated as GCM additional data
     → uploaded every 24 hours; the newest 30 are kept
 ```
 
