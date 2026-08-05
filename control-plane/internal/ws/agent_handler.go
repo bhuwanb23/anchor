@@ -614,7 +614,12 @@ func HandleAgentWS(hub *Hub, db *sql.DB, baseDomain string, delivery *alerts.Del
 				case "backup_verification":
 					handleBackupVerification(db, serverID, msg.Payload)
 					hub.ForwardToBrowsers(serverID, data)
-				case "log_line", "log_lines", "log_history", "stream_ended", "pull_progress", "docker_status", "reconciliation_result", "state_update", "backup_result":
+				case "log_line", "log_lines":
+					// Container log output: prefer the stream routing table set up
+					// by start_log_stream (Step 3D); fall back to broadcasting to
+					// every watching dashboard.
+					routeLogLines(hub, serverID, msg.Payload, data)
+				case "log_history", "stream_ended", "pull_progress", "docker_status", "reconciliation_result", "state_update", "backup_result":
 					hub.ForwardToBrowsers(serverID, data)
 				case "health_report":
 					handleHealthReport(db, serverID, msg.Payload)
@@ -640,6 +645,33 @@ func HandleAgentWS(hub *Hub, db *sql.DB, baseDomain string, delivery *alerts.Del
 			}
 		}()
 	}
+}
+
+// streamIDFromPayload extracts a stream identifier from an agent log payload.
+func streamIDFromPayload(payload json.RawMessage) string {
+	var m map[string]interface{}
+	if err := json.Unmarshal(payload, &m); err != nil {
+		return ""
+	}
+	for _, key := range []string{"stream_id", "stream"} {
+		if v, ok := m[key].(string); ok && v != "" {
+			return v
+		}
+	}
+	return ""
+}
+
+// routeLogLines delivers container log output to the browser subscribed to
+// that stream, broadcasting to all watching dashboards as a fallback when the
+// payload has no routable stream id.
+func routeLogLines(hub *Hub, serverID string, payload json.RawMessage, data []byte) {
+	if streamID := streamIDFromPayload(payload); streamID != "" {
+		if connID := hub.LookupLogStream(streamID); connID != "" {
+			hub.SendToBrowser(connID, data)
+			return
+		}
+	}
+	hub.ForwardToBrowsers(serverID, data)
 }
 
 // commandIDFromPayload extracts a command id from an agent message payload.
