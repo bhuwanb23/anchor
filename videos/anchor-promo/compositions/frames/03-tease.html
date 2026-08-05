@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="UTF-8" /></head>
+<body>
+<template id="03-tease-template">
+  <div id="root-03-tease" class="frame-root clip" data-composition-id="03-tease" data-start="0" data-duration="8" data-track-index="0" data-width="1920" data-height="1080">
+    <div class="ground"></div>
+    <div class="content-block">
+      <div class="accent-line clip" id="t3-accent" data-start="0.15" data-duration="7.85" data-track-index="1"></div>
+      <h1 class="headline clip" id="t3-headline" data-start="0.3" data-duration="7.7" data-track-index="2">Your server,<br>managed.</h1>
+      <div class="subline clip" id="t3-subline" data-start="0.9" data-duration="7.1" data-track-index="3">One dashboard. That's the whole interface.</div>
+    </div>
+    <div class="glow clip" id="t3-glow" data-start="1.2" data-duration="6.8" data-track-index="4"></div>
+  </div>
+  <style>
+    @import url("https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&display=swap");
+    .frame-root { position: relative; width: 1920px; height: 1080px; overflow: hidden; container-type: size; font-family: "Inter", system-ui, sans-serif; }
+    .ground { position: absolute; inset: 0; background: #f6f8fa; }
+    .content-block { position: absolute; left: 50%; top: 320px; transform: translateX(-50%); width: 78cqw; text-align: center; z-index: 2; }
+    .accent-line { width: 240px; height: 4px; border-radius: 2px; background: #1f6feb; margin: 0 auto 32px; }
+    .headline { margin: 0; font-family: "Space Grotesk", sans-serif; font-weight: 700; font-size: 84px; line-height: 1.08; letter-spacing: -0.02em; color: #0b1b2b; }
+    .subline { margin-top: 36px; font-family: "Inter", sans-serif; font-weight: 400; font-size: 19px; line-height: 1.6; color: #0055d6; }
+    .glow { position: absolute; left: 50%; top: 50%; width: 1200px; height: 720px; transform: translate(-50%, -50%); background: radial-gradient(closest-side, rgba(13,64,142,0.85) 0%, rgba(13,64,142,0) 74%); opacity: 0; transform-origin: 50% 50%; z-index: 1; pointer-events: none; }
+  </style>
+  <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+  <script>
+    (function () {
+      window.__timelines = window.__timelines || {};
+      var tl = gsap.timeline({ paused: true });
+      var rootFrag = document.getElementById("03-tease-template").content;
+      var accent = rootFrag.getElementById("t3-accent");
+      var headline = rootFrag.getElementById("t3-headline");
+      var subline = rootFrag.getElementById("t3-subline");
+      var glow = rootFrag.getElementById("t3-glow");
+      var TOTAL = 8.0;
+      var GLOW_PEAK = 0.16;
+      tl.fromTo(accent, { scaleX: 0, opacity: 0, transformOrigin: "50% 50%" }, { scaleX: 1, opacity: 1, duration: 0.52, ease: "power3.out" }, 0.15);
+      tl.fromTo(headline, { scale: 0.93, y: 28, opacity: 0 }, { scale: 1, y: 0, opacity: 1, duration: 0.68, ease: "power3.out" }, 0.3);
+      tl.fromTo(subline, { y: 18, opacity: 0 }, { y: 0, opacity: 1, duration: 0.5, ease: "power3.out" }, 0.9);
+      tl.fromTo(glow, { opacity: 0, scale: 0.88 }, { opacity: GLOW_PEAK, scale: 1, duration: 1.0, ease: "power2.out" }, 1.2);
+      var phase = { p: 0 };
+      var BREATHE_START = 2.5;
+      var BREATHE_DUR = TOTAL - BREATHE_START;
+      var CYCLES = BREATHE_DUR / 3.6;
+      var BASE_OP = 0.16, OP_AMP = 0.025, SC_AMP = 0.007, FADE_FRAC = 0.18;
+      tl.to(phase, {
+        p: Math.PI * 2 * CYCLES, duration: BREATHE_DUR, ease: "none",
+        onUpdate: function () {
+          var t = phase.p / (Math.PI * 2 * CYCLES);
+          var env = t < 1 - FADE_FRAC ? 1 : (1 - t) / FADE_FRAC;
+          var s = Math.sin(phase.p);
+          glow.style.opacity = String(BASE_OP + s * OP_AMP * env);
+          glow.style.transform = "translate(-50%, -50%) scale(" + (1 + s * SC_AMP * env) + ")";
+        }
+      }, BREATHE_START);
+      window.__timelines["03-tease"] = tl;
+    })();
+  </script>
+</template>
+</body>
+</html>
