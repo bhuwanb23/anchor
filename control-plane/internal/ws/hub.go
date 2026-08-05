@@ -107,6 +107,7 @@ const (
 	opSendToBrowser
 	opListBrowsers
 	opCloseBrowser
+	opCloseAgent
 	opRegisterLogStream
 	opUnregisterLogStream
 	opLookupLogStream
@@ -142,8 +143,11 @@ type browserRegistration struct {
 // agentSnapshot is a read-only copy of a connected agent handed to callers
 // that need to act outside the hub goroutine (e.g. the heartbeat ticker).
 type agentSnapshot struct {
-	ServerID string
-	Send     chan []byte
+	ServerID   string
+	AgentID    string
+	Send       chan []byte
+	Conn       *websocket.Conn
+	LastPingAt time.Time
 }
 
 // browserSnapshot is a read-only copy of a connected browser for heartbeat checks.
@@ -316,7 +320,13 @@ func (h *Hub) handleOp(op hubOp) {
 		}
 		snap := make([]agentSnapshot, 0, len(h.agents))
 		for serverID, agent := range h.agents {
-			snap = append(snap, agentSnapshot{ServerID: serverID, Send: agent.Send})
+			snap = append(snap, agentSnapshot{
+				ServerID:   serverID,
+				AgentID:    agent.AgentID,
+				Send:       agent.Send,
+				Conn:       agent.Conn,
+				LastPingAt: agent.LastPingAt,
+			})
 		}
 		op.reply <- snap
 
@@ -361,6 +371,46 @@ func (h *Hub) handleOp(op hubOp) {
 		delete(h.browsers, op.connID)
 		close(browser.Send)
 		browser.Conn.Close()
+
+	case opCloseAgent:
+		// Close and unregister an agent connection (used by heartbeat staleness).
+		agent, ok := h.agents[op.serverID]
+		if !ok {
+			return
+		}
+		// Only close if this is still the registered connection.
+		if agent.Conn != op.conn {
+			return
+		}
+		delete(h.agents, op.serverID)
+		delete(h.agentsByAgentID, agent.AgentID)
+		close(agent.Send)
+		agent.Conn.Close()
+		// Fail any pending commands for this server.
+		for cmdID, entry := range h.pendingCommands {
+			if entry.serverID == op.serverID {
+				delete(h.pendingCommands, cmdID)
+				if browser, ok := h.browsers[entry.connID]; ok {
+					errMsg := fmt.Sprintf(`{"type":"error","payload":{"command_id":"%s","error":"agent disconnected"}}`, cmdID)
+					select {
+					case browser.Send <- []byte(errMsg):
+					default:
+					}
+				}
+			}
+		}
+		// Notify browsers watching this server.
+		if subs, ok := h.subscriptions[op.serverID]; ok {
+			notif := []byte(`{"type":"agent_status","payload":{"status":"disconnected"}}`)
+			for connID := range subs {
+				if b, ok := h.browsers[connID]; ok {
+					select {
+					case b.Send <- notif:
+					default:
+					}
+				}
+			}
+		}
 
 	case opTrackPendingCommand:
 		h.pendingCommands[op.commandID] = pendingCommandEntry{connID: op.connID, serverID: op.serverID, createdAt: time.Now()}
@@ -809,15 +859,27 @@ func (h *Hub) ReplayStreamCommands(serverID string) {
 	h.ops <- hubOp{kind: opReplayStreams, serverID: serverID}
 }
 
-// StartHeartbeat periodically heartbeats connected agents and keeps their
-// server rows marked connected. It snapshots the agent list through the hub
-// channel so all DB work happens outside the hub goroutine.
+// StartHeartbeat periodically heartbeats connected agents, keeps their server
+// rows marked connected, and disconnects agents that have not responded to
+// pings within 45 seconds (30s interval + 15s grace period).
 func (h *Hub) StartHeartbeat(db *sql.DB) {
 	ticker := time.NewTicker(15 * time.Second)
 	go func() {
 		for range ticker.C {
 			snap := h.listAgents()
+			now := time.Now()
 			for _, a := range snap {
+				// Check for stale agents: if LastPingAt is more than 45s ago
+				// and the agent was sent a ping at least 30s ago.
+				if !a.LastPingAt.IsZero() && now.Sub(a.LastPingAt) > 45*time.Second {
+					slog.Warn("agent heartbeat timeout, disconnecting",
+						"server_id", a.ServerID, "agent_id", a.AgentID,
+						"last_pong", a.LastPingAt)
+					h.closeAgent(a.ServerID, a.Conn)
+					_ = queries.UpdateServerConnection(db, a.ServerID, "disconnected")
+					continue
+				}
+				// Send heartbeat ping.
 				select {
 				case a.Send <- []byte(`{"type":"heartbeat"}`):
 				default:
@@ -851,6 +913,12 @@ func (h *Hub) listBrowsers() []browserSnapshot {
 // heartbeat goroutine to evict stale connections.
 func (h *Hub) closeBrowser(connID string) {
 	h.ops <- hubOp{kind: opCloseBrowser, connID: connID}
+}
+
+// closeAgent closes and unregisters an agent connection. Used by the heartbeat
+// goroutine to evict stale agents that have not responded to pings.
+func (h *Hub) closeAgent(serverID string, conn *websocket.Conn) {
+	h.ops <- hubOp{kind: opCloseAgent, serverID: serverID, conn: conn}
 }
 
 // StartBrowserHeartbeat sends pings to all connected browsers every 30 seconds
