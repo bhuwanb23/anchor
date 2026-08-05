@@ -495,15 +495,18 @@ func Test5C_CleanupJobs(t *testing.T) {
 	if err := queries.CreateRegistrationToken(database, "reg-fresh", "h-fresh", "u-clean", "srv", datetimeOffset(time.Hour)); err != nil {
 		t.Fatal(err)
 	}
-	// Expired + fresh refresh tokens.
+	// Expired + fresh refresh tokens. Production stores expires_at in RFC3339
+	// T-format (see queries/refresh_tokens.go), so the seed mirrors that —
+	// the cleanup cutoff is RFC3339 too, and a space-format seed would only
+	// pass by coincidence of ' ' < 'T'.
 	if _, err := database.Exec(`INSERT INTO refresh_tokens
 		(id, token_hash, user_id, created_at, expires_at)
-		VALUES ('rt-exp', 'r-exp', 'u-clean', datetime('now'), datetime('now','-2 hours'))`); err != nil {
+		VALUES ('rt-exp', 'r-exp', 'u-clean', ?, ?)`, rfc3339(-2*time.Hour), rfc3339(-2*time.Hour)); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := database.Exec(`INSERT INTO refresh_tokens
 		(id, token_hash, user_id, created_at, expires_at)
-		VALUES ('rt-fresh', 'r-fresh', 'u-clean', datetime('now'), datetime('now','+1 day'))`); err != nil {
+		VALUES ('rt-fresh', 'r-fresh', 'u-clean', ?, ?)`, rfc3339(-2*time.Hour), rfc3339(24*time.Hour)); err != nil {
 		t.Fatal(err)
 	}
 
@@ -622,7 +625,7 @@ func Test5C_FullRecovery(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := queries.InsertMetric(database, "mr-1", "s-rec", rfc3339(-time.Minute),
-		42.0, 512, 1024, 50.0, 5.0, 10.0, 50.0, 0.5, 0.25, true, 3, nil, 2); err != nil {
+		42, 42.0, 512, 1024, 50.0, 5.0, 10.0, 50.0, 0.5, 0.25, true, 3, nil, 2); err != nil {
 		t.Fatal(err)
 	}
 

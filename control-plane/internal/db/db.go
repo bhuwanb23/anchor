@@ -27,25 +27,33 @@ func Open(path string) (*sql.DB, error) {
 		return nil, fmt.Errorf("create data dir: %w", err)
 	}
 
-	db, err := sql.Open("sqlite", path)
+	// Production PRAGMAs are passed as DSN query parameters (not db.Exec) so
+	// the driver applies them to EVERY pooled connection: foreign_keys,
+	// busy_timeout and synchronous are per-connection settings, and a second
+	// pooled connection that missed them would silently accept orphaned rows
+	// and fail with SQLITE_BUSY under contention. journal_mode=WAL is
+	// persistent at the database level but is set per-connection here too,
+	// which matches the driver's documented DSN behavior.
+	dsn := path + "?" + strings.Join([]string{
+		"_busy_timeout=5000",
+		"_foreign_keys=1",
+		"_journal_mode=WAL",
+		"_synchronous=NORMAL",
+		"_pragma=cache_size(-64000)",
+		"_pragma=temp_store(MEMORY)",
+	}, "&")
+
+	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("open sqlite: %w", err)
 	}
 
-	// Production PRAGMAs for SQLite with WAL mode.
-	pragmas := []string{
-		"PRAGMA journal_mode=WAL;",
-		"PRAGMA foreign_keys=ON;",
-		"PRAGMA busy_timeout=5000;",
-		"PRAGMA synchronous=NORMAL;",
-		"PRAGMA cache_size=-64000;",
-		"PRAGMA temp_store=MEMORY;",
-	}
-
-	for _, pragma := range pragmas {
-		if _, err := db.Exec(pragma); err != nil {
-			return nil, fmt.Errorf("pragma %q: %w", pragma, err)
-		}
+	// Force the first connection open so the DSN PRAGMAs run (which creates
+	// the database file on a fresh start) and a bad DSN fails at Open, not
+	// at the first query.
+	if err := db.Ping(); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("open sqlite connection: %w", err)
 	}
 
 	// Connection pool: limit to 2 connections (1 write + 1 read).

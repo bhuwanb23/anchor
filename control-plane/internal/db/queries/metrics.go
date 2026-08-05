@@ -84,21 +84,6 @@ func InsertMetric(db *sql.DB, id, serverID, recordedAt string, collectedInMS int
 	return err
 }
 
-// DeleteMetricsBefore deletes RAW metrics_history rows older than the given
-// cutoff for all servers when serverID is "", or for a specific server
-// otherwise. Rolled-up hourly/daily rows are never touched here (they have
-// their own retention in DeleteOldHourlyMetrics / DeleteOldDailyMetrics).
-func DeleteMetricsBefore(db *sql.DB, serverID, cutoff string) error {
-	// datetime(recorded_at) normalizes both the agent's RFC3339 "T" format
-	// and SQLite's space format so the comparison is format-independent.
-	if serverID == "" {
-		_, err := db.Exec("DELETE FROM metrics_history WHERE granularity = 'raw' AND datetime(recorded_at) < ?", cutoff)
-		return err
-	}
-	_, err := db.Exec("DELETE FROM metrics_history WHERE granularity = 'raw' AND server_id = ? AND datetime(recorded_at) < ?", serverID, cutoff)
-	return err
-}
-
 // GetServerContainers returns all current container status rows for a server.
 func GetServerContainers(db *sql.DB, serverID string) ([]ContainerStatusRow, error) {
 	rows, err := db.Query(`
@@ -359,14 +344,3 @@ func DeleteOldDailyMetrics(db *sql.DB) (int64, error) {
 	return result.RowsAffected()
 }
 
-// DeleteOldMetrics removes metrics older than the given number of days.
-func DeleteOldMetrics(db *sql.DB, days int) (int64, error) {
-	result, err := db.Exec(
-		`DELETE FROM metrics_history WHERE datetime(recorded_at) < datetime('now', '-' || ? || ' days')`,
-		days,
-	)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected()
-}
