@@ -90,6 +90,8 @@ func NewRouter(database *sql.DB, cfg *config.Config, hub *ws.Hub, delivery *aler
 			r.Get("/servers/{serverID}/backup/restores", backupHandler.GetRestoreHistory)
 			r.Get("/servers/{serverID}/backup/verification", backupHandler.GetBackupVerificationStatus)
 			r.Post("/servers/{serverID}/backup/verification/trigger", backupHandler.TriggerBackupVerification)
+			r.Get("/servers/{serverID}/backup/storage/stats", backupHandler.GetStorageStats)
+			r.Post("/servers/{serverID}/backup/storage/maintenance", backupHandler.TriggerMaintenance)
 		})
 	})
 
