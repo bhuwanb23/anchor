@@ -46,13 +46,17 @@ func main() {
 	// sessions can no longer be refreshed, so the rows are garbage.
 	go pruneExpiredRefreshTokens(database)
 
+	// Layer 5A Step 7A — expired password-reset tokens are garbage: their
+	// 1-hour window has passed, so they can never be redeemed. Prune weekly.
+	go pruneExpiredPasswordResets(database)
+
 	// Layer 4C Step 6 — alert email delivery. Runs in the background and
 	// never blocks the agent/metrics paths.
 	sender := mailer.NewFromConfig(cfg)
 	delivery := alerts.NewDelivery(database, sender, cfg)
 	go delivery.Run(context.Background())
 
-	router := api.NewRouter(database, cfg, hub, delivery)
+	router := api.NewRouter(database, cfg, hub, delivery, sender)
 
 	addr := fmt.Sprintf(":%s", cfg.Port)
 	slog.Info("control plane starting", "addr", addr, "env", cfg.Env)
@@ -81,6 +85,28 @@ func pruneExpiredRefreshTokens(db *sql.DB) {
 			slog.Warn("failed to prune expired refresh tokens", "error", err)
 		} else if n > 0 {
 			slog.Info("pruned expired refresh tokens", "count", n)
+		}
+	}
+}
+
+// pruneExpiredPasswordResets deletes password-reset tokens whose 1-hour
+// expiry has passed, running weekly (Layer 5A Step 7A).
+func pruneExpiredPasswordResets(db *sql.DB) {
+	cutoff := time.Now().UTC().Format(time.RFC3339)
+	if n, err := queries.DeleteExpiredPasswordResets(db, cutoff); err != nil {
+		slog.Warn("failed to prune expired password resets", "error", err)
+	} else if n > 0 {
+		slog.Info("pruned expired password resets", "count", n)
+	}
+
+	ticker := time.NewTicker(7 * 24 * time.Hour)
+	defer ticker.Stop()
+	for range ticker.C {
+		cutoff := time.Now().UTC().Format(time.RFC3339)
+		if n, err := queries.DeleteExpiredPasswordResets(db, cutoff); err != nil {
+			slog.Warn("failed to prune expired password resets", "error", err)
+		} else if n > 0 {
+			slog.Info("pruned expired password resets", "count", n)
 		}
 	}
 }
