@@ -130,6 +130,14 @@ func (a *Agent) Register(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Link server to user's personal team
+	teamID, err := queries.EnsureUserPersonalTeam(a.DB, userID, "")
+	if err != nil {
+		slog.Error("failed to get personal team for agent registration", "error", err, "user_id", userID)
+	} else if err := queries.LinkServerToTeam(a.DB, serverID, teamID); err != nil {
+		slog.Error("failed to link server to team on agent registration", "error", err, "server_id", serverID, "team_id", teamID)
+	}
+
 	// Record auto-fix events
 	if len(req.AutoFixed) > 0 {
 		var fixes []struct {
