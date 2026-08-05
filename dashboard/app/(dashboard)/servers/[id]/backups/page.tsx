@@ -10,13 +10,15 @@ import {
   useTriggerRestore,
   useBackupVerification,
   useTriggerVerification,
+  useStorageStats,
+  useTriggerMaintenance,
 } from "@/hooks/use-backup";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { BackupHistory } from "@/components/dashboard/backup-history";
 import { BackupScheduleComponent } from "@/components/dashboard/backup-schedule";
 import { RestoreDialog } from "@/components/dashboard/restore-dialog";
-import { ArrowLeft, Server, HardDrive, RefreshCw, Shield } from "lucide-react";
+import { ArrowLeft, Server, HardDrive, RefreshCw, Shield, Wrench } from "lucide-react";
 import Link from "next/link";
 import type { BackupJob } from "@/types";
 
@@ -85,6 +87,8 @@ export default function BackupsPage({
   const { triggerRestore, isTriggering: isRestoring } = useTriggerRestore(id);
   const { verification, isLoading: verificationLoading, refetch: refetchVerification } = useBackupVerification(id);
   const { triggerVerification, isTriggering: isVerifying } = useTriggerVerification(id);
+  const { stats: storageStats, isLoading: statsLoading, refetch: refetchStats } = useStorageStats(id);
+  const { triggerMaintenance, isTriggering: isMaintaining } = useTriggerMaintenance(id);
 
   const [restoreDialogOpen, setRestoreDialogOpen] = useState(false);
   const [selectedBackupJob, setSelectedBackupJob] = useState<BackupJob | null>(null);
@@ -313,6 +317,67 @@ export default function BackupsPage({
                   <>
                     <Shield className="h-4 w-4 mr-2" />
                     Verify Now
+                  </>
+                )}
+              </Button>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Storage Stats & Maintenance */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-lg flex items-center gap-2">
+            <Wrench className="h-5 w-5" />
+            Storage & Maintenance
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {statsLoading ? (
+            <div className="text-sm text-muted-foreground">Loading...</div>
+          ) : (
+            <div className="space-y-4">
+              {storageStats && (
+                <div className="grid grid-cols-2 gap-4 text-sm">
+                  <div>
+                    <span className="text-muted-foreground">Repository Size: </span>
+                    <span className="font-medium">{formatBytes(storageStats.total_bytes)}</span>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground">Plan Limit: </span>
+                    <span className="font-medium">{formatBytes(storageStats.limit_bytes)}</span>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground">Days Until Full: </span>
+                    <span className={`font-medium ${storageStats.days_until_full <= 7 ? "text-red-600" : storageStats.days_until_full <= 30 ? "text-amber-600" : ""}`}>
+                      {storageStats.days_until_full > 0 ? `${storageStats.days_until_full} days` : "N/A"}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground">Retention: </span>
+                    <span className="font-medium">{storageStats.retention_daily}d / {storageStats.retention_weekly}w / {storageStats.retention_monthly}m</span>
+                  </div>
+                </div>
+              )}
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={async () => {
+                  await triggerMaintenance("all");
+                  setTimeout(() => refetchStats(), 2000);
+                }}
+                disabled={isMaintaining}
+              >
+                {isMaintaining ? (
+                  <>
+                    <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+                    Running...
+                  </>
+                ) : (
+                  <>
+                    <Wrench className="h-4 w-4 mr-2" />
+                    Run Maintenance
                   </>
                 )}
               </Button>
