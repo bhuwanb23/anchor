@@ -89,6 +89,9 @@ func ListTeamsByUser(db *sql.DB, userID string) ([]Team, error) {
 		}
 		teams = append(teams, t)
 	}
+	if teams == nil {
+		teams = []Team{}
+	}
 	return teams, rows.Err()
 }
 
@@ -108,33 +111,29 @@ func DeleteTeam(db *sql.DB, teamID string) error {
 	return err
 }
 
-// TransferOwnership transfers team ownership to another member.
+// TransferOwnership transfers team ownership to another member (Layer 5C
+// Step 3B — both the team owner update and the role change commit atomically).
 func TransferOwnership(db *sql.DB, teamID, newOwnerID string) error {
-	tx, err := db.Begin()
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-
 	now := time.Now().UTC().Format(time.RFC3339)
+	return WithTransaction(db, func(tx *sql.Tx) error {
+		// Update team owner
+		if _, err := tx.Exec(
+			"UPDATE teams SET owner_id = ?, updated_at = ? WHERE id = ?",
+			newOwnerID, now, teamID,
+		); err != nil {
+			return err
+		}
 
-	// Update team owner
-	if _, err := tx.Exec(
-		"UPDATE teams SET owner_id = ?, updated_at = ? WHERE id = ?",
-		newOwnerID, now, teamID,
-	); err != nil {
-		return err
-	}
+		// Make new owner an owner role
+		if _, err := tx.Exec(
+			"UPDATE team_members SET role = 'owner' WHERE team_id = ? AND user_id = ?",
+			teamID, newOwnerID,
+		); err != nil {
+			return err
+		}
 
-	// Make new owner an owner role
-	if _, err := tx.Exec(
-		"UPDATE team_members SET role = 'owner' WHERE team_id = ? AND user_id = ?",
-		teamID, newOwnerID,
-	); err != nil {
-		return err
-	}
-
-	return tx.Commit()
+		return nil
+	})
 }
 
 // ---------------------------------------------------------------------------
@@ -190,6 +189,9 @@ func ListTeamMembers(db *sql.DB, teamID string) ([]TeamMember, error) {
 		}
 		members = append(members, m)
 	}
+	if members == nil {
+		members = []TeamMember{}
+	}
 	return members, rows.Err()
 }
 
@@ -232,6 +234,69 @@ func GetUserTeamRole(db *sql.DB, teamID, userID string) (string, error) {
 		return "", nil
 	}
 	return role, err
+}
+
+// ---------------------------------------------------------------------------
+// User + server access checks (Layer 5C Step 3C #7)
+// ---------------------------------------------------------------------------
+
+// CanUserAccessServer reports whether the user owns the server or is a member
+// of a team the server is linked to. This is the single permission check used
+// to gate subscriptions, commands, and API routes — one query instead of
+// loading every accessible server ID into memory.
+func CanUserAccessServer(db *sql.DB, userID, serverID string) (bool, error) {
+	var count int
+	err := db.QueryRow(
+		`SELECT
+			(SELECT COUNT(*) FROM servers WHERE id = ? AND user_id = ?)
+			+
+			(SELECT COUNT(*) FROM team_members tm
+			 JOIN server_team st ON st.team_id = tm.team_id
+			 WHERE st.server_id = ? AND tm.user_id = ?)`,
+		serverID, userID, serverID, userID,
+	).Scan(&count)
+	if err != nil {
+		return false, err
+	}
+	return count > 0, nil
+}
+
+// GetUserServerRole returns the user's effective role on a server:
+//   - "owner" when the user owns the server outright,
+//   - the team role ("owner"/"member"/"admin") when access comes through a
+//     linked team,
+//   - "" when the user has no access at all.
+//
+// Ownership takes precedence: a server owner always has full control
+// regardless of team membership. Used for permission checks (Layer 5A RBAC).
+func GetUserServerRole(db *sql.DB, userID, serverID string) (string, error) {
+	var owner int
+	if err := db.QueryRow(
+		"SELECT COUNT(*) FROM servers WHERE id = ? AND user_id = ?",
+		serverID, userID,
+	).Scan(&owner); err != nil {
+		return "", err
+	}
+	if owner > 0 {
+		return "owner", nil
+	}
+
+	var role string
+	err := db.QueryRow(
+		`SELECT tm.role FROM team_members tm
+		 JOIN server_team st ON st.team_id = tm.team_id
+		 WHERE st.server_id = ? AND tm.user_id = ?
+		 ORDER BY CASE tm.role WHEN 'owner' THEN 0 WHEN 'admin' THEN 1 ELSE 2 END
+		 LIMIT 1`,
+		serverID, userID,
+	).Scan(&role)
+	if err == sql.ErrNoRows {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	return role, nil
 }
 
 // ---------------------------------------------------------------------------
@@ -282,6 +347,9 @@ func ListTeamServers(db *sql.DB, teamID string) ([]string, error) {
 		}
 		ids = append(ids, id)
 	}
+	if ids == nil {
+		ids = []string{}
+	}
 	return ids, rows.Err()
 }
 
@@ -308,6 +376,9 @@ func ListServersByUserID(db *sql.DB, userID string) ([]string, error) {
 			return nil, err
 		}
 		ids = append(ids, id)
+	}
+	if ids == nil {
+		ids = []string{}
 	}
 	return ids, rows.Err()
 }
