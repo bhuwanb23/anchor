@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"time"
 
 	"github.com/joho/godotenv"
 	"github.com/yourname/yourplatform/control-plane/internal/alerts"
@@ -44,6 +45,21 @@ func main() {
 	// command cleanup, event/email retention, VACUUM, and DB-size monitoring.
 	// One goroutine wakes every hour and runs the daily jobs at UTC midnight.
 	go db.StartCleanup(database, cfg.DatabasePath)
+
+	// Layer 5C Step 5 — database backup: VACUUM INTO snapshot + gzip every
+	// DBBackupIntervalHours (default 6h), keeping the newest 4 locally, and an
+	// encrypted S3 upload every 24h when S3 settings are configured.
+	go db.StartDatabaseBackups(database, db.BackupSettings{
+		DBPath:        cfg.DatabasePath,
+		BackupDir:     cfg.DBBackupDir,
+		LocalInterval: time.Duration(cfg.DBBackupIntervalHours) * time.Hour,
+		S3Endpoint:    cfg.S3Endpoint,
+		S3AccessKey:   cfg.S3AccessKey,
+		S3SecretKey:   cfg.S3SecretKey,
+		S3Bucket:      cfg.S3Bucket,
+		S3Region:      cfg.S3Region,
+		S3Passphrase:  cfg.DBBackupEncryptionKey,
+	})
 
 	// Layer 4C Step 6 — alert email delivery. Runs in the background and
 	// never blocks the agent/metrics paths.

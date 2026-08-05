@@ -126,9 +126,8 @@ func gzipFile(src, dst string) error {
 	}
 	_ = out.Chmod(0o600)
 
-	gz := gzip.NewWriter(out)
-	// gzip.NewWriterLevel reports an error only when the level is invalid.
-	gz, _ = gzip.NewWriterLevel(out, gzip.BestCompression)
+	// NewWriterLevel only errors on an invalid level; BestCompression is valid.
+	gz := gzip.NewWriterLevel(out, gzip.BestCompression)
 
 	if _, err := io.Copy(gz, in); err != nil {
 		gz.Close()
@@ -269,12 +268,13 @@ func pruneS3Backups(ctx context.Context, client *minio.Client, bucket, prefix st
 		}
 		names = append(names, obj.Key)
 	}
-	for _, name := range s3ObjectsToPrune(names, keep) {
+	toPrune := s3ObjectsToPrune(names, keep)
+	for _, name := range toPrune {
 		if err := client.RemoveObject(ctx, bucket, name, minio.RemoveObjectOptions{}); err != nil {
 			return 0, err
 		}
 	}
-	return len(names) - keep, nil
+	return len(toPrune), nil
 }
 
 // s3ObjectsToPrune returns the object keys to delete: everything older than
