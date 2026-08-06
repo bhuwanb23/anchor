@@ -20,9 +20,10 @@ function timeAgo(iso?: string | null): string {
 interface AlertCardProps {
   alert: Alert;
   onAcknowledge?: (id: string) => void;
+  logsHref?: string | null;
 }
 
-export function AlertCard({ alert, onAcknowledge }: AlertCardProps) {
+export function AlertCard({ alert, onAcknowledge, logsHref }: AlertCardProps) {
   const severity = alert.severity === "critical" ? "critical" : "warning";
   const border =
     alert.status === "resolved"
@@ -69,9 +70,18 @@ export function AlertCard({ alert, onAcknowledge }: AlertCardProps) {
           )}
         </div>
         {alert.status === "active" && (
-          <Button size="sm" variant="secondary" onClick={() => onAcknowledge?.(alert.id)}>
-            Acknowledge
-          </Button>
+          <div className="flex shrink-0 flex-col gap-2">
+            {logsHref && (
+              <a href={logsHref}>
+                <Button size="sm" variant="secondary">
+                  View Logs
+                </Button>
+              </a>
+            )}
+            <Button size="sm" variant="secondary" onClick={() => onAcknowledge?.(alert.id)}>
+              Acknowledge
+            </Button>
+          </div>
         )}
       </div>
     </div>

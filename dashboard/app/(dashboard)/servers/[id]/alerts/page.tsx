@@ -1,11 +1,12 @@
 "use client";
 
-import { use, useMemo, useState } from "react";
+import { use, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import { useAlerts } from "@/hooks/use-alerts";
 import { AlertCard, AlertsAllClear } from "@/components/alerts/alert-card";
-import type { Alert } from "@/types";
+import api from "@/lib/api";
+import type { Alert, App } from "@/types";
 
 type FilterTab = "active" | "resolved" | "all";
 
@@ -26,7 +27,6 @@ function sortAlerts(list: Alert[]): Alert[] {
 function matchesFilter(a: Alert, tab: FilterTab): boolean {
   if (tab === "all") return true;
   if (tab === "resolved") return a.status === "resolved";
-  // Active tab: currently happening — active only (acknowledged is separate)
   return a.status === "active";
 }
 
@@ -38,6 +38,20 @@ export default function ServerAlertsPage({
   const { id } = use(params);
   const { alerts, acknowledge } = useAlerts(id);
   const [tab, setTab] = useState<FilterTab>("active");
+  const [apps, setApps] = useState<App[]>([]);
+
+  useEffect(() => {
+    api
+      .get<App[]>(`/api/v1/servers/${id}/apps`)
+      .then((res) => setApps(Array.isArray(res.data) ? res.data : []))
+      .catch(() => setApps([]));
+  }, [id]);
+
+  const projectToAppId = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const a of apps) m.set(a.project_name, a.id);
+    return m;
+  }, [apps]);
 
   const filtered = useMemo(
     () => sortAlerts(alerts.filter((a) => matchesFilter(a, tab))),
@@ -92,9 +106,22 @@ export default function ServerAlertsPage({
         <p className="text-sm text-gray-500">No alerts in this view.</p>
       ) : (
         <div className="space-y-3">
-          {filtered.map((a) => (
-            <AlertCard key={a.id} alert={a} onAcknowledge={acknowledge} />
-          ))}
+          {filtered.map((a) => {
+            const appId = a.project ? projectToAppId.get(a.project) : undefined;
+            const logsHref = appId
+              ? `/servers/${id}/apps/${appId}/logs`
+              : a.project
+              ? `/servers/${id}`
+              : null;
+            return (
+              <AlertCard
+                key={a.id}
+                alert={a}
+                onAcknowledge={acknowledge}
+                logsHref={logsHref}
+              />
+            );
+          })}
         </div>
       )}
     </div>

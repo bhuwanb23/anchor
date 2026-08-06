@@ -55,8 +55,8 @@ func TestAddCheckAutoFixed(t *testing.T) {
 	if len(r.AutoFixed) != 1 {
 		t.Fatalf("expected 1 auto-fixed item, got %d", len(r.AutoFixed))
 	}
-	if r.AutoFixed[0] != "Auto Fixed Check" {
-		t.Errorf("expected 'Auto Fixed Check', got '%s'", r.AutoFixed[0])
+	if r.AutoFixed[0].Check != "auto_fixed_check" {
+		t.Errorf("expected check 'auto_fixed_check', got '%s'", r.AutoFixed[0].Check)
 	}
 }
 

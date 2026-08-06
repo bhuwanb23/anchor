@@ -24,6 +24,7 @@ import { Input } from "@/components/ui/input";
 import { EnvVarList } from "@/components/app/env-var-list";
 import { DomainsSection } from "@/components/app/domains-section";
 import { DeployDialog } from "@/components/app/deploy-dialog";
+import { RollbackDialog } from "@/components/app/rollback-dialog";
 import { AppLogsPanel } from "@/components/logs/app-logs-panel";
 import api from "@/lib/api";
 import { toast } from "sonner";
@@ -59,6 +60,8 @@ export default function AppDetailClient({
   const initialTab = (searchParams.get("tab") as Tab) || "overview";
   const [tab, setTab] = useState<Tab>(initialTab);
   const [deployOpen, setDeployOpen] = useState(searchParams.get("deploy") === "1");
+  const [rollbackOpen, setRollbackOpen] = useState(false);
+  const [rollbackTarget, setRollbackTarget] = useState<{ id?: string; image?: string } | null>(null);
   const [moreOpen, setMoreOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState("");
@@ -123,17 +126,9 @@ export default function AppDetailClient({
   };
 
   const rollback = async (deploymentId?: string) => {
-    try {
-      const body = deploymentId
-        ? { target: "specific", deployment_id: deploymentId }
-        : { target: "previous" };
-      await api.post(`/api/v1/servers/${serverId}/apps/${appId}/rollback`, body);
-      toast.success("Rollback started");
-      refreshDeployments();
-      refreshApp();
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Rollback failed");
-    }
+    // Legacy helper kept for header "Rollback" — opens dialog for previous
+    setRollbackTarget(deploymentId ? { id: deploymentId } : {});
+    setRollbackOpen(true);
   };
 
   const saveSettings = async () => {
@@ -432,7 +427,14 @@ export default function AppDetailClient({
                       </p>
                     </div>
                     {!isCurrent && !failed && (
-                      <Button size="sm" variant="secondary" onClick={() => rollback(d.id)}>
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        onClick={() => {
+                          setRollbackTarget({ id: d.id, image: d.image });
+                          setRollbackOpen(true);
+                        }}
+                      >
                         Rollback to this version
                       </Button>
                     )}
@@ -525,6 +527,19 @@ export default function AppDetailClient({
         liveUrl={url}
         onSuccess={() => {
           refresh();
+        }}
+      />
+
+      <RollbackDialog
+        open={rollbackOpen}
+        onOpenChange={setRollbackOpen}
+        serverId={serverId}
+        appId={appId}
+        image={rollbackTarget?.image}
+        deploymentId={rollbackTarget?.id}
+        onSuccess={() => {
+          refreshDeployments();
+          refreshApp();
         }}
       />
 

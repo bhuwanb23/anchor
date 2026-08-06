@@ -2,7 +2,8 @@
 
 import { use, useEffect, useState } from "react";
 import Link from "next/link";
-import { Plus, Rocket } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { Plus, Rocket, Trash2 } from "lucide-react";
 import { useServer } from "@/hooks/use-server";
 import { useMetrics } from "@/hooks/use-metrics";
 import { useApps } from "@/hooks/use-apps";
@@ -19,6 +20,16 @@ import {
   ServerDisconnectedBanner,
   ServerOverviewSkeleton,
 } from "@/components/ui/page-states";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import api from "@/lib/api";
+import { toast } from "sonner";
 import type { MetricsSnapshot } from "@/types";
 
 function AlertSummary({
@@ -62,6 +73,7 @@ export default function ServerOverviewPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = use(params);
+  const router = useRouter();
   const { server, isLoading, error } = useServer(id);
   const { metrics: polledMetrics } = useMetrics(id, 30_000);
   const storeMetrics = useServerStore((s) => s.metrics);
@@ -138,6 +150,22 @@ export default function ServerOverviewPage({
   }
 
   const disconnected = server.status !== "connected";
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleteConfirm, setDeleteConfirm] = useState("");
+
+  const deleteServer = async () => {
+    try {
+      await api.delete(`/api/v1/servers/${id}`);
+      toast.success("Server removed");
+      router.push("/servers");
+    } catch (e) {
+      const msg =
+        (e as { response?: { data?: { error?: string } } })?.response?.data?.error ||
+        (e instanceof Error ? e.message : "Could not delete server");
+      toast.error(msg);
+      setDeleteOpen(false);
+    }
+  };
 
   return (
     <FadeIn>
@@ -155,12 +183,25 @@ export default function ServerOverviewPage({
             <p className="mt-1 text-sm text-gray-500">Agent v{server.agent_version}</p>
           )}
         </div>
-        <Link href={`/servers/${id}/apps/new`}>
-          <Button size="lg">
-            <Rocket className="mr-2 h-4 w-4" />
-            Deploy New App
+        <div className="flex flex-wrap gap-2">
+          <Link href={`/servers/${id}/apps/new`}>
+            <Button size="lg">
+              <Rocket className="mr-2 h-4 w-4" />
+              Deploy New App
+            </Button>
+          </Link>
+          <Button
+            size="lg"
+            variant="secondary"
+            onClick={() => {
+              setDeleteConfirm("");
+              setDeleteOpen(true);
+            }}
+          >
+            <Trash2 className="mr-2 h-4 w-4" />
+            Delete server
           </Button>
-        </Link>
+        </div>
       </div>
 
       {disconnected && (
@@ -208,6 +249,34 @@ export default function ServerOverviewPage({
 
       <AlertSummary serverId={id} alerts={alerts} />
       <BackupStatusLine serverId={id} />
+
+      <Dialog open={deleteOpen} onOpenChange={setDeleteOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete {server.name}?</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-gray-600 dark:text-gray-300">
+            This removes the server from your account. Type <strong>{server.name}</strong> to confirm.
+          </p>
+          <Input
+            value={deleteConfirm}
+            onChange={(e) => setDeleteConfirm(e.target.value)}
+            placeholder={server.name}
+          />
+          <DialogFooter>
+            <Button variant="secondary" onClick={() => setDeleteOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              variant="danger"
+              disabled={deleteConfirm !== server.name}
+              onClick={deleteServer}
+            >
+              Delete forever
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
     </FadeIn>
   );

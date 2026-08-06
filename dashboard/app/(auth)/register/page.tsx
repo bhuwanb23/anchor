@@ -9,7 +9,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
-import { register as authRegister } from "@/lib/auth";
+import { register as authRegister, login } from "@/lib/auth";
 
 const registerSchema = z
   .object({
@@ -41,8 +41,9 @@ export default function RegisterPage() {
     setIsLoading(true);
     try {
       await authRegister({ name: data.name, email: data.email, password: data.password });
-      toast.success("Account created successfully — please sign in");
-      router.push("/login");
+      await login({ email: data.email, password: data.password });
+      toast.success("Welcome — let’s connect your first server");
+      router.push("/onboarding");
     } catch (e) {
       const message =
         (e as { response?: { data?: { error?: string } } })?.response?.data?.error ??

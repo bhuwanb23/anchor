@@ -87,6 +87,11 @@ export function Header({ onMenuClick }: HeaderProps) {
               : "Disconnected"
           }
         />
+        {wsStatus === "connecting" && (
+          <span className="hidden text-xs text-yellow-600 sm:inline dark:text-yellow-400">
+            Reconnecting
+          </span>
+        )}
 
         <NotificationCenter />
 

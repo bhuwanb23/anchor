@@ -2,6 +2,7 @@
 
 import { useAuth } from "@/hooks/use-auth";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { TeamSection } from "@/components/account/team-section";
 
 export default function AccountPage() {
   const { user } = useAuth();
@@ -28,6 +29,8 @@ export default function AccountPage() {
           </div>
         </CardContent>
       </Card>
+
+      <TeamSection />
     </div>
   );
 }
