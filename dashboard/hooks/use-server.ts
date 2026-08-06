@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import api from "@/lib/api";
 import type { Server } from "@/types";
+import { useServerStore } from "@/store/server-store";
 
 export function useServers(pollIntervalMs = 5000) {
   const [servers, setServers] = useState<Server[]>([]);
@@ -50,6 +51,8 @@ export function useServer(id: string) {
   const [server, setServer] = useState<Server | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const storeServer = useServerStore((s) => s.servers.find((x) => x.id === id));
+  const fetchServers = useServerStore((s) => s.fetchServers);
   const mountedRef = useRef(true);
 
   useEffect(() => {
@@ -57,6 +60,7 @@ export function useServer(id: string) {
 
     async function load() {
       try {
+        await fetchServers();
         const serversRes = await api.get<Server[]>("/api/v1/servers");
         if (mountedRef.current) {
           const found = serversRes.data?.find((s) => s.id === id) || null;
@@ -78,7 +82,19 @@ export function useServer(id: string) {
     return () => {
       mountedRef.current = false;
     };
-  }, [id]);
+  }, [id, fetchServers]);
 
-  return { server, isLoading, error };
+  // Prefer live store status/version when available
+  const merged =
+    server && storeServer
+      ? {
+          ...server,
+          ...storeServer,
+          name: server.name || storeServer.name,
+          status: storeServer.status || server.status,
+          agent_version: storeServer.agent_version || server.agent_version,
+        }
+      : storeServer || server;
+
+  return { server: merged, isLoading, error };
 }

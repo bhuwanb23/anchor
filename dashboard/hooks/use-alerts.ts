@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { getWSClient, type WSMessage } from "@/lib/ws";
 import { Alert } from "@/types";
 import api from "@/lib/api";
+import { useServerStore } from "@/store/server-store";
 
 export interface AlertItem extends Alert {
   at: string;
@@ -39,6 +40,7 @@ export function useAlerts(serverId: string, enabled = true) {
           at: a.fired_at || a.resolved_at || new Date().toISOString(),
         }));
         setAlerts(items.slice(0, MAX_ALERTS));
+        useServerStore.getState().setAlerts(items.slice(0, MAX_ALERTS));
       })
       .catch(() => {
         // Live feed still works even if history fetch fails.
@@ -128,6 +130,8 @@ export function useAlerts(serverId: string, enabled = true) {
       const without = prev.filter((x) => x.id !== item.id);
       return [item, ...without].slice(0, MAX_ALERTS);
     });
+    // Keep global store in sync for overview app cards
+    useServerStore.getState().addAlert(item);
   }
 
   return { alerts, acknowledge };

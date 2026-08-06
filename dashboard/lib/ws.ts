@@ -166,8 +166,10 @@ class BrowserWSClient {
   }
 
   unsubscribeServer(): void {
+    if (this.subscribedServerId) {
+      this.send({ type: "unsubscribe", server_id: this.subscribedServerId });
+    }
     this.subscribedServerId = null;
-    this.send({ type: "unsubscribe" });
   }
 
   // ---------------------------------------------------------------------------

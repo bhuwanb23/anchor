@@ -9,69 +9,80 @@ import type {
   ContainerState,
   Alert,
   AlertStatus,
-  AlertSeverity,
 } from "@/types";
 
-// ---------------------------------------------------------------------------
-// Server Store
-//
-// Holds the server list, the currently-selected server's real-time data,
-// and active alerts. Clearing stale data when the selected server changes
-// is handled by selectServer().
-// ---------------------------------------------------------------------------
-
 interface ServerState {
-  // Server list
   servers: Server[];
   loading: boolean;
   fetchServers: () => Promise<void>;
+  updateServerStatus: (id: string, status: ServerStatus) => void;
+  setAgentVersion: (id: string, version: string) => void;
 
-  // Selected server
   selectedServerId: string | null;
   selectServer: (id: string | null) => void;
 
-  // Real-time metrics (for the selected server, updated by WebSocket)
   metrics: MetricsSnapshot | null;
   updateMetrics: (metrics: MetricsSnapshot) => void;
 
-  // Container states (for the selected server, updated by WebSocket)
   containers: ContainerState[];
   updateContainers: (containers: ContainerState[]) => void;
 
-  // Active alerts (for the selected server)
   alerts: Alert[];
+  setAlerts: (alerts: Alert[]) => void;
   addAlert: (alert: Alert) => void;
   resolveAlert: (id: string) => void;
   acknowledgeAlert: (id: string) => void;
 
-  // Helpers
+  unreadCount: number;
+  setUnreadCount: (n: number) => void;
+  bumpUnread: () => void;
+
   getServer: (id: string) => Server | undefined;
 }
 
 export const useServerStore = create<ServerState>((set, get) => ({
-  // ---------------------------------------------------------------------------
-  // Server list
-  // ---------------------------------------------------------------------------
-
   servers: [],
   loading: true,
 
   fetchServers: async () => {
     try {
       const res = await api.get<Server[]>("/api/v1/servers");
-      set({ servers: res.data, loading: false });
+      const list = (res.data || []).map((s) => ({
+        ...s,
+        // Normalize CP field names
+        public_ip: s.public_ip || (s as { ip_address?: string }).ip_address,
+        os: s.os || (s as { os_info?: string }).os_info,
+        ram_total_mb: s.ram_total_mb || (s as { ram_mb?: number }).ram_mb,
+        disk_total_gb: s.disk_total_gb || (s as { disk_gb?: number }).disk_gb,
+      }));
+      set({ servers: list, loading: false });
     } catch {
       set({ loading: false });
     }
   },
 
-  // ---------------------------------------------------------------------------
-  // Selected server — clears all real-time data to prevent stale state
-  // ---------------------------------------------------------------------------
+  updateServerStatus: (id, status) => {
+    set((state) => ({
+      servers: state.servers.map((s) => (s.id === id ? { ...s, status } : s)),
+    }));
+  },
+
+  setAgentVersion: (id, version) => {
+    set((state) => ({
+      servers: state.servers.map((s) =>
+        s.id === id ? { ...s, agent_version: version } : s
+      ),
+    }));
+  },
 
   selectedServerId: null,
 
   selectServer: (id) => {
+    const prev = get().selectedServerId;
+    if (prev === id) {
+      set({ selectedServerId: id });
+      return;
+    }
     set({
       selectedServerId: id,
       metrics: null,
@@ -80,40 +91,20 @@ export const useServerStore = create<ServerState>((set, get) => ({
     });
   },
 
-  // ---------------------------------------------------------------------------
-  // Real-time metrics
-  // ---------------------------------------------------------------------------
-
   metrics: null,
-
-  updateMetrics: (metrics) => {
-    set({ metrics });
-  },
-
-  // ---------------------------------------------------------------------------
-  // Container states
-  // ---------------------------------------------------------------------------
+  updateMetrics: (metrics) => set({ metrics }),
 
   containers: [],
-
-  updateContainers: (containers) => {
-    set({ containers });
-  },
-
-  // ---------------------------------------------------------------------------
-  // Alerts
-  // ---------------------------------------------------------------------------
+  updateContainers: (containers) => set({ containers }),
 
   alerts: [],
-
+  setAlerts: (alerts) => set({ alerts }),
   addAlert: (alert) => {
     set((state) => {
-      // Replace if same id exists (escalation/resolution update), else prepend
       const without = state.alerts.filter((a) => a.id !== alert.id);
       return { alerts: [alert, ...without] };
     });
   },
-
   resolveAlert: (id) => {
     set((state) => ({
       alerts: state.alerts.map((a) =>
@@ -123,7 +114,6 @@ export const useServerStore = create<ServerState>((set, get) => ({
       ),
     }));
   },
-
   acknowledgeAlert: (id) => {
     set((state) => ({
       alerts: state.alerts.map((a) =>
@@ -134,9 +124,9 @@ export const useServerStore = create<ServerState>((set, get) => ({
     }));
   },
 
-  // ---------------------------------------------------------------------------
-  // Helpers
-  // ---------------------------------------------------------------------------
+  unreadCount: 0,
+  setUnreadCount: (n) => set({ unreadCount: n }),
+  bumpUnread: () => set((s) => ({ unreadCount: s.unreadCount + 1 })),
 
   getServer: (id) => get().servers.find((s) => s.id === id),
 }));

@@ -7,8 +7,8 @@
 // Status Union Types
 // ---------------------------------------------------------------------------
 
-export type ServerStatus = "pending" | "connected" | "disconnected";
-export type AppStatus = "deploying" | "running" | "stopped" | "failed" | "removing";
+export type ServerStatus = "pending" | "connected" | "disconnected" | "updating" | "error";
+export type AppStatus = "deploying" | "running" | "stopped" | "failed" | "crashed" | "removing";
 export type DeploymentStatus = "deploying" | "running" | "stopped" | "failed";
 export type CommandStatus = "queued" | "in_progress" | "success" | "failed" | "timeout";
 export type AlertSeverity = "warning" | "critical";
@@ -85,6 +85,7 @@ export interface Server {
   connected_at?: string;
   last_seen?: string;
   created_at?: string;
+  agent_version?: string;
   metrics?: MetricsSnapshot;
 }
 
@@ -491,7 +492,7 @@ export interface WSAgentConnectedMessage extends WSMessageBase {
 }
 
 export interface WSAgentDisconnectedMessage extends WSMessageBase {
-  type: "agent_discovered";
+  type: "agent_disconnected";
   payload: {
     server_id: string;
   };
