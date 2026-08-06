@@ -216,8 +216,8 @@ func (s *Step5) GetApp(w http.ResponseWriter, r *http.Request) {
 	}
 
 	app, err := queries.GetAppByID(s.DB, appID)
-	if err != nil {
-		if err == sql.ErrNoRows {
+	if err != nil || app == nil {
+		if err == sql.ErrNoRows || app == nil {
 			Respond404(w, r, "App")
 			return
 		}
