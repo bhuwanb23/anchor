@@ -119,19 +119,35 @@ func TestIntegration_CORSAllowsOnlyConfiguredOrigin(t *testing.T) {
 	defer db.Close()
 	router := integrationRouter(db, integrationCfg())
 
+	// Foreign origin: rejected with 403 before any handler runs (Layer 6
+	// Step 2C). Never a wildcard, never the attacker's origin echoed back.
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/auth/me", nil)
 	req.Header.Set("Origin", "https://evil.example.com")
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
-	// The response may only claim the dashboard origin — never the attacker's
-	// origin and never a wildcard.
-	allow := w.Header().Get("Access-Control-Allow-Origin")
-	if allow != testFrontendURL {
-		t.Errorf("Access-Control-Allow-Origin = %q, want %q", allow, testFrontendURL)
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("foreign origin: expected 403, got %d", w.Code)
 	}
-	if allow == "*" || allow == "https://evil.example.com" {
-		t.Errorf("CORS must not allow wildcard or foreign origins, got %q", allow)
+	if allow := w.Header().Get("Access-Control-Allow-Origin"); allow != "" {
+		t.Errorf("Access-Control-Allow-Origin = %q, want unset for rejected origin", allow)
+	}
+	var body map[string]interface{}
+	json.NewDecoder(w.Body).Decode(&body)
+	if body["error"] != "origin_not_allowed" {
+		t.Errorf("error = %v, want origin_not_allowed", body["error"])
+	}
+
+	// Dashboard origin: allowed through (reaches Auth → 401 without a token).
+	ok := httptest.NewRequest(http.MethodGet, "/api/v1/auth/me", nil)
+	ok.Header.Set("Origin", testFrontendURL)
+	w2 := httptest.NewRecorder()
+	router.ServeHTTP(w2, ok)
+	if w2.Code != http.StatusUnauthorized {
+		t.Errorf("dashboard origin: expected 401 (reached auth), got %d", w2.Code)
+	}
+	if got := w2.Header().Get("Access-Control-Allow-Origin"); got != testFrontendURL {
+		t.Errorf("dashboard origin: Allow-Origin = %q, want %q", got, testFrontendURL)
 	}
 }
 
