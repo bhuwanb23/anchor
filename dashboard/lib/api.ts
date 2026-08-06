@@ -1,8 +1,31 @@
 import axios, { AxiosError, AxiosRequestConfig, InternalAxiosRequestConfig } from "axios";
 import type { AuthResponse } from "@/types";
 
+// ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
+
 const ACCESS_TOKEN_KEY = "token";
 const REFRESH_TOKEN_KEY = "refresh_token";
+const SESSION_COOKIE = "yp_session";
+
+// ---------------------------------------------------------------------------
+// Cookie helpers — the session indicator cookie enables Next.js middleware
+// to know whether a user is logged in without reading localStorage (which is
+// unavailable in server/edge contexts).
+// ---------------------------------------------------------------------------
+
+function setSessionCookie(): void {
+  document.cookie = `${SESSION_COOKIE}=1; path=/; SameSite=Lax; Max-Age=${60 * 60 * 24 * 30}`;
+}
+
+function clearSessionCookie(): void {
+  document.cookie = `${SESSION_COOKIE}=; path=/; SameSite=Lax; Max-Age=0`;
+}
+
+// ---------------------------------------------------------------------------
+// Axios instance
+// ---------------------------------------------------------------------------
 
 const api = axios.create({
   baseURL: process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080",
@@ -10,6 +33,10 @@ const api = axios.create({
     "Content-Type": "application/json",
   },
 });
+
+// ---------------------------------------------------------------------------
+// Request interceptor — attach JWT to every request
+// ---------------------------------------------------------------------------
 
 api.interceptors.request.use((config) => {
   if (typeof window !== "undefined") {
@@ -21,8 +48,11 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
-// Single-flight refresh: if several requests 401 at once, only one refresh
-// call is issued and the rest await the same promise.
+// ---------------------------------------------------------------------------
+// Single-flight refresh — if multiple requests 401 simultaneously, only one
+// refresh call is made and the rest await the same promise.
+// ---------------------------------------------------------------------------
+
 let refreshPromise: Promise<string> | null = null;
 
 function refreshAccessToken(): Promise<string> {
@@ -34,13 +64,13 @@ function refreshAccessToken(): Promise<string> {
   return refreshPromise;
 }
 
-// The refresh call uses a bare axios instance so it is not subject to this
-// interceptor (avoiding an infinite 401 → refresh → 401 loop).
 async function doRefresh(): Promise<string> {
   const refreshToken =
     typeof window !== "undefined" ? localStorage.getItem(REFRESH_TOKEN_KEY) : null;
   if (!refreshToken) throw new Error("no refresh token");
 
+  // Use a bare axios instance so this request is not subject to the
+  // response interceptor (avoids infinite 401 → refresh → 401 loop).
   const res = await axios.post<AuthResponse>(
     `${api.defaults.baseURL}/api/v1/auth/refresh`,
     { refresh_token: refreshToken }
@@ -49,25 +79,29 @@ async function doRefresh(): Promise<string> {
   if (typeof window !== "undefined") {
     localStorage.setItem(ACCESS_TOKEN_KEY, res.data.access_token);
     localStorage.setItem(REFRESH_TOKEN_KEY, res.data.refresh_token);
+    setSessionCookie();
   }
   return res.data.access_token;
 }
+
+// ---------------------------------------------------------------------------
+// Response interceptor — silent refresh on 401, redirect on failure
+// ---------------------------------------------------------------------------
 
 api.interceptors.response.use(
   (response) => response,
   async (error: AxiosError) => {
     const status = error.response?.status;
-    // Only token-issuing endpoints are excluded from silent refresh (they
-    // would loop). Protected endpoints like /auth/me must still be retried
-    // after a refresh so an expired session recovers instead of logging out.
+
+    // Exclude token-issuing endpoints (would loop).
+    const url = error.config?.url ?? "";
     const isTokenIssuingEndpoint =
-      typeof error.config?.url === "string" &&
-      (error.config.url.endsWith("/auth/refresh") ||
-        error.config.url.endsWith("/auth/login") ||
-        error.config.url.endsWith("/auth/register"));
+      url.endsWith("/auth/refresh") ||
+      url.endsWith("/auth/login") ||
+      url.endsWith("/auth/register");
+
     const alreadyRetried = (error.config as InternalAxiosRequestConfig & { _retried?: boolean })?._retried;
 
-    // Only attempt a silent refresh on 401 from protected endpoints, once.
     if (status === 401 && !isTokenIssuingEndpoint && !alreadyRetried) {
       try {
         const newToken = await refreshAccessToken();
@@ -76,10 +110,11 @@ api.interceptors.response.use(
         config.headers.Authorization = `Bearer ${newToken}`;
         return api.request(config as AxiosRequestConfig);
       } catch {
-        // Refresh failed (expired/revoked) — session is over.
+        // Refresh failed — session is over, clean up and redirect.
         if (typeof window !== "undefined") {
           localStorage.removeItem(ACCESS_TOKEN_KEY);
           localStorage.removeItem(REFRESH_TOKEN_KEY);
+          clearSessionCookie();
           window.location.href = "/login";
         }
       }
@@ -87,5 +122,26 @@ api.interceptors.response.use(
     return Promise.reject(error);
   }
 );
+
+// ---------------------------------------------------------------------------
+// Public helpers — used by auth.ts to persist tokens and the session cookie
+// ---------------------------------------------------------------------------
+
+export function saveTokens(accessToken: string, refreshToken: string): void {
+  localStorage.setItem(ACCESS_TOKEN_KEY, accessToken);
+  localStorage.setItem(REFRESH_TOKEN_KEY, refreshToken);
+  setSessionCookie();
+}
+
+export function clearTokens(): void {
+  localStorage.removeItem(ACCESS_TOKEN_KEY);
+  localStorage.removeItem(REFRESH_TOKEN_KEY);
+  clearSessionCookie();
+}
+
+export function getAccessToken(): string | null {
+  if (typeof window === "undefined") return null;
+  return localStorage.getItem(ACCESS_TOKEN_KEY);
+}
 
 export default api;
