@@ -87,6 +87,9 @@
     var groupEl = document.getElementById("cap-g-" + gi);
     tl.fromTo(groupEl, { opacity: 0, y: 10 }, { opacity: 1, y: 0, duration: 0.24, ease: "power2.out" }, group.start);
     tl.to(groupEl, { opacity: 0, duration: 0.2, ease: "power2.in" }, group.end);
+    // hard kill — a word-level tween can otherwise win over the exit tween and
+    // leave the group stuck on screen for the rest of the video
+    tl.set(groupEl, { opacity: 0 }, group.end + 0.2);
 
     group.words.forEach(function (w, wi) {
       var el = document.getElementById("cap-w-" + gi + "-" + wi);
