@@ -59,14 +59,15 @@ func TestBrowserConnection_UnregisterCleansStreamSubs(t *testing.T) {
 	hub := NewHub()
 	connID, _ := hub.RegisterBrowser("user-1", testConn(t))
 	hub.RegisterLogStream("st-1", connID)
-	if got := hub.LookupLogStream("st-1"); got != connID {
-		t.Fatalf("LookupLogStream(st-1) = %q, want %q", got, connID)
+	got := hub.LookupLogStream("st-1")
+	if len(got) != 1 || got[0] != connID {
+		t.Fatalf("LookupLogStream(st-1) = %v, want [%q]", got, connID)
 	}
 
 	// Tab close: the browser's unregister must release its log streams.
 	hub.UnregisterBrowser(connID)
-	if got := hub.LookupLogStream("st-1"); got != "" {
-		t.Fatalf("stream routing should be cleaned on unregister, still %q", got)
+	if got := hub.LookupLogStream("st-1"); len(got) != 0 {
+		t.Fatalf("stream routing should be cleaned on unregister, still %v", got)
 	}
 }
 
@@ -75,12 +76,13 @@ func TestBrowserConnection_LogStreamTable(t *testing.T) {
 	connID, _ := hub.RegisterBrowser("user-1", testConn(t))
 
 	hub.RegisterLogStream("stream-abc", connID)
-	if got := hub.LookupLogStream("stream-abc"); got != connID {
-		t.Fatalf("LookupLogStream = %q, want %q", got, connID)
+	got := hub.LookupLogStream("stream-abc")
+	if len(got) != 1 || got[0] != connID {
+		t.Fatalf("LookupLogStream = %v, want [%q]", got, connID)
 	}
-	hub.UnregisterLogStream("stream-abc")
-	if got := hub.LookupLogStream("stream-abc"); got != "" {
-		t.Fatalf("stream should be unregistered, still %q", got)
+	hub.UnregisterLogStream("stream-abc", connID)
+	if got := hub.LookupLogStream("stream-abc"); len(got) != 0 {
+		t.Fatalf("stream should be unregistered, still %v", got)
 	}
 }
 
@@ -109,6 +111,71 @@ func TestBrowserConnection_LogLinesRouteToStreamOwner(t *testing.T) {
 	}
 	if got := recvWithTimeout(t, sendB, "broadcast log line"); string(got) != string(line2) {
 		t.Fatalf("browser B got %q, want broadcast line", got)
+	}
+}
+
+// --- Multi-browser log streaming (Step 5C) ---
+
+func TestBrowserConnection_MultipleBrowsersSameStream(t *testing.T) {
+	hub := NewHub()
+	connIDA, sendA := hub.RegisterBrowser("user-1", testConn(t))
+	connIDB, sendB := hub.RegisterBrowser("user-2", testConn(t))
+
+	hub.RegisterLogStream("ms-1", connIDA)
+	hub.RegisterLogStream("ms-1", connIDB)
+
+	got := hub.LookupLogStream("ms-1")
+	if len(got) != 2 {
+		t.Fatalf("LookupLogStream(ms-1) returned %d connIDs, want 2", len(got))
+	}
+
+	// Both browsers receive the same log line.
+	line := []byte(`{"type":"log_line","payload":{"stream_id":"ms-1","text":"broadcast"}}`)
+	routeLogLines(hub, "srv-1", []byte(`{"stream_id":"ms-1"}`), line)
+	if got := recvWithTimeout(t, sendA, "browser A log"); string(got) != string(line) {
+		t.Fatalf("browser A got %q, want log line", got)
+	}
+	if got := recvWithTimeout(t, sendB, "browser B log"); string(got) != string(line) {
+		t.Fatalf("browser B got %q, want log line", got)
+	}
+}
+
+func TestBrowserConnection_UnregisterOneBrowserLeavesOthers(t *testing.T) {
+	hub := NewHub()
+	connIDA, sendA := hub.RegisterBrowser("user-1", testConn(t))
+	connIDB, sendB := hub.RegisterBrowser("user-2", testConn(t))
+
+	hub.RegisterLogStream("ms-2", connIDA)
+	hub.RegisterLogStream("ms-2", connIDB)
+
+	hub.UnregisterBrowser(connIDA)
+	got := hub.LookupLogStream("ms-2")
+	if len(got) != 1 || got[0] != connIDB {
+		t.Fatalf("after unregister A: LookupLogStream(ms-2) = %v, want [%q]", got, connIDB)
+	}
+
+	// Only browser B gets the line now.
+	line := []byte(`{"type":"log_line","payload":{"stream_id":"ms-2","text":"for B"}}`)
+	routeLogLines(hub, "srv-1", []byte(`{"stream_id":"ms-2"}`), line)
+	assertNoMessage(t, sendA, "unregistered browser A")
+	if got := recvWithTimeout(t, sendB, "browser B still subscribed"); string(got) != string(line) {
+		t.Fatalf("browser B got %q, want log line", got)
+	}
+}
+
+func TestBrowserConnection_UnregisterSecondBrowserCleansUp(t *testing.T) {
+	hub := NewHub()
+	connIDA, _ := hub.RegisterBrowser("user-1", testConn(t))
+	connIDB, _ := hub.RegisterBrowser("user-2", testConn(t))
+
+	hub.RegisterLogStream("ms-3", connIDA)
+	hub.RegisterLogStream("ms-3", connIDB)
+
+	hub.UnregisterBrowser(connIDA)
+	hub.UnregisterBrowser(connIDB)
+	got := hub.LookupLogStream("ms-3")
+	if len(got) != 0 {
+		t.Fatalf("after unregistering both: LookupLogStream(ms-3) = %v, want empty", got)
 	}
 }
 
@@ -155,7 +222,8 @@ func setupBrowserWSTestDB(t *testing.T) *sql.DB {
 			cpu_percent REAL, ram_used_mb INTEGER, ram_total_mb INTEGER, ram_percent REAL,
 			disk_used_gb REAL, disk_total_gb REAL, disk_percent REAL, load_1min REAL, load_per_core REAL,
 			caddy_running INTEGER NOT NULL DEFAULT 0, caddy_routes_count INTEGER NOT NULL DEFAULT 0,
-			last_backup_age_sec INTEGER, container_count INTEGER NOT NULL DEFAULT 0
+			last_backup_age_sec INTEGER, container_count INTEGER NOT NULL DEFAULT 0,
+			granularity TEXT NOT NULL DEFAULT 'raw'
 		);
 		INSERT INTO users (id, email) VALUES ('user-1', 'owner@example.com'), ('user-2', 'intruder@example.com');
 		INSERT INTO servers (id, user_id, name, status) VALUES ('srv-1', 'user-1', 'prod', 'connected');
@@ -306,4 +374,44 @@ func TestBrowserWS_SubscribeDeniedWithoutAccess(t *testing.T) {
 	if _, _, err := conn.ReadMessage(); err == nil {
 		t.Fatal("unauthorized browser received a broadcast it should not get")
 	}
+}
+
+// --- Browser heartbeat (Step 6A) ---
+
+func TestBrowserConnection_BrowserPongUpdatesTimestamp(t *testing.T) {
+	hub := NewHub()
+	connID, _ := hub.RegisterBrowser("user-1", testConn(t))
+
+	hub.BrowserPong(connID)
+	// Verify via listBrowsers that LastPongAt is set.
+	browsers := hub.listBrowsers()
+	var found bool
+	for _, b := range browsers {
+		if b.ConnID == connID {
+			found = true
+			if b.LastPongAt.IsZero() {
+				t.Fatal("LastPongAt should be set after BrowserPong")
+			}
+		}
+	}
+	if !found {
+		t.Fatal("browser not found in listBrowsers")
+	}
+}
+
+func TestBrowserConnection_CloseBrowserCleanup(t *testing.T) {
+	hub := NewHub()
+	connID, _ := hub.RegisterBrowser("user-1", testConn(t))
+	hub.Subscribe("srv-1", connID)
+
+	hub.closeBrowser(connID)
+	// After close, browser should be gone.
+	browsers := hub.listBrowsers()
+	for _, b := range browsers {
+		if b.ConnID == connID {
+			t.Fatal("browser should be removed after closeBrowser")
+		}
+	}
+	// Subscription should be cleaned up too.
+	hub.ForwardToBrowsers("srv-1", []byte("should-not-reach"))
 }

@@ -62,6 +62,9 @@ func ListPendingCommands(db *sql.DB, serverID string) ([]PendingCommand, error) 
 		}
 		out = append(out, c)
 	}
+	if out == nil {
+		out = []PendingCommand{}
+	}
 	return out, rows.Err()
 }
 
@@ -88,4 +91,31 @@ func PendingCommandsAsJSON(db *sql.DB, serverID string) ([]json.RawMessage, erro
 		out = append(out, json.RawMessage(c.Payload))
 	}
 	return out, nil
+}
+
+// DeleteExpiredPendingCommands removes pending commands whose expiry has passed.
+func DeleteExpiredPendingCommands(db *sql.DB) (int64, error) {
+	now := time.Now().UTC().Format(time.RFC3339)
+	result, err := db.Exec(
+		`DELETE FROM pending_commands WHERE expires_at IS NOT NULL AND expires_at != '' AND expires_at < ?`,
+		now,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+// DeleteOldPendingCommands removes pending commands older than the given
+// number of days (Layer 5C Step 4B — daily retention). Old delivered/expired
+// rows are garbage once their window passes.
+func DeleteOldPendingCommands(db *sql.DB, days int) (int64, error) {
+	result, err := db.Exec(
+		`DELETE FROM pending_commands WHERE created_at < datetime('now', '-' || ? || ' days')`,
+		days,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }

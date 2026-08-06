@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -14,7 +13,6 @@ import (
 	"github.com/yourname/yourplatform/control-plane/internal/api"
 	"github.com/yourname/yourplatform/control-plane/internal/config"
 	"github.com/yourname/yourplatform/control-plane/internal/db"
-	"github.com/yourname/yourplatform/control-plane/internal/db/queries"
 	"github.com/yourname/yourplatform/control-plane/internal/mailer"
 	"github.com/yourname/yourplatform/control-plane/internal/ws"
 )
@@ -40,15 +38,28 @@ func main() {
 
 	hub := ws.NewHub()
 	go hub.StartHeartbeat(database)
-	go pruneMetrics(database)
+	go hub.StartMetricsLogger()
 
-	// Layer 5A Step 4A Level 3 — delete expired refresh tokens weekly. Expired
-	// sessions can no longer be refreshed, so the rows are garbage.
-	go pruneExpiredRefreshTokens(database)
+	// Layer 5C Step 4 — data lifecycle: metrics rollup (raw → hourly → daily),
+	// retention tiers (7 days / 30 days / 12 months), expired-token and
+	// command cleanup, event/email retention, VACUUM, and DB-size monitoring.
+	// One goroutine wakes every hour and runs the daily jobs at UTC midnight.
+	go db.StartCleanup(database, cfg.DatabasePath)
 
-	// Layer 5A Step 7A — expired password-reset tokens are garbage: their
-	// 1-hour window has passed, so they can never be redeemed. Prune weekly.
-	go pruneExpiredPasswordResets(database)
+	// Layer 5C Step 5 — database backup: VACUUM INTO snapshot + gzip every
+	// DBBackupIntervalHours (default 6h), keeping the newest 4 locally, and an
+	// encrypted S3 upload every 24h when S3 settings are configured.
+	go db.StartDatabaseBackups(database, db.BackupSettings{
+		DBPath:        cfg.DatabasePath,
+		BackupDir:     cfg.DBBackupDir,
+		LocalInterval: time.Duration(cfg.DBBackupIntervalHours) * time.Hour,
+		S3Endpoint:    cfg.S3Endpoint,
+		S3AccessKey:   cfg.S3AccessKey,
+		S3SecretKey:   cfg.S3SecretKey,
+		S3Bucket:      cfg.S3Bucket,
+		S3Region:      cfg.S3Region,
+		S3Passphrase:  cfg.DBBackupEncryptionKey,
+	})
 
 	// Layer 4C Step 6 — alert email delivery. Runs in the background and
 	// never blocks the agent/metrics paths.
@@ -64,63 +75,5 @@ func main() {
 	if err := http.ListenAndServe(addr, router); err != nil {
 		slog.Error("server failed", "error", err)
 		os.Exit(1)
-	}
-}
-
-// pruneExpiredRefreshTokens deletes refresh tokens whose expiry has passed,
-// running weekly. It uses the stored RFC3339 expires_at for comparison.
-func pruneExpiredRefreshTokens(db *sql.DB) {
-	cutoff := time.Now().UTC().Format(time.RFC3339)
-	if n, err := queries.DeleteExpiredRefreshTokens(db, cutoff); err != nil {
-		slog.Warn("failed to prune expired refresh tokens", "error", err)
-	} else if n > 0 {
-		slog.Info("pruned expired refresh tokens", "count", n)
-	}
-
-	ticker := time.NewTicker(7 * 24 * time.Hour)
-	defer ticker.Stop()
-	for range ticker.C {
-		cutoff := time.Now().UTC().Format(time.RFC3339)
-		if n, err := queries.DeleteExpiredRefreshTokens(db, cutoff); err != nil {
-			slog.Warn("failed to prune expired refresh tokens", "error", err)
-		} else if n > 0 {
-			slog.Info("pruned expired refresh tokens", "count", n)
-		}
-	}
-}
-
-// pruneExpiredPasswordResets deletes password-reset tokens whose 1-hour
-// expiry has passed, running weekly (Layer 5A Step 7A).
-func pruneExpiredPasswordResets(db *sql.DB) {
-	cutoff := time.Now().UTC().Format(time.RFC3339)
-	if n, err := queries.DeleteExpiredPasswordResets(db, cutoff); err != nil {
-		slog.Warn("failed to prune expired password resets", "error", err)
-	} else if n > 0 {
-		slog.Info("pruned expired password resets", "count", n)
-	}
-
-	ticker := time.NewTicker(7 * 24 * time.Hour)
-	defer ticker.Stop()
-	for range ticker.C {
-		cutoff := time.Now().UTC().Format(time.RFC3339)
-		if n, err := queries.DeleteExpiredPasswordResets(db, cutoff); err != nil {
-			slog.Warn("failed to prune expired password resets", "error", err)
-		} else if n > 0 {
-			slog.Info("pruned expired password resets", "count", n)
-		}
-	}
-}
-
-// pruneMetrics runs every 6 hours and deletes raw metrics older than 7 days.
-func pruneMetrics(db *sql.DB) {
-	ticker := time.NewTicker(6 * time.Hour)
-	defer ticker.Stop()
-	for range ticker.C {
-		cutoff := time.Now().Add(-7 * 24 * time.Hour).UTC().Format(time.RFC3339)
-		if err := queries.DeleteMetricsBefore(db, "", cutoff); err != nil {
-			slog.Warn("failed to prune metrics_history", "error", err)
-		} else {
-			slog.Info("pruned metrics_history before", "cutoff", cutoff)
-		}
 	}
 }

@@ -3,6 +3,7 @@ package ws
 import (
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"sync"
 	"time"
@@ -38,13 +39,20 @@ type Hub struct {
 	browsers        map[string]*BrowserConn
 	subscriptions   map[string]map[string]struct{}
 	pendingCommands map[string]pendingCommandEntry
-	// streamSubs routes agent log output (by stream_id) to the exact browser
-	// connection that requested it (Layer 5B Step 3D).
-	streamSubs map[string]string
+	// streamSubs routes agent log output (by stream_id) to the browser
+	// connections that requested it (Layer 5B Step 5C). Multiple browsers
+	// can watch the same stream simultaneously.
+	streamSubs map[string]map[string]struct{}
 	// streams records per-server log-stream desires requested by dashboards so
 	// the control plane can re-establish live log views when an agent
 	// reconnects (Layer 4C 3B). Keyed by a project|roles signature.
 	streams map[string]map[string][]byte
+
+	// Metrics counters (owned exclusively by hub goroutine).
+	messagesRouted   int64
+	broadcastCount   int64
+	broadcastFanout  int64
+	failedSends      int64
 }
 
 // AgentConn tracks a connected agent's WebSocket connection.
@@ -63,8 +71,9 @@ type AgentConn struct {
 // command result and which server the command was sent to (the latter allows
 // the hub to fail pending commands when the agent disconnects).
 type pendingCommandEntry struct {
-	connID   string
-	serverID string
+	connID    string
+	serverID  string
+	createdAt time.Time
 }
 
 // BrowserConn tracks a connected dashboard (browser) WebSocket connection.
@@ -75,6 +84,8 @@ type BrowserConn struct {
 	Send             chan []byte
 	WatchingServerID string
 	ActiveStreams    map[string]struct{}
+	LastPongAt       time.Time
+	LastPingSentAt   time.Time
 }
 
 // hubOpKind enumerates every operation the hub goroutine can process.
@@ -94,10 +105,16 @@ const (
 	opTrackPendingCommand
 	opResolvePendingCommand
 	opLookupPendingCommand
+	opFailTimedOutCommand
+	opHasInFlightCommand
 	opAgentPong
+	opBrowserPong
+	opRecordBrowserPing
 	opSendToBrowser
-	opTimeoutCommand
-	opFindBrowserByUser
+	opListBrowsers
+	opCloseBrowser
+	opCloseAgent
+	opGetStats
 	opRegisterLogStream
 	opUnregisterLogStream
 	opLookupLogStream
@@ -133,8 +150,33 @@ type browserRegistration struct {
 // agentSnapshot is a read-only copy of a connected agent handed to callers
 // that need to act outside the hub goroutine (e.g. the heartbeat ticker).
 type agentSnapshot struct {
-	ServerID string
-	Send     chan []byte
+	ServerID   string
+	AgentID    string
+	Send       chan []byte
+	Conn       *websocket.Conn
+	LastPingAt time.Time
+}
+
+// browserSnapshot is a read-only copy of a connected browser for heartbeat checks.
+type browserSnapshot struct {
+	ConnID         string
+	Send           chan []byte
+	Conn           *websocket.Conn
+	LastPongAt     time.Time
+	LastPingSentAt time.Time
+}
+
+// HubStats holds current connection metrics for the stats endpoint.
+type HubStats struct {
+	AgentConnections  int     `json:"agent_connections"`
+	BrowserConnections int    `json:"browser_connections"`
+	Subscriptions     int     `json:"subscriptions"`
+	PendingCommands   int     `json:"pending_commands"`
+	ActiveLogStreams  int     `json:"active_log_streams"`
+	MessagesRouted    int64   `json:"messages_routed"`
+	BroadcastCount    int64   `json:"broadcast_count"`
+	AverageFanout     float64 `json:"average_broadcast_fanout"`
+	FailedSends       int64   `json:"failed_sends"`
 }
 
 // NewHub creates the hub and starts its single goroutine immediately. The
@@ -147,7 +189,7 @@ func NewHub() *Hub {
 		browsers:        make(map[string]*BrowserConn),
 		subscriptions:   make(map[string]map[string]struct{}),
 		pendingCommands: make(map[string]pendingCommandEntry),
-		streamSubs:      make(map[string]string),
+		streamSubs:      make(map[string]map[string]struct{}),
 		streams:         make(map[string]map[string][]byte),
 	}
 	h.started.Do(func() { go h.run() })
@@ -247,12 +289,13 @@ func (h *Hub) handleOp(op hubOp) {
 					delete(h.pendingCommands, cmdID)
 				}
 			}
-			// Release every log stream this connection started (Step 3C Way 2).
-			for streamID, owner := range h.streamSubs {
-				if owner == op.connID {
-					delete(h.streamSubs, streamID)
-				}
+		// Release every log stream this connection started (Step 3C Way 2).
+		for streamID, conns := range h.streamSubs {
+			delete(conns, op.connID)
+			if len(conns) == 0 {
+				delete(h.streamSubs, streamID)
 			}
+		}
 			close(browser.Send)
 			browser.Conn.Close()
 			delete(h.browsers, op.connID)
@@ -297,18 +340,150 @@ func (h *Hub) handleOp(op hubOp) {
 		}
 		snap := make([]agentSnapshot, 0, len(h.agents))
 		for serverID, agent := range h.agents {
-			snap = append(snap, agentSnapshot{ServerID: serverID, Send: agent.Send})
+			snap = append(snap, agentSnapshot{
+				ServerID:   serverID,
+				AgentID:    agent.AgentID,
+				Send:       agent.Send,
+				Conn:       agent.Conn,
+				LastPingAt: agent.LastPingAt,
+			})
 		}
 		op.reply <- snap
 
+	case opListBrowsers:
+		if op.reply == nil {
+			return
+		}
+		snap := make([]browserSnapshot, 0, len(h.browsers))
+		for connID, b := range h.browsers {
+			snap = append(snap, browserSnapshot{
+				ConnID:         connID,
+				Send:           b.Send,
+				Conn:           b.Conn,
+				LastPongAt:     b.LastPongAt,
+				LastPingSentAt: b.LastPingSentAt,
+			})
+		}
+		op.reply <- snap
+
+	case opCloseBrowser:
+		// Close and unregister a browser connection (used by heartbeat timeout).
+		browser, ok := h.browsers[op.connID]
+		if !ok {
+			return
+		}
+		// Clean up subscriptions.
+		if browser.WatchingServerID != "" {
+			if subs, ok := h.subscriptions[browser.WatchingServerID]; ok {
+				delete(subs, op.connID)
+				if len(subs) == 0 {
+					delete(h.subscriptions, browser.WatchingServerID)
+				}
+			}
+		}
+		// Clean up stream subscriptions.
+		for streamID, conns := range h.streamSubs {
+			delete(conns, op.connID)
+			if len(conns) == 0 {
+				delete(h.streamSubs, streamID)
+			}
+		}
+		delete(h.browsers, op.connID)
+		close(browser.Send)
+		browser.Conn.Close()
+
+	case opCloseAgent:
+		// Close and unregister an agent connection (used by heartbeat staleness).
+		agent, ok := h.agents[op.serverID]
+		if !ok {
+			return
+		}
+		// Only close if this is still the registered connection.
+		if agent.Conn != op.conn {
+			return
+		}
+		delete(h.agents, op.serverID)
+		delete(h.agentsByAgentID, agent.AgentID)
+		close(agent.Send)
+		agent.Conn.Close()
+		// Fail any pending commands for this server.
+		for cmdID, entry := range h.pendingCommands {
+			if entry.serverID == op.serverID {
+				delete(h.pendingCommands, cmdID)
+				if browser, ok := h.browsers[entry.connID]; ok {
+					errMsg := fmt.Sprintf(`{"type":"error","payload":{"command_id":"%s","error":"agent disconnected"}}`, cmdID)
+					select {
+					case browser.Send <- []byte(errMsg):
+					default:
+					}
+				}
+			}
+		}
+		// Notify browsers watching this server.
+		if subs, ok := h.subscriptions[op.serverID]; ok {
+			notif := []byte(`{"type":"agent_status","payload":{"status":"disconnected"}}`)
+			for connID := range subs {
+				if b, ok := h.browsers[connID]; ok {
+					select {
+					case b.Send <- notif:
+					default:
+					}
+				}
+			}
+		}
+
+	case opGetStats:
+		if op.reply != nil {
+			// Count active log streams.
+			streamCount := 0
+			for _, conns := range h.streamSubs {
+				if len(conns) > 0 {
+					streamCount++
+				}
+			}
+			// Count subscriptions.
+			subCount := 0
+			for _, subs := range h.subscriptions {
+				subCount += len(subs)
+			}
+			var avgFanout float64
+			if h.broadcastCount > 0 {
+				avgFanout = float64(h.broadcastFanout) / float64(h.broadcastCount)
+			}
+			op.reply <- HubStats{
+				AgentConnections:   len(h.agents),
+				BrowserConnections: len(h.browsers),
+				Subscriptions:      subCount,
+				PendingCommands:    len(h.pendingCommands),
+				ActiveLogStreams:   streamCount,
+				MessagesRouted:     h.messagesRouted,
+				BroadcastCount:     h.broadcastCount,
+				AverageFanout:      avgFanout,
+				FailedSends:        h.failedSends,
+			}
+		}
+
 	case opTrackPendingCommand:
-		h.pendingCommands[op.commandID] = pendingCommandEntry{connID: op.connID, serverID: op.serverID}
+		h.pendingCommands[op.commandID] = pendingCommandEntry{connID: op.connID, serverID: op.serverID, createdAt: time.Now()}
 
 	case opResolvePendingCommand:
 		entry := h.pendingCommands[op.commandID]
 		delete(h.pendingCommands, op.commandID)
 		if op.reply != nil {
 			op.reply <- entry.connID
+		}
+
+	case opFailTimedOutCommand:
+		// If the command is still pending, fail it and notify the browser.
+		if entry, ok := h.pendingCommands[op.commandID]; ok {
+			delete(h.pendingCommands, op.commandID)
+			if browser, ok := h.browsers[entry.connID]; ok {
+				errMsg := fmt.Sprintf(`{"type":"error","payload":{"command_id":"%s","error":"command timed out"}}`, op.commandID)
+				select {
+				case browser.Send <- []byte(errMsg):
+				default:
+				}
+			}
 		}
 
 	case opLookupPendingCommand:
@@ -323,63 +498,73 @@ func (h *Hub) handleOp(op hubOp) {
 			}
 		}
 
+	case opHasInFlightCommand:
+		// Check if any pending command targets the given server.
+		if op.reply != nil {
+			found := false
+			for _, entry := range h.pendingCommands {
+				if entry.serverID == op.serverID {
+					found = true
+					break
+				}
+			}
+			op.reply <- found
+		}
+
 	case opAgentPong:
 		if agent, ok := h.agents[op.serverID]; ok {
 			agent.LastPingAt = time.Now().UTC()
 		}
 
+	case opBrowserPong:
+		if browser, ok := h.browsers[op.connID]; ok {
+			browser.LastPongAt = time.Now()
+		}
+
+	case opRecordBrowserPing:
+		if browser, ok := h.browsers[op.connID]; ok {
+			browser.LastPingSentAt = time.Now()
+		}
+
 	case opSendToBrowser:
-		h.sendToBrowser(op.connID, op.msg)
-
-	case opTimeoutCommand:
-		// A command's deadline passed (Layer 5B Step 4B): remove the pending
-		// entry and tell the waiting dashboard. The caller updates the DB.
-		entry, ok := h.pendingCommands[op.commandID]
-		delete(h.pendingCommands, op.commandID)
-		if op.reply == nil {
-			break
-		}
-		if !ok {
-			op.reply <- ""
-			break
-		}
-		timeoutMsg, _ := json.Marshal(map[string]interface{}{
-			"type":       "command_result",
-			"command_id": op.commandID,
-			"status":     "timeout",
-			"error":      "Command did not complete within the allotted time. Your server may be experiencing issues. Check the server status and try again.",
-		})
-		h.sendToBrowser(entry.connID, timeoutMsg)
-		op.reply <- entry.connID
-
-	case opFindBrowserByUser:
-		if op.reply == nil {
-			break
-		}
-		found := ""
-		for _, b := range h.browsers {
-			if b.UserID == op.userID {
-				found = b.ID
-				break
+		if browser, ok := h.browsers[op.connID]; ok {
+			select {
+			case browser.Send <- op.msg:
+				h.messagesRouted++
+			default:
+				h.failedSends++
+				slog.Debug("dropped ws message for slow browser", "connection_id", op.connID)
 			}
 		}
 		op.reply <- found
 
 	case opRegisterLogStream:
 		if _, ok := h.browsers[op.connID]; ok {
-			h.streamSubs[op.key] = op.connID
+			if h.streamSubs[op.key] == nil {
+				h.streamSubs[op.key] = make(map[string]struct{})
+			}
+			h.streamSubs[op.key][op.connID] = struct{}{}
 		}
 
 	case opUnregisterLogStream:
-		delete(h.streamSubs, op.key)
+		if conns, ok := h.streamSubs[op.key]; ok {
+			delete(conns, op.connID)
+			if len(conns) == 0 {
+				delete(h.streamSubs, op.key)
+			}
+		}
 
 	case opLookupLogStream:
 		if op.reply != nil {
-			connID, ok := h.streamSubs[op.key]
-			if !ok {
-				op.reply <- ""
+			conns, ok := h.streamSubs[op.key]
+			if !ok || len(conns) == 0 {
+				op.reply <- []string{}
 			} else {
-				op.reply <- connID
+				ids := make([]string, 0, len(conns))
+				for id := range conns {
+					ids = append(ids, id)
+				}
+				op.reply <- ids
 			}
 		}
 
@@ -426,6 +611,7 @@ func (h *Hub) sendToAgent(serverID string, msg []byte) bool {
 	if !ok {
 		return false
 	}
+	h.messagesRouted++
 	select {
 	case agent.Send <- msg:
 		return true
@@ -515,24 +701,26 @@ func (h *Hub) removeSubscription(serverID, connID string) {
 // forwardToBrowsers sends a message to every browser watching a server.
 // Hub-goroutine-only helper.
 func (h *Hub) forwardToBrowsers(serverID string, msg []byte) {
+	h.broadcastCount++
+	fanout := 0
 	for connID := range h.subscriptions[serverID] {
-		h.sendToBrowser(connID, msg)
+		browser, ok := h.browsers[connID]
+		if !ok {
+			delete(h.subscriptions[serverID], connID)
+			continue
+		}
+		fanout++
+		select {
+		case browser.Send <- msg:
+			h.messagesRouted++
+		default:
+			// Slow consumer: drop the message rather than block routing. Kept
+			// connected so a momentarily busy dashboard is not disconnected.
+			h.failedSends++
+			slog.Debug("dropped ws message for slow browser", "server_id", serverID, "connection_id", connID)
+		}
 	}
-}
-
-// sendToBrowser pushes a message to one browser's send channel, dropping it
-// for a slow consumer rather than blocking routing.
-// Hub-goroutine-only helper.
-func (h *Hub) sendToBrowser(connID string, msg []byte) {
-	browser, ok := h.browsers[connID]
-	if !ok {
-		return
-	}
-	select {
-	case browser.Send <- msg:
-	default:
-		slog.Debug("dropped ws message for slow browser", "connection_id", connID)
-	}
+	h.broadcastFanout += int64(fanout)
 }
 
 // --- Public API: all operations enqueue ops and never touch the maps ---
@@ -621,6 +809,16 @@ func (h *Hub) GetAgentSend(serverID string) <-chan []byte {
 // failure) can be routed to exactly that dashboard.
 func (h *Hub) TrackPendingCommand(commandID, connID, serverID string) {
 	h.ops <- hubOp{kind: opTrackPendingCommand, commandID: commandID, connID: connID, serverID: serverID}
+	h.startCommandTimeout(commandID)
+}
+
+// startCommandTimeout starts a background goroutine that fails a pending
+// command after 10 minutes if no result has arrived.
+func (h *Hub) startCommandTimeout(commandID string) {
+	go func() {
+		time.Sleep(10 * time.Minute)
+		h.ops <- hubOp{kind: opFailTimedOutCommand, commandID: commandID}
+	}()
 }
 
 // ResolvePendingCommand returns (and removes) the browser connection waiting
@@ -642,9 +840,28 @@ func (h *Hub) LookupPendingCommand(commandID string) string {
 	return connID
 }
 
+// HasInFlightCommand reports whether there is any pending command for the given
+// server (used to deduplicate concurrent browser commands).
+func (h *Hub) HasInFlightCommand(serverID string) bool {
+	reply := make(chan interface{}, 1)
+	h.ops <- hubOp{kind: opHasInFlightCommand, serverID: serverID, reply: reply}
+	found, _ := (<-reply).(bool)
+	return found
+}
+
 // AgentPong records that the agent answered a heartbeat ping.
 func (h *Hub) AgentPong(serverID string) {
 	h.ops <- hubOp{kind: opAgentPong, serverID: serverID}
+}
+
+// BrowserPong records that a browser answered a heartbeat ping.
+func (h *Hub) BrowserPong(connID string) {
+	h.ops <- hubOp{kind: opBrowserPong, connID: connID}
+}
+
+// RecordBrowserPing records when a ping was sent to a browser for timeout tracking.
+func (h *Hub) RecordBrowserPing(connID string) {
+	h.ops <- hubOp{kind: opRecordBrowserPing, connID: connID}
 }
 
 // SendToBrowser sends a message directly to one browser connection, ignoring
@@ -660,39 +877,23 @@ func (h *Hub) RegisterLogStream(streamID, connID string) {
 	h.ops <- hubOp{kind: opRegisterLogStream, key: streamID, connID: connID}
 }
 
-// UnregisterLogStream stops routing log output for a stream (stop_log_stream).
-func (h *Hub) UnregisterLogStream(streamID string) {
-	h.ops <- hubOp{kind: opUnregisterLogStream, key: streamID}
+// UnregisterLogStream stops routing log output for a stream for a specific
+// browser connection (stop_log_stream).
+func (h *Hub) UnregisterLogStream(streamID, connID string) {
+	h.ops <- hubOp{kind: opUnregisterLogStream, key: streamID, connID: connID}
 }
 
-// LookupLogStream returns the browser connection currently receiving log
-// output for a stream, or "" if nobody is subscribed.
-func (h *Hub) LookupLogStream(streamID string) string {
+// LookupLogStream returns the browser connections currently receiving log
+// output for a stream, or an empty slice if nobody is subscribed.
+func (h *Hub) LookupLogStream(streamID string) []string {
 	reply := make(chan interface{}, 1)
 	h.ops <- hubOp{kind: opLookupLogStream, key: streamID, reply: reply}
-	connID, _ := (<-reply).(string)
-	return connID
-}
-
-// TimeoutPendingCommand fires when a command's deadline passes (Layer 5B
-// Step 4B): it removes the pending entry, notifies the waiting dashboard with
-// a timeout result, and returns the dashboard's connection id ("" when the
-// command already completed and the entry is gone). The caller updates the DB.
-func (h *Hub) TimeoutPendingCommand(commandID string) string {
-	reply := make(chan interface{}, 1)
-	h.ops <- hubOp{kind: opTimeoutCommand, commandID: commandID, reply: reply}
-	connID, _ := (<-reply).(string)
-	return connID
-}
-
-// FindBrowserByUser returns an active browser connection id for the user, or
-// "" if the user has no live dashboard. Used to route late command results to
-// a reconnected dashboard (Layer 5B Step 4A).
-func (h *Hub) FindBrowserByUser(userID string) string {
-	reply := make(chan interface{}, 1)
-	h.ops <- hubOp{kind: opFindBrowserByUser, userID: userID, reply: reply}
-	connID, _ := (<-reply).(string)
-	return connID
+	r := <-reply
+	if r == nil {
+		return nil
+	}
+	ids, _ := r.([]string)
+	return ids
 }
 
 // RecordStreamCommand remembers a stream_logs desire for a server so it can be
@@ -719,15 +920,27 @@ func (h *Hub) ReplayStreamCommands(serverID string) {
 	h.ops <- hubOp{kind: opReplayStreams, serverID: serverID}
 }
 
-// StartHeartbeat periodically heartbeats connected agents and keeps their
-// server rows marked connected. It snapshots the agent list through the hub
-// channel so all DB work happens outside the hub goroutine.
+// StartHeartbeat periodically heartbeats connected agents, keeps their server
+// rows marked connected, and disconnects agents that have not responded to
+// pings within 45 seconds (30s interval + 15s grace period).
 func (h *Hub) StartHeartbeat(db *sql.DB) {
 	ticker := time.NewTicker(15 * time.Second)
 	go func() {
 		for range ticker.C {
 			snap := h.listAgents()
+			now := time.Now()
 			for _, a := range snap {
+				// Check for stale agents: if LastPingAt is more than 45s ago
+				// and the agent was sent a ping at least 30s ago.
+				if !a.LastPingAt.IsZero() && now.Sub(a.LastPingAt) > 45*time.Second {
+					slog.Warn("agent heartbeat timeout, disconnecting",
+						"server_id", a.ServerID, "agent_id", a.AgentID,
+						"last_pong", a.LastPingAt)
+					h.closeAgent(a.ServerID, a.Conn)
+					_ = queries.UpdateServerConnection(db, a.ServerID, "disconnected")
+					continue
+				}
+				// Send heartbeat ping.
 				select {
 				case a.Send <- []byte(`{"type":"heartbeat"}`):
 				default:
@@ -747,4 +960,91 @@ func (h *Hub) listAgents() []agentSnapshot {
 	h.ops <- hubOp{kind: opListAgents, reply: reply}
 	snap, _ := (<-reply).([]agentSnapshot)
 	return snap
+}
+
+// listBrowsers snapshots all connected browsers via a synchronous hub operation.
+func (h *Hub) listBrowsers() []browserSnapshot {
+	reply := make(chan interface{}, 1)
+	h.ops <- hubOp{kind: opListBrowsers, reply: reply}
+	snap, _ := (<-reply).([]browserSnapshot)
+	return snap
+}
+
+// closeBrowser closes and unregisters a browser connection. Used by the
+// heartbeat goroutine to evict stale connections.
+func (h *Hub) closeBrowser(connID string) {
+	h.ops <- hubOp{kind: opCloseBrowser, connID: connID}
+}
+
+// closeAgent closes and unregisters an agent connection. Used by the heartbeat
+// goroutine to evict stale agents that have not responded to pings.
+func (h *Hub) closeAgent(serverID string, conn *websocket.Conn) {
+	h.ops <- hubOp{kind: opCloseAgent, serverID: serverID, conn: conn}
+}
+
+// StartBrowserHeartbeat sends pings to all connected browsers every 30 seconds
+// and closes connections that have not responded within 10 seconds.
+func (h *Hub) StartBrowserHeartbeat() {
+	pingTicker := time.NewTicker(30 * time.Second)
+	checkTicker := time.NewTicker(5 * time.Second)
+	go func() {
+		for {
+			select {
+			case <-pingTicker.C:
+				snap := h.listBrowsers()
+				for _, b := range snap {
+					ts := time.Now().UTC().Format(time.RFC3339)
+					pingMsg := []byte(`{"type":"ping","timestamp":"` + ts + `"}`)
+					h.RecordBrowserPing(b.ConnID)
+					select {
+					case b.Send <- pingMsg:
+					default:
+					}
+				}
+			case <-checkTicker.C:
+				snap := h.listBrowsers()
+				now := time.Now()
+				for _, b := range snap {
+					// Close if ping was sent more than 10s ago and no pong received.
+					if !b.LastPingSentAt.IsZero() && now.Sub(b.LastPingSentAt) > 10*time.Second {
+						if b.LastPongAt.Before(b.LastPingSentAt) {
+							slog.Warn("browser heartbeat timeout, closing connection",
+								"connection_id", b.ConnID)
+						h.closeBrowser(b.ConnID)
+					}
+				}
+				}
+			}
+		}
+	}()
+}
+
+// Stats returns current hub connection metrics.
+func (h *Hub) Stats() HubStats {
+	reply := make(chan interface{}, 1)
+	h.ops <- hubOp{kind: opGetStats, reply: reply}
+	stats, _ := (<-reply).(HubStats)
+	return stats
+}
+
+// StartMetricsLogger logs hub metrics every 5 minutes for debugging and
+// capacity planning.
+func (h *Hub) StartMetricsLogger() {
+	ticker := time.NewTicker(5 * time.Minute)
+	go func() {
+		for range ticker.C {
+			stats := h.Stats()
+			slog.Info("hub metrics",
+				"agent_connections", stats.AgentConnections,
+				"browser_connections", stats.BrowserConnections,
+				"subscriptions", stats.Subscriptions,
+				"pending_commands", stats.PendingCommands,
+				"active_log_streams", stats.ActiveLogStreams,
+				"messages_routed", stats.MessagesRouted,
+				"broadcast_count", stats.BroadcastCount,
+				"average_fanout", fmt.Sprintf("%.1f", stats.AverageFanout),
+				"failed_sends", stats.FailedSends,
+			)
+		}
+	}()
 }

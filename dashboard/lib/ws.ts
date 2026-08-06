@@ -12,7 +12,9 @@ export class WSClient {
   private ws: WebSocket | null = null;
   private url: string;
   private handlers: MessageHandler[] = [];
-  private reconnectSec: number;
+  private baseReconnectSec: number;
+  private reconnectAttempt: number = 0;
+  private maxReconnectSec: number = 30;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private serverId: string;
   private onConnectCallback: (() => void) | null = null;
@@ -20,11 +22,11 @@ export class WSClient {
   constructor(
     serverId: string,
     url: string = process.env.NEXT_PUBLIC_WS_URL || "ws://localhost:8080/ws/browser",
-    reconnectSec: number = 5
+    baseReconnectSec: number = 1
   ) {
     this.serverId = serverId;
     this.url = url;
-    this.reconnectSec = reconnectSec;
+    this.baseReconnectSec = baseReconnectSec;
   }
 
   connect(): void {
@@ -37,6 +39,7 @@ export class WSClient {
 
     this.ws.onopen = () => {
       console.log("WebSocket connected to server", this.serverId);
+      this.reconnectAttempt = 0;
       this.onConnectCallback?.();
     };
 
@@ -93,8 +96,14 @@ export class WSClient {
   }
 
   private scheduleReconnect(): void {
+    this.reconnectAttempt++;
+    const delay = Math.min(
+      this.baseReconnectSec * Math.pow(2, this.reconnectAttempt - 1),
+      this.maxReconnectSec
+    );
+    console.log(`Reconnecting in ${delay}s (attempt ${this.reconnectAttempt})`);
     this.reconnectTimer = setTimeout(() => {
       this.connect();
-    }, this.reconnectSec * 1000);
+    }, delay * 1000);
   }
 }

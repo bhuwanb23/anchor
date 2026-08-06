@@ -159,22 +159,26 @@ func HandleBrowserWS(hub *Hub, db *sql.DB, jwtSecret string) http.HandlerFunc {
 						hub.SendToBrowser(connID, browserErrorMsg("not subscribed to a server"))
 						continue
 					}
-					// Stream-control commands (legacy protocol) produce no result
-					// and never enter the command lifecycle.
-					if isStreamCommand(msg) {
-						agentMsg, _ := json.Marshal(msg)
-						// Track log-stream desires so active views are
-						// re-established when the agent reconnects (Layer 4C 3B).
-						trackStreamCommand(hub, watching, msg, agentMsg)
-						if !hub.SendToAgent(watching, agentMsg) {
-							hub.SendToBrowser(connID, browserErrorMsg("agent not connected"))
-						}
+					// Deduplicate: reject if a command is already in flight.
+					if hub.HasInFlightCommand(watching) {
+						hub.SendToBrowser(connID, browserErrorMsg("a command is already in progress for this server"))
 						continue
 					}
-					// Full command routing pipeline (Layer 5B Step 4): validate,
-					// store, deduplicate, forward or queue, and track the result.
-					if resp := handleBrowserCommand(hub, db, connID, userID, watching, msg); resp != nil {
-						hub.SendToBrowser(connID, resp)
+					agentMsg, _ := json.Marshal(msg)
+					// Track log-stream desires so active views are re-established
+					// when the agent reconnects (Layer 4C 3B).
+					trackStreamCommand(hub, watching, msg, agentMsg)
+					if !hub.SendToAgent(watching, agentMsg) {
+						slog.Warn("no agent connected for command", "user_id", userID, "server_id", watching)
+						// Send error back to browser (through the writer).
+						hub.SendToBrowser(connID, browserErrorMsg("agent not connected"))
+					} else if cmdID := browserCommandID(msg); cmdID != "" {
+						// Delivered: record that this browser is waiting for the
+						// result so the hub can route ack/progress/result (and
+						// disconnect failures) back to exactly this dashboard
+						// (Layer 5B Step 2). Only tracked on success so an
+						// offline agent does not leak a pending entry.
+						hub.TrackPendingCommand(cmdID, connID, watching)
 					}
 
 				case "subscribe":
@@ -210,7 +214,9 @@ func HandleBrowserWS(hub *Hub, db *sql.DB, jwtSecret string) http.HandlerFunc {
 					}
 
 				case "ping":
-					// Browser heartbeat: respond with pong (Step 3D).
+					// Browser heartbeat: respond with pong and record pong
+					// timestamp for connection health tracking (Step 6A).
+					hub.BrowserPong(connID)
 					hub.SendToBrowser(connID, []byte(`{"type":"pong"}`))
 
 				case "start_log_stream":
@@ -239,7 +245,7 @@ func HandleBrowserWS(hub *Hub, db *sql.DB, jwtSecret string) http.HandlerFunc {
 						continue
 					}
 					if key := streamPayloadKey(msg.Payload); key != "" {
-						hub.UnregisterLogStream(key)
+						hub.UnregisterLogStream(key, connID)
 						hub.ClearStreamCommand(watching, key)
 					}
 					hub.SendToAgent(watching, buildStreamCommand("stop_stream_logs", msg.Payload))
@@ -254,18 +260,15 @@ func HandleBrowserWS(hub *Hub, db *sql.DB, jwtSecret string) http.HandlerFunc {
 
 // userHasServerAccess reports whether the user owns the server or shares it
 // through a team (Layer 5A permission model). Used to validate subscriptions.
+// Uses the single-query check from the query layer (Layer 5C Step 3C #7)
+// instead of loading every accessible server ID into memory.
 func userHasServerAccess(db *sql.DB, userID, serverID string) bool {
-	ids, err := queries.ListServersByUserID(db, userID)
+	ok, err := queries.CanUserAccessServer(db, userID, serverID)
 	if err != nil {
 		slog.Warn("server access check failed", "user_id", userID, "error", err)
 		return false
 	}
-	for _, id := range ids {
-		if id == serverID {
-			return true
-		}
-	}
-	return false
+	return ok
 }
 
 // browserErrorMsg builds a browser-facing error envelope.

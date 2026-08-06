@@ -137,6 +137,42 @@ func TestAlertAckReadLifecycle(t *testing.T) {
 	}
 }
 
+// Step 3C #3: active-only alerts for a server, newest first.
+func TestListActiveAlertsByServer(t *testing.T) {
+	db := setupAlertsDB(t)
+	defer db.Close()
+
+	alerts, err := ListActiveAlertsByServer(db, "srv-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// a-1 and a-2 are active; a-3 (resolved) is on a different server anyway.
+	if len(alerts) != 2 {
+		t.Fatalf("len=%d want 2", len(alerts))
+	}
+	// Newest first by fired_at.
+	if alerts[0].ID != "a-1" || alerts[1].ID != "a-2" {
+		t.Fatalf("order wrong: %s, %s", alerts[0].ID, alerts[1].ID)
+	}
+	for _, a := range alerts {
+		if a.Status != "active" {
+			t.Fatalf("got status %q, want active only", a.Status)
+		}
+	}
+
+	// Server with no active alerts: empty slice, not nil.
+	if _, err := db.Exec(`UPDATE alerts SET status = 'resolved', resolved_at = '2026-01-01T11:00:00Z' WHERE server_id = 'srv-1'`); err != nil {
+		t.Fatal(err)
+	}
+	gone, err := ListActiveAlertsByServer(db, "srv-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gone == nil || len(gone) != 0 {
+		t.Fatalf("expected empty slice, got %v", gone)
+	}
+}
+
 func TestGetServerOwnerEmail(t *testing.T) {
 	db := setupAlertsDB(t)
 	defer db.Close()

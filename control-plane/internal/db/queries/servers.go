@@ -76,14 +76,6 @@ func UpdateServerSystemInfo(db *sql.DB, serverID, osVersion, osPretty, dockerVer
 	return err
 }
 
-func InsertServerEvent(db *sql.DB, id, serverID, eventType, checkName, message, details string) error {
-	_, err := db.Exec(
-		"INSERT INTO server_events (id, server_id, event_type, check_name, message, details) VALUES (?, ?, ?, ?, ?, ?)",
-		id, serverID, eventType, checkName, message, details,
-	)
-	return err
-}
-
 func GetServerByID(db *sql.DB, serverID string) (name, ipAddress string, err error) {
 	err = db.QueryRow(
 		"SELECT name, ip_address FROM servers WHERE id = ?",
@@ -113,4 +105,124 @@ func GetServerStatus(db *sql.DB, serverID string) (string, error) {
 		return "", err
 	}
 	return status, nil
+}
+
+// ---------------------------------------------------------------------------
+// Typed server queries (Layer 5C Step 3A/3C)
+// ---------------------------------------------------------------------------
+
+// Server is a full row of the servers table. Nullable columns map to the
+// sql.Null* types so callers can distinguish "not reported yet" from zero.
+//
+// Token and AgentSecretHash are credentials: they are excluded from any JSON
+// marshaling (json:"-") so a handler can never accidentally leak them.
+type Server struct {
+	ID              string          `json:"id"`
+	UserID          string          `json:"user_id"`
+	Name            string          `json:"name"`
+	Token           string          `json:"-"`
+	ConnectedAt     string          `json:"connected_at"`
+	LastSeen        string          `json:"last_seen"`
+	Status          string          `json:"status"`
+	AgentID         sql.NullString  `json:"-"`
+	AgentSecretHash sql.NullString  `json:"-"`
+	OSInfo          sql.NullString  `json:"os_info,omitempty"`
+	Arch            sql.NullString  `json:"arch,omitempty"`
+	RAMMB           sql.NullInt64   `json:"ram_mb,omitempty"`
+	DiskGB          sql.NullInt64   `json:"disk_gb,omitempty"`
+	IPAddress       sql.NullString  `json:"ip_address,omitempty"`
+	OSVersion       sql.NullString  `json:"os_version,omitempty"`
+	OSPretty        sql.NullString  `json:"os_pretty,omitempty"`
+	RAMAvailableMB  sql.NullInt64   `json:"ram_available_mb,omitempty"`
+	DiskTotalGB     sql.NullInt64   `json:"disk_total_gb,omitempty"`
+	DiskAvailableGB sql.NullInt64   `json:"disk_available_gb,omitempty"`
+	DiskUsedPercent sql.NullFloat64 `json:"disk_used_percent,omitempty"`
+	DockerVersion   sql.NullString  `json:"docker_version,omitempty"`
+}
+
+const serverColumns = `id, user_id, name, token, connected_at, last_seen, status,
+	agent_id, agent_secret_hash, os_info, arch, ram_mb, disk_gb, ip_address,
+	os_version, os_pretty, ram_available_mb, disk_total_gb, disk_available_gb,
+	disk_used_percent, docker_version`
+
+func scanServer(scanner interface{ Scan(...any) error }) (Server, error) {
+	var s Server
+	if err := scanner.Scan(&s.ID, &s.UserID, &s.Name, &s.Token, &s.ConnectedAt, &s.LastSeen, &s.Status,
+		&s.AgentID, &s.AgentSecretHash, &s.OSInfo, &s.Arch, &s.RAMMB, &s.DiskGB, &s.IPAddress,
+		&s.OSVersion, &s.OSPretty, &s.RAMAvailableMB, &s.DiskTotalGB, &s.DiskAvailableGB,
+		&s.DiskUsedPercent, &s.DockerVersion); err != nil {
+		return s, err
+	}
+	return s, nil
+}
+
+// GetServer returns a server by ID (Layer 5C Step 3A Pattern 1).
+// Returns nil, nil when the server does not exist.
+func GetServer(db *sql.DB, serverID string) (*Server, error) {
+	s, err := scanServer(db.QueryRow(
+		"SELECT "+serverColumns+" FROM servers WHERE id = ?",
+		serverID,
+	))
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &s, nil
+}
+
+// ListServersByUser returns every server owned by the user (Pattern 3).
+// Returns an empty slice (never nil) when the user has no servers.
+// The servers table has no created_at column, so ordering uses connected_at.
+func ListServersByUser(db *sql.DB, userID string) ([]Server, error) {
+	rows, err := db.Query(
+		"SELECT "+serverColumns+" FROM servers WHERE user_id = ? ORDER BY connected_at DESC",
+		userID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var servers []Server
+	for rows.Next() {
+		s, err := scanServer(rows)
+		if err != nil {
+			return nil, err
+		}
+		servers = append(servers, s)
+	}
+	if servers == nil {
+		servers = []Server{}
+	}
+	return servers, rows.Err()
+}
+
+// ListServersByTeam returns every server linked to a team via server_team
+// (Pattern 3). Returns an empty slice (never nil) when the team has none.
+func ListServersByTeam(db *sql.DB, teamID string) ([]Server, error) {
+	rows, err := db.Query(
+		"SELECT "+serverColumns+" FROM servers s "+
+			"JOIN server_team st ON st.server_id = s.id "+
+			"WHERE st.team_id = ? ORDER BY s.connected_at DESC",
+		teamID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var servers []Server
+	for rows.Next() {
+		s, err := scanServer(rows)
+		if err != nil {
+			return nil, err
+		}
+		servers = append(servers, s)
+	}
+	if servers == nil {
+		servers = []Server{}
+	}
+	return servers, rows.Err()
 }

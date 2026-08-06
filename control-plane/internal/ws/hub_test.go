@@ -163,6 +163,24 @@ func TestHub_UnregisterBrowserStopsDelivery(t *testing.T) {
 	assertNoMessage(t, sendA, "message after browser unregister")
 }
 
+func TestHub_ForwardToBrowsersCleansStaleSubscriptions(t *testing.T) {
+	hub := NewHub()
+	connID, _ := hub.RegisterBrowser("user-1", testConn(t))
+	hub.Subscribe("srv-1", connID)
+	hub.UnregisterBrowser(connID)
+
+	// After unregister, no messages should be delivered (stale entry skipped).
+	hub.ForwardToBrowsers("srv-1", []byte("trigger cleanup"))
+	// If cleanup worked, the entry was removed. Verify by subscribing a new
+	// browser and confirming it receives messages normally.
+	connID2, send2 := hub.RegisterBrowser("user-2", testConn(t))
+	hub.Subscribe("srv-1", connID2)
+	hub.ForwardToBrowsers("srv-1", []byte("after-cleanup"))
+	if got := recvWithTimeout(t, send2, "new browser after cleanup"); string(got) != "after-cleanup" {
+		t.Fatalf("got %q, want after-cleanup", got)
+	}
+}
+
 func TestHub_PendingCommandsRouteToBrowser(t *testing.T) {
 	hub := NewHub()
 	connID, sendA := hub.RegisterBrowser("user-1", testConn(t))
@@ -186,6 +204,69 @@ func TestHub_PendingCommandsRouteToBrowser(t *testing.T) {
 	hub.ForwardToBrowsers("srv-1", []byte(`{"type":"result","command_id":"cmd-2"}`))
 	if got := recvWithTimeout(t, sendA, "result message"); got == nil {
 		t.Fatal("result not delivered to waiting browser")
+	}
+}
+
+func TestHub_CommandTimeoutFailsPending(t *testing.T) {
+	hub := NewHub()
+	connID, sendA := hub.RegisterBrowser("user-1", testConn(t))
+	hub.Subscribe("srv-1", connID)
+
+	// Directly enqueue a timed-out command via the internal op to avoid
+	// waiting 10 minutes. We simulate what startCommandTimeout does.
+	hub.TrackPendingCommand("cmd-to", connID, "srv-1")
+	hub.ops <- hubOp{kind: opFailTimedOutCommand, commandID: "cmd-to"}
+
+	if got := recvWithTimeout(t, sendA, "timeout error"); got == nil {
+		t.Fatal("timeout error not delivered to browser")
+	}
+	// Command should be removed from pending.
+	if got := hub.ResolvePendingCommand("cmd-to"); got != "" {
+		t.Fatalf("command should be removed after timeout, got %q", got)
+	}
+}
+
+func TestHub_CommandTimeoutNoOpForResolvedCommand(t *testing.T) {
+	hub := NewHub()
+	connID, _ := hub.RegisterBrowser("user-1", testConn(t))
+	hub.Subscribe("srv-1", connID)
+
+	hub.TrackPendingCommand("cmd-resolved", connID, "srv-1")
+	hub.ResolvePendingCommand("cmd-resolved") // resolve before timeout
+
+	// Timeout after resolution should be a no-op.
+	hub.ops <- hubOp{kind: opFailTimedOutCommand, commandID: "cmd-resolved"}
+	// No crash, no panic — just a no-op.
+}
+
+func TestHub_HasInFlightCommand(t *testing.T) {
+	hub := NewHub()
+	connID, _ := hub.RegisterBrowser("user-1", testConn(t))
+	hub.Subscribe("srv-1", connID)
+
+	if hub.HasInFlightCommand("srv-1") {
+		t.Fatal("no in-flight commands yet")
+	}
+
+	hub.TrackPendingCommand("cmd-1", connID, "srv-1")
+	if !hub.HasInFlightCommand("srv-1") {
+		t.Fatal("expected in-flight command after TrackPendingCommand")
+	}
+
+	hub.ResolvePendingCommand("cmd-1")
+	if hub.HasInFlightCommand("srv-1") {
+		t.Fatal("no in-flight commands after ResolvePendingCommand")
+	}
+}
+
+func TestHub_HasInFlightCommandIgnoresOtherServers(t *testing.T) {
+	hub := NewHub()
+	connID, _ := hub.RegisterBrowser("user-1", testConn(t))
+	hub.Subscribe("srv-1", connID)
+
+	hub.TrackPendingCommand("cmd-1", connID, "srv-1")
+	if hub.HasInFlightCommand("srv-2") {
+		t.Fatal("command on srv-1 should not affect srv-2")
 	}
 }
 
@@ -299,4 +380,47 @@ func TestHub_ConcurrentOperations(t *testing.T) {
 		}(i)
 	}
 	wg.Wait()
+}
+
+// --- Metrics (Step 6C) ---
+
+func TestHub_StatsReturnsCurrentCounts(t *testing.T) {
+	hub := NewHub()
+	agentConn := testConn(t)
+	hub.RegisterAgent("srv-1", "agt-1", "user-1", agentConn)
+
+	browserConn, _ := hub.RegisterBrowser("user-1", testConn(t))
+	hub.Subscribe("srv-1", browserConn)
+	hub.TrackPendingCommand("cmd-1", browserConn, "srv-1")
+
+	stats := hub.Stats()
+	if stats.AgentConnections != 1 {
+		t.Fatalf("AgentConnections = %d, want 1", stats.AgentConnections)
+	}
+	if stats.BrowserConnections != 1 {
+		t.Fatalf("BrowserConnections = %d, want 1", stats.BrowserConnections)
+	}
+	if stats.PendingCommands != 1 {
+		t.Fatalf("PendingCommands = %d, want 1", stats.PendingCommands)
+	}
+	if stats.Subscriptions != 1 {
+		t.Fatalf("Subscriptions = %d, want 1", stats.Subscriptions)
+	}
+}
+
+func TestHub_StatsTracksMessagesRouted(t *testing.T) {
+	hub := NewHub()
+	browserConn, _ := hub.RegisterBrowser("user-1", testConn(t))
+	hub.Subscribe("srv-1", browserConn)
+
+	hub.ForwardToBrowsers("srv-1", []byte("msg1"))
+	hub.ForwardToBrowsers("srv-1", []byte("msg2"))
+
+	stats := hub.Stats()
+	if stats.MessagesRouted != 2 {
+		t.Fatalf("MessagesRouted = %d, want 2", stats.MessagesRouted)
+	}
+	if stats.BroadcastCount != 2 {
+		t.Fatalf("BroadcastCount = %d, want 2", stats.BroadcastCount)
+	}
 }

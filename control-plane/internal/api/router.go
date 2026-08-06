@@ -2,6 +2,7 @@ package api
 
 import (
 	"database/sql"
+	"encoding/json"
 	"net/http"
 	"path/filepath"
 
@@ -30,6 +31,23 @@ func NewRouter(database *sql.DB, cfg *config.Config, hub *ws.Hub, delivery *aler
 	r.Use(appmiddleware.SecurityHeaders)
 	r.Use(appmiddleware.CORS(cfg.FrontendURL))
 
+	// Unknown routes return 404 JSON and unknown methods on known paths
+	// return 405 JSON (Layer 6 Step 1 done conditions) — not chi's default
+	// plain-text page. Registered after middleware so they inherit the same
+	// RequestID/CORS/security treatment as real routes.
+	//
+	// Tradeoff: chi's custom MethodNotAllowed API does not hand the handler
+	// the list of allowed methods (only its default text handler receives
+	// them), so this 405 response omits the RFC 7231 Allow header. Buffering
+	// responses to recover it is not worth it — /releases/* streams large
+	// binaries. Accepted and documented; revisit only if a client needs Allow.
+	r.NotFound(func(w http.ResponseWriter, r *http.Request) {
+		writeError(w, r, http.StatusNotFound, "not_found", "The requested resource was not found")
+	})
+	r.MethodNotAllowed(func(w http.ResponseWriter, r *http.Request) {
+		writeError(w, r, http.StatusMethodNotAllowed, "method_not_allowed", "The requested method is not allowed for this resource")
+	})
+
 	r.Get("/health", handlers.Health)
 	r.Get("/install.sh", func(w http.ResponseWriter, r *http.Request) {
 		http.ServeFile(w, r, "./scripts/install.sh")
@@ -38,9 +56,20 @@ func NewRouter(database *sql.DB, cfg *config.Config, hub *ws.Hub, delivery *aler
 	r.Get("/ws/agent", ws.HandleAgentWS(hub, database, cfg.BaseDomain, delivery))
 	r.Get("/ws/browser", ws.HandleBrowserWS(hub, database, cfg.JWTSecret))
 
+	// Internal hub stats endpoint (no auth required, internal use only).
+	r.Get("/internal/hub/stats", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		stats := hub.Stats()
+		json.NewEncoder(w).Encode(stats)
+	})
+
 	releaseDir := filepath.Join(".", "release")
 	r.Get("/releases/latest.json", handlers.LatestRelease)
 	r.Handle("/releases/*", http.StripPrefix("/releases/", http.FileServer(http.Dir(releaseDir))))
+
+	// /api/v1 — versioned API (Layer 6 Step 1 route layout): a public group
+	// (no auth) for registration/login/refresh, then the protected group
+	// behind the JWT middleware for everything else.
 
 	// Create DNS client if Cloudflare credentials are configured
 	var dnsClient *dns.Client
