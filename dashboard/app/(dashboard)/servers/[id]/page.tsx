@@ -178,7 +178,6 @@ export default function ServerDetailPage({
               <HardDrive className="h-4 w-4 text-gray-400" />
               <span className="text-sm text-gray-900 dark:text-white">
                 {server.disk_total_gb ? `${server.disk_total_gb} GB` : "N/A"}
-                {server.disk_available_gb ? ` (${server.disk_available_gb} GB free)` : ""}
               </span>
             </div>
           </CardContent>
