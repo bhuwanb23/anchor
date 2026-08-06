@@ -88,6 +88,7 @@ func NewRouter(database *sql.DB, cfg *config.Config, hub *ws.Hub, delivery *aler
 	customDomainHandler := &handlers.CustomDomain{DB: database, Hub: hub}
 	backupHandler := &handlers.Backup{DB: database, Hub: hub}
 	teamHandler := &handlers.Teams{DB: database, Mailer: sender, Logger: slog.Default()}
+	step5 := &handlers.Step5{DB: database}
 
 	r.Route("/api/v1", func(r chi.Router) {
 		// Public routes (no auth): registration, login, token refresh,
@@ -138,35 +139,35 @@ func NewRouter(database *sql.DB, cfg *config.Config, hub *ws.Hub, delivery *aler
 			// --- Servers ---
 			r.Get("/servers", server.ListServers)
 			r.Post("/servers", server.CreateServer)
-			r.Get("/servers/{serverID}", handlers.NotImplemented) // Layer 6 Step 5
+			r.Get("/servers/{serverID}", step5.GetServer)
 			r.Delete("/servers/{serverID}", server.DeleteServer)
 			r.Post("/servers/registration-token", tokenHandler.CreateRegistrationToken)   // legacy alias
-			r.Post("/servers/{serverID}/registration-token", handlers.NotImplemented)     // plan URL, Layer 6 Step 5
+			r.Post("/servers/{serverID}/registration-token", step5.CreateServerRegistrationToken)
 			r.Get("/servers/{serverID}/events", server.ListEvents)
 
 			// --- Apps (Layer 6 Step 5 handlers) ---
-			r.Get("/servers/{serverID}/apps", handlers.NotImplemented)
-			r.Post("/servers/{serverID}/apps", handlers.NotImplemented)
-			r.Get("/servers/{serverID}/apps/{appID}", handlers.NotImplemented)
-			r.Delete("/servers/{serverID}/apps/{appID}", handlers.NotImplemented)
+			r.Get("/servers/{serverID}/apps", step5.ListApps)
+			r.Post("/servers/{serverID}/apps", step5.CreateApp)
+			r.Get("/servers/{serverID}/apps/{appID}", step5.GetApp)
+			r.Delete("/servers/{serverID}/apps/{appID}", step5.DeleteApp)
 
 			// --- Deployments ---
 			r.Post("/deploy", handlers.MakeDeployApp(database, cfg, hub)) // legacy alias
 			r.Get("/deployments", handlers.GetDeploymentStatus)            // legacy alias
-			r.Post("/servers/{serverID}/apps/{appID}/deploy", handlers.NotImplemented)      // plan URL, Layer 6 Step 5
-			r.Post("/servers/{serverID}/apps/{appID}/rollback", handlers.NotImplemented)    // Layer 6 Step 5
-			r.Get("/servers/{serverID}/apps/{appID}/deployments", handlers.NotImplemented)  // Layer 6 Step 5
+			r.Post("/servers/{serverID}/apps/{appID}/deploy", step5.DeployApp)
+			r.Post("/servers/{serverID}/apps/{appID}/rollback", step5.RollbackApp)
+			r.Get("/servers/{serverID}/apps/{appID}/deployments", step5.ListDeployments)
 
 			// --- App lifecycle (Layer 6 Step 5 handlers) ---
-			r.Post("/servers/{serverID}/apps/{appID}/start", handlers.NotImplemented)
-			r.Post("/servers/{serverID}/apps/{appID}/stop", handlers.NotImplemented)
-			r.Post("/servers/{serverID}/apps/{appID}/restart", handlers.NotImplemented)
-			r.Get("/servers/{serverID}/apps/{appID}/logs", handlers.NotImplemented)
+			r.Post("/servers/{serverID}/apps/{appID}/start", step5.StartApp)
+			r.Post("/servers/{serverID}/apps/{appID}/stop", step5.StopApp)
+			r.Post("/servers/{serverID}/apps/{appID}/restart", step5.RestartApp)
+			r.Get("/servers/{serverID}/apps/{appID}/logs", step5.GetAppLogs)
 
 			// --- Environment variables (Layer 6 Step 5 handlers) ---
-			r.Get("/servers/{serverID}/apps/{appID}/env", handlers.NotImplemented)
-			r.Put("/servers/{serverID}/apps/{appID}/env/{key}", handlers.NotImplemented)
-			r.Delete("/servers/{serverID}/apps/{appID}/env/{key}", handlers.NotImplemented)
+			r.Get("/servers/{serverID}/apps/{appID}/env", step5.ListEnvVars)
+			r.Put("/servers/{serverID}/apps/{appID}/env/{key}", step5.SetEnvVar)
+			r.Delete("/servers/{serverID}/apps/{appID}/env/{key}", step5.DeleteEnvVar)
 
 			// --- Databases (Layer 6 Step 5 handlers) ---
 			r.Get("/servers/{serverID}/apps/{appID}/databases", handlers.NotImplemented)
@@ -185,8 +186,8 @@ func NewRouter(database *sql.DB, cfg *config.Config, hub *ws.Hub, delivery *aler
 			r.Post("/servers/{serverID}/apps/{appID}/domains/{domain}/verify", handlers.NotImplemented)
 
 			// --- Metrics (Layer 6 Step 5 handlers) ---
-			r.Get("/servers/{serverID}/metrics", handlers.NotImplemented)
-			r.Get("/servers/{serverID}/metrics/history", handlers.NotImplemented)
+			r.Get("/servers/{serverID}/metrics", step5.GetServerMetrics)
+			r.Get("/servers/{serverID}/metrics/history", step5.GetServerMetricsHistory)
 
 			// --- Alerts ---
 			r.Get("/servers/{serverID}/alerts", server.ListAlerts)
@@ -213,11 +214,10 @@ func NewRouter(database *sql.DB, cfg *config.Config, hub *ws.Hub, delivery *aler
 			r.Post("/servers/{serverID}/backup/verification/trigger", backupHandler.TriggerBackupVerification)
 			r.Get("/servers/{serverID}/backup/storage/stats", backupHandler.GetStorageStats)
 			r.Post("/servers/{serverID}/backup/storage/maintenance", backupHandler.TriggerMaintenance)
-			// Plan routes (Layer 6 Step 5 handlers): a paginated backup list, a
-			// run-backup trigger, and a per-backup restore.
-			r.Get("/servers/{serverID}/backups", handlers.NotImplemented)
-			r.Post("/servers/{serverID}/backups", handlers.NotImplemented)
-			r.Post("/servers/{serverID}/backups/{backupID}/restore", handlers.NotImplemented)
+			// Plan routes (Layer 6 Step 5 handlers).
+			r.Get("/servers/{serverID}/backups", step5.ListBackupsPlan)
+			r.Post("/servers/{serverID}/backups", step5.TriggerBackupPlan)
+			r.Post("/servers/{serverID}/backups/{backupID}/restore", step5.RestoreBackupPlan)
 
 			// --- Commands (Layer 6 Step 5 handlers) ---
 			r.Get("/servers/{serverID}/commands", handlers.NotImplemented)
