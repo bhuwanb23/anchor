@@ -1,1 +1,44 @@
-{"provider":"kokoro","lang":"en-us","speed":1.0,"voice":"am_michael","lines":[{"id":"01","text":"You own a server. It runs your business. It shouldn't run you."},{"id":"02","text":"Tonight it's a full disk. Tomorrow, an expired certificate. Another hour gone to a machine you already pay for."},{"id":"03","text":"Anchor turns it into your own private cloud and the dashboard is the only thing you touch."},{"id":"04","text":"A small agent lives on your server. Your apps stay on hardware you own, with automatic HTTPS, while health and commands travel over one connection."},{"id":"05","text":"It deploys from Git or Docker, backs everything up every night, and if something breaks, it tells you in plain English what happened."},{"id":"06","text":"Bring any five dollar box. Leave the babysitting to Anchor."}],"bgm":{"mode":"generate","query":"calm warm confident minimal electronic corporate underscore, gentle pulse around 92 bpm, soft synth pads, no vocals","prompt":"calm warm confident minimal electronic corporate underscore, gentle pulse around 92 bpm, soft synth pads, subtle piano, no vocals, seamless loop"}}
+{
+  "provider": "kokoro",
+  "lang": "en-us",
+  "speed": 1.0,
+  "voice": "am_michael",
+  "lines": [
+    {
+      "id": "01",
+      "text": "You own a server. It runs your business. It shouldn't run you.",
+      "sfx": ["error", "whoosh"]
+    },
+    {
+      "id": "02",
+      "text": "Tonight it's a full disk. Tomorrow, an expired certificate. Another hour gone to a machine you already pay for.",
+      "sfx": ["impact-bass-1", "click", "notification"]
+    },
+    {
+      "id": "03",
+      "text": "Anchor turns it into your own private cloud and the dashboard is the only thing you touch.",
+      "sfx": ["chime"]
+    },
+    {
+      "id": "04",
+      "text": "A small agent lives on your server. Your apps stay on hardware you own, with automatic HTTPS, while health and commands travel over one connection.",
+      "sfx": ["ping"]
+    },
+    {
+      "id": "05",
+      "text": "It deploys from Git or Docker, backs everything up every night, and if something breaks, it tells you in plain English what happened.",
+      "sfx": ["pop"]
+    },
+    {
+      "id": "06",
+      "text": "Bring any five dollar box. Leave the babysitting to Anchor.",
+      "sfx": ["impact-bass-1"]
+    }
+  ],
+  "bgm": {
+    "mode": "generate",
+    "duration_s": 60.0,
+    "query": "calm warm confident minimal electronic corporate underscore, gentle pulse around 92 bpm, soft synth pads, no vocals",
+    "prompt": "calm warm confident minimal electronic corporate underscore, gentle pulse around 92 bpm, soft synth pads, subtle piano, no vocals, seamless loop"
+  }
+}
