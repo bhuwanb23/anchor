@@ -1,7 +1,9 @@
 package queries
 
 import (
+	"crypto/rand"
 	"database/sql"
+	"encoding/hex"
 	"time"
 )
 
@@ -37,9 +39,14 @@ func UpdateServerStatus(db *sql.DB, serverID, status string) error {
 }
 
 func InsertServerWithAgent(db *sql.DB, id, userID, name, agentID, agentSecretHash, osInfo, arch string, ramMB, diskGB int, ipAddress string) error {
+	// The servers table has a NOT NULL token column used by the legacy flow.
+	// Agent-registered servers don't use it, but we must provide a unique value.
+	b := make([]byte, 16)
+	_, _ = rand.Read(b)
+	token := "agent_" + hex.EncodeToString(b)
 	_, err := db.Exec(
-		"INSERT INTO servers (id, user_id, name, agent_id, agent_secret_hash, os_info, arch, ram_mb, disk_gb, ip_address, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'connected')",
-		id, userID, name, agentID, agentSecretHash, osInfo, arch, ramMB, diskGB, ipAddress,
+		"INSERT INTO servers (id, user_id, name, token, agent_id, agent_secret_hash, os_info, arch, ram_mb, disk_gb, ip_address, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')",
+		id, userID, name, token, agentID, agentSecretHash, osInfo, arch, ramMB, diskGB, ipAddress,
 	)
 	return err
 }
