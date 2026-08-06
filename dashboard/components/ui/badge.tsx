@@ -24,17 +24,37 @@ function Badge({ variant = "default", className = "", children, ...props }: Badg
 }
 
 function StatusBadge({ status }: { status: string }) {
-  const variantMap: Record<string, "success" | "danger" | "warning" | "info"> = {
+  const variantMap: Record<string, "success" | "danger" | "warning" | "info" | "default"> = {
     connected: "success",
-    disconnected: "danger",
+    disconnected: "default",
     pending: "warning",
+    updating: "warning",
+    error: "danger",
     running: "success",
-    stopped: "danger",
+    stopped: "default",
     failed: "danger",
-    deploying: "info",
+    crashed: "danger",
+    deploying: "warning",
   };
 
-  return <Badge variant={variantMap[status] || "default"}>{status}</Badge>;
+  const labels: Record<string, string> = {
+    connected: "Connected",
+    disconnected: "Disconnected",
+    pending: "Pending",
+    updating: "Updating",
+    error: "Error",
+    running: "Running",
+    stopped: "Stopped",
+    failed: "Crashed",
+    crashed: "Crashed",
+    deploying: "Deploying",
+  };
+
+  return (
+    <Badge variant={variantMap[status] || "default"}>
+      {labels[status] || status}
+    </Badge>
+  );
 }
 
 export { Badge, StatusBadge };

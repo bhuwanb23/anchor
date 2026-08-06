@@ -5,6 +5,8 @@ import Link from "next/link";
 import { Bell, CheckCheck } from "lucide-react";
 import { Alert } from "@/types";
 import api from "@/lib/api";
+import { getWSClient } from "@/lib/ws";
+import { useServerStore } from "@/store/server-store";
 
 interface AlertsResponse {
   alerts: Alert[];
@@ -12,39 +14,50 @@ interface AlertsResponse {
 }
 
 /**
- * Layer 4C Step 6 — notification center. A bell in the dashboard header that
- * shows the unread alert count, lists recent alerts across all the user's
- * servers, marks them read when opened, and allows acknowledging them.
+ * Notification bell: unread count from REST + live WS bumps.
  */
 export default function NotificationCenter() {
   const [open, setOpen] = useState(false);
   const [alerts, setAlerts] = useState<Alert[]>([]);
-  const [unread, setUnread] = useState(0);
   const [loading, setLoading] = useState(true);
   const rootRef = useRef<HTMLDivElement>(null);
+  const unread = useServerStore((s) => s.unreadCount);
+  const setUnreadCount = useServerStore((s) => s.setUnreadCount);
+  const bumpUnread = useServerStore((s) => s.bumpUnread);
 
   const fetchAlerts = useCallback(async (markRead: boolean) => {
     try {
       const res = await api.get<AlertsResponse>("/alerts");
       setAlerts(res.data.alerts || []);
-      setUnread(res.data.unread_count || 0);
+      setUnreadCount(res.data.unread_count || 0);
       if (markRead && (res.data.unread_count || 0) > 0) {
-        // Opening the center acknowledges the alerts as seen.
         await api.post("/alerts/read");
-        setUnread(0);
+        setUnreadCount(0);
       }
     } catch {
-      // Notification center degrades gracefully offline.
+      // degrade offline
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [setUnreadCount]);
 
   useEffect(() => {
     fetchAlerts(false);
     const timer = setInterval(() => fetchAlerts(false), 30_000);
     return () => clearInterval(timer);
   }, [fetchAlerts]);
+
+  // Live bump without waiting for poll
+  useEffect(() => {
+    const client = getWSClient();
+    const onAlert = () => bumpUnread();
+    const u1 = client.on("anomaly_alert", onAlert);
+    const u2 = client.on("error_alert", onAlert);
+    return () => {
+      u1();
+      u2();
+    };
+  }, [bumpUnread]);
 
   // Close when clicking outside.
   useEffect(() => {
@@ -164,7 +177,8 @@ export default function NotificationCenter() {
           <div className="flex items-center justify-between border-t border-gray-200 px-4 py-2 dark:border-gray-700">
             <span className="text-xs text-gray-400">{active.length} active</span>
             <button
-              onClick={() => api.post("/alerts/read").then(() => setUnread(0))}
+              type="button"
+              onClick={() => api.post("/alerts/read").then(() => setUnreadCount(0))}
               className="text-xs font-medium text-blue-600 hover:text-blue-800 dark:text-blue-400"
             >
               Mark all read

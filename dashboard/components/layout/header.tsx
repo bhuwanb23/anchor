@@ -1,26 +1,23 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { Bell, LogOut, Settings, User, Menu } from "lucide-react";
+import { LogOut, Settings, User, Menu } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { useWSStore } from "@/store/ws-store";
 import { useServerStore } from "@/store/server-store";
-import api from "@/lib/api";
-import type { Alert } from "@/types";
+import NotificationCenter from "@/components/dashboard/notification-center";
 
-// Map paths to titles
-const pageTitles: Record<string, string> = {
-  "/overview": "Overview",
-  "/servers": "Servers",
-};
-
-function getTitle(pathname: string): string {
-  if (pageTitles[pathname]) return pageTitles[pathname];
-  // /servers/:id → server name or "Server"
-  if (pathname.match(/^\/servers\/[^/]+$/)) return "Server";
+function getTitle(pathname: string, serverName?: string): string {
+  if (pathname === "/overview") return "Overview";
+  if (pathname === "/servers") return "Servers";
+  if (pathname === "/account") return "Account Settings";
   if (pathname.match(/^\/servers\/[^/]+\/backups$/)) return "Backups";
+  if (pathname.match(/^\/servers\/[^/]+\/alerts$/)) return "Alerts";
+  if (pathname.match(/^\/servers\/[^/]+\/apps\/new$/)) return "Deploy New App";
+  if (pathname.match(/^\/servers\/[^/]+\/apps\//)) return "App";
+  if (pathname.match(/^\/servers\/[^/]+$/)) return serverName || "Server";
   return "Dashboard";
 }
 
@@ -33,29 +30,16 @@ export function Header({ onMenuClick }: HeaderProps) {
   const router = useRouter();
   const { user, logout } = useAuth();
   const wsStatus = useWSStore((s) => s.status);
+  const servers = useServerStore((s) => s.servers);
   const selectedServerId = useServerStore((s) => s.selectedServerId);
 
-  const [unread, setUnread] = useState(0);
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
-  // Fetch unread alert count
-  const fetchUnread = useCallback(async () => {
-    try {
-      const res = await api.get<{ unread_count: number }>("/alerts");
-      setUnread(res.data.unread_count || 0);
-    } catch {
-      // ignore
-    }
-  }, []);
+  const pathServerId = pathname.match(/^\/servers\/([^/]+)/)?.[1];
+  const server = servers.find((s) => s.id === (pathServerId || selectedServerId));
+  const title = getTitle(pathname, server?.name);
 
-  useEffect(() => {
-    fetchUnread();
-    const interval = setInterval(fetchUnread, 30_000);
-    return () => clearInterval(interval);
-  }, [fetchUnread]);
-
-  // Close dropdown on outside click
   useEffect(() => {
     const handler = (e: MouseEvent) => {
       if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
@@ -72,24 +56,21 @@ export function Header({ onMenuClick }: HeaderProps) {
     router.push("/login");
   };
 
-  const title = getTitle(pathname);
-
   return (
     <header className="sticky top-0 z-40 flex h-14 items-center justify-between border-b border-gray-200 bg-white/80 px-4 backdrop-blur dark:border-gray-800 dark:bg-gray-900/80 sm:px-6">
-      {/* Left: hamburger (mobile) + title */}
       <div className="flex items-center gap-3">
         <button
+          type="button"
           onClick={onMenuClick}
           className="rounded-lg p-1.5 text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-800 lg:hidden"
+          aria-label="Open menu"
         >
           <Menu className="h-5 w-5" />
         </button>
-        <h1 className="text-lg font-semibold text-gray-900 dark:text-white">{title}</h1>
+        <h1 className="truncate text-lg font-semibold text-gray-900 dark:text-white">{title}</h1>
       </div>
 
-      {/* Right: WS status + bell + user */}
       <div className="flex items-center gap-2">
-        {/* WebSocket status dot */}
         <span
           className={`h-2 w-2 rounded-full ${
             wsStatus === "connected"
@@ -107,29 +88,18 @@ export function Header({ onMenuClick }: HeaderProps) {
           }
         />
 
-        {/* Notification bell */}
-        <Link
-          href="/overview"
-          className="relative rounded-lg p-2 text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-800"
-        >
-          <Bell className="h-5 w-5" />
-          {unread > 0 && (
-            <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-medium text-white">
-              {unread > 99 ? "99+" : unread}
-            </span>
-          )}
-        </Link>
+        <NotificationCenter />
 
-        {/* User dropdown */}
         <div className="relative" ref={dropdownRef}>
           <button
+            type="button"
             onClick={() => setDropdownOpen(!dropdownOpen)}
             className="flex items-center gap-2 rounded-lg px-2 py-1.5 text-sm text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-800"
           >
             <div className="flex h-7 w-7 items-center justify-center rounded-full bg-blue-100 text-xs font-medium text-blue-700 dark:bg-blue-900 dark:text-blue-300">
               {user?.name?.charAt(0)?.toUpperCase() || user?.email?.charAt(0)?.toUpperCase() || "U"}
             </div>
-            <span className="hidden truncate sm:inline">{user?.name || user?.email}</span>
+            <span className="hidden max-w-[8rem] truncate sm:inline">{user?.name || user?.email}</span>
           </button>
 
           {dropdownOpen && (
@@ -139,15 +109,15 @@ export function Header({ onMenuClick }: HeaderProps) {
                 <p className="text-xs text-gray-500">{user?.email}</p>
               </div>
               <Link
-                href="/overview"
+                href="/account"
                 onClick={() => setDropdownOpen(false)}
                 className="flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-800"
               >
                 <User className="h-4 w-4" />
-                Account
+                Account Settings
               </Link>
               <Link
-                href="/overview"
+                href="/account"
                 onClick={() => setDropdownOpen(false)}
                 className="flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-800"
               >
@@ -156,11 +126,12 @@ export function Header({ onMenuClick }: HeaderProps) {
               </Link>
               <div className="border-t dark:border-gray-700" />
               <button
+                type="button"
                 onClick={handleLogout}
                 className="flex w-full items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-800"
               >
                 <LogOut className="h-4 w-4" />
-                Sign out
+                Logout
               </button>
             </div>
           )}
