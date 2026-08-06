@@ -10,9 +10,10 @@ import { ServerCard } from "@/components/dashboard/server-card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
+import { PageError } from "@/components/ui/page-states";
 import { Dialog, DialogContent, DialogTrigger } from "@radix-ui/react-dialog";
 import api from "@/lib/api";
-import { Server, Plus, Copy } from "lucide-react";
+import { Plus, Copy } from "lucide-react";
 import type { RegistrationTokenResponse } from "@/types";
 
 const createServerSchema = z.object({
@@ -105,16 +106,27 @@ export default function ServersPage() {
         </Dialog>
       </div>
 
-      {error && <p className="text-sm text-red-500">{error}</p>}
+      {error && (
+        <PageError
+          message="We could not load your servers. Try again in a moment."
+          onRetry={() => refetch()}
+        />
+      )}
       {isLoading ? (
-        <div className="flex items-center gap-2 text-gray-500">
-          <Server className="h-4 w-4 animate-pulse" />
-          Loading servers...
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {[1, 2, 3].map((i) => (
+            <div key={i} className="h-36 animate-pulse rounded-xl bg-gray-200 dark:bg-gray-800" />
+          ))}
         </div>
       ) : servers.length === 0 ? (
         <Card>
-          <CardContent className="py-12 text-center text-gray-500">
-            No servers yet. Click &quot;Add Server&quot; to get started.
+          <CardContent className="space-y-3 py-12 text-center">
+            <p className="text-lg font-medium text-gray-900 dark:text-white">Welcome to Anchor</p>
+            <p className="text-sm text-gray-500">Connect your first server to start deploying apps.</p>
+            <Button onClick={() => setDialogOpen(true)}>
+              <Plus className="mr-2 h-4 w-4" />
+              Add your first server
+            </Button>
           </CardContent>
         </Card>
       ) : (

@@ -1,6 +1,6 @@
 "use client";
 
-import { use, useEffect } from "react";
+import { use, useEffect, useState } from "react";
 import Link from "next/link";
 import { Plus, Rocket } from "lucide-react";
 import { useServer } from "@/hooks/use-server";
@@ -13,6 +13,12 @@ import { Button } from "@/components/ui/button";
 import { MetricsGauges } from "@/components/server/metrics-gauges";
 import { AppCard } from "@/components/app/app-card";
 import { BackupStatusLine } from "@/components/server/backup-status-line";
+import {
+  FadeIn,
+  PageError,
+  ServerDisconnectedBanner,
+  ServerOverviewSkeleton,
+} from "@/components/ui/page-states";
 import type { MetricsSnapshot } from "@/types";
 
 function AlertSummary({
@@ -103,31 +109,38 @@ export default function ServerOverviewPage({
 
   const metrics = storeMetrics;
 
-  if (isLoading) {
-    return (
-      <div className="flex items-center gap-2 text-gray-500">
-        <div className="h-4 w-4 animate-spin rounded-full border-2 border-blue-600 border-t-transparent" />
-        Loading server…
-      </div>
-    );
+  const [showSkel, setShowSkel] = useState(false);
+  useEffect(() => {
+    if (!isLoading) {
+      setShowSkel(false);
+      return;
+    }
+    const t = setTimeout(() => setShowSkel(true), 200);
+    return () => clearTimeout(t);
+  }, [isLoading]);
+
+  if (isLoading && showSkel) {
+    return <ServerOverviewSkeleton />;
   }
+  if (isLoading) return null;
 
   if (error || !server) {
     return (
-      <div className="rounded-xl border border-red-200 bg-red-50 p-6 text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300">
-        {error || "Server not found"}
-      </div>
+      <PageError
+        message={
+          error?.toLowerCase().includes("not found") || error?.toLowerCase().includes("403")
+            ? "This server was not found, or you do not have access to it."
+            : "We could not load your server information. Try again in a moment."
+        }
+        onRetry={() => window.location.reload()}
+      />
     );
   }
 
-  const statusLabel =
-    server.status === "connected"
-      ? "Connected"
-      : server.status === "error"
-      ? "Error"
-      : "Disconnected";
+  const disconnected = server.status !== "connected";
 
   return (
+    <FadeIn>
     <div className="mx-auto max-w-5xl space-y-8">
       {/* Section 1: Server status header */}
       <div className="flex flex-wrap items-start justify-between gap-4">
@@ -137,7 +150,6 @@ export default function ServerOverviewPage({
               {server.name}
             </h1>
             <StatusBadge status={server.status === "error" ? "error" : server.status} />
-            <span className="sr-only">{statusLabel}</span>
           </div>
           {server.agent_version && (
             <p className="mt-1 text-sm text-gray-500">Agent v{server.agent_version}</p>
@@ -150,6 +162,10 @@ export default function ServerOverviewPage({
           </Button>
         </Link>
       </div>
+
+      {disconnected && (
+        <ServerDisconnectedBanner lastSeen={server.last_seen} />
+      )}
 
       {/* Section 2: Resource gauges */}
       <MetricsGauges metrics={metrics} />
@@ -170,10 +186,13 @@ export default function ServerOverviewPage({
         </div>
 
         {appsLoading && apps.length === 0 ? (
-          <p className="text-sm text-gray-500">Loading apps…</p>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="h-32 animate-pulse rounded-xl bg-gray-200 dark:bg-gray-800" />
+            <div className="h-32 animate-pulse rounded-xl bg-gray-200 dark:bg-gray-800" />
+          </div>
         ) : apps.length === 0 ? (
           <div className="rounded-xl border border-dashed border-gray-200 px-6 py-10 text-center dark:border-gray-800">
-            <p className="text-gray-600 dark:text-gray-300">No apps on this server yet.</p>
+            <p className="text-gray-600 dark:text-gray-300">No apps yet</p>
             <Link href={`/servers/${id}/apps/new`} className="mt-3 inline-block">
               <Button size="sm">Deploy your first app</Button>
             </Link>
@@ -187,11 +206,9 @@ export default function ServerOverviewPage({
         )}
       </section>
 
-      {/* Section 4: Alert summary (hidden when calm) */}
       <AlertSummary serverId={id} alerts={alerts} />
-
-      {/* Section 5: Backup status */}
       <BackupStatusLine serverId={id} />
     </div>
+    </FadeIn>
   );
 }

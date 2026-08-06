@@ -38,7 +38,7 @@ export function EnvVarList({ serverId, appId, keys, onChange, onRestart }: EnvVa
         value,
         restart_after: false,
       });
-      toast.success(`Updated ${key}`);
+      toast.success("Variable updated. Restart your app to apply.");
       setNeedsRestart(true);
       close();
       onChange();
