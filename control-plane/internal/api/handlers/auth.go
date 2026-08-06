@@ -106,6 +106,16 @@ func (a *Auth) Register(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
+
+	// Layer 6 Step 2E — throttle registration attempts per IP (default 5 per
+	// hour) to blunt account spam and automated signup abuse. Checked before
+	// the expensive bcrypt hash.
+	if a.Limiter != nil {
+		if ok, retry := a.Limiter.RegisterAllowed(clientIP(r)); !ok {
+			a.writeRateLimit(w, r, "Too many registration attempts.", retry)
+			return
+		}
+	}
 	name := strings.TrimSpace(req.Name)
 	if err := auth.ValidateName(name); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
