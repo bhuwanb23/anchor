@@ -128,7 +128,7 @@ export default function ServerDetailPage({
           <CardContent>
             <div className="flex items-center gap-2">
               <Wifi className="h-4 w-4 text-gray-400" />
-              <span className="text-sm text-gray-900 dark:text-white">{server.ip_address || "N/A"}</span>
+              <span className="text-sm text-gray-900 dark:text-white">{server.public_ip || "N/A"}</span>
             </div>
           </CardContent>
         </Card>
