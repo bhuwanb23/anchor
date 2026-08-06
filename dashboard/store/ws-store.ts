@@ -1,7 +1,7 @@
 "use client";
 
 import { create } from "zustand";
-import { WSClient } from "@/lib/ws";
+import { WSClient, WSMessage } from "@/lib/ws";
 
 interface WSState {
   client: WSClient | null;
@@ -33,7 +33,7 @@ export const useWSStore = create<WSState>((set, get) => ({
     set({ client: null, connected: false });
   },
 
-  send: (msg: any) => {
+  send: (msg: WSMessage) => {
     get().client?.send(msg);
   },
 
