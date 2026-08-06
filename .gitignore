@@ -51,3 +51,5 @@ Thumbs.db
 node_modules/
 .serena/
 .kilo/
+
+graphify-out/
