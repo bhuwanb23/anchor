@@ -34,8 +34,9 @@ export function EnvVarList({ serverId, appId, envVars, onChange }: EnvVarListPro
       setNewKey("");
       setNewValue("");
       onChange();
-    } catch (err: any) {
-      toast.error(err.response?.data?.message || "Failed to set variable");
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Failed to set variable";
+      toast.error(msg);
     } finally {
       setLoading(false);
     }
@@ -46,8 +47,9 @@ export function EnvVarList({ serverId, appId, envVars, onChange }: EnvVarListPro
       await api.delete(`/api/v1/servers/${serverId}/apps/${appId}/env/${encodeURIComponent(key)}`);
       toast.success(`Deleted ${key}`);
       onChange();
-    } catch (err: any) {
-      toast.error(err.response?.data?.message || "Failed to delete");
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Failed to delete";
+      toast.error(msg);
     }
   };
 
