@@ -136,6 +136,15 @@ func ListAppsByServer(db *sql.DB, serverID string) ([]App, error) {
 	return apps, nil
 }
 
+// UpdateAppSettings updates memory, CPU quota, and app port for an app.
+func UpdateAppSettings(db *sql.DB, appID string, memoryMB, cpuPercent, appPort int) error {
+	_, err := db.Exec(
+		`UPDATE apps SET memory_limit_mb = ?, cpu_quota_percent = ?, app_port = ?, updated_at = datetime('now') WHERE id = ?`,
+		memoryMB, cpuPercent, appPort, appID,
+	)
+	return err
+}
+
 // UpdateAppStatus updates the status of an app.
 func UpdateAppStatus(db *sql.DB, serverID, projectName, status string) error {
 	_, err := db.Exec(

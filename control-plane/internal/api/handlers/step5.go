@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"database/sql"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -425,6 +426,7 @@ func (s *Step5) RollbackApp(w http.ResponseWriter, r *http.Request) {
 // ListDeployments returns deployment history for an app.
 func (s *Step5) ListDeployments(w http.ResponseWriter, r *http.Request) {
 	serverID := chi.URLParam(r, "serverID")
+	appID := chi.URLParam(r, "appID")
 	userID := middleware.UserIDFromContext(r.Context())
 	if userID == "" {
 		Respond401(w, r)
@@ -432,6 +434,12 @@ func (s *Step5) ListDeployments(w http.ResponseWriter, r *http.Request) {
 	}
 	if role := s.requireAccess(userID, serverID); role == "" {
 		Respond403(w, r, "You do not have access to this server")
+		return
+	}
+
+	app, err := queries.GetAppByID(s.DB, appID)
+	if err != nil || app == nil || app.ServerID != serverID {
+		Respond404(w, r, "App")
 		return
 	}
 
@@ -444,7 +452,7 @@ func (s *Step5) ListDeployments(w http.ResponseWriter, r *http.Request) {
 		perPage = 20
 	}
 
-	deps, err := queries.ListDeploymentsByServer(s.DB, serverID, perPage)
+	deps, err := queries.ListDeploymentsByApp(s.DB, serverID, app.ProjectName, perPage)
 	if err != nil {
 		slog.Error("list deployments", "error", err)
 		Respond500(w, r)
@@ -456,6 +464,86 @@ func (s *Step5) ListDeployments(w http.ResponseWriter, r *http.Request) {
 		resp = append(resp, DeploymentToResponse(d))
 	}
 	RespondList(w, resp, len(resp), page, perPage)
+}
+
+// UpdateAppSettings updates memory/CPU/port without requiring a redeploy.
+func (s *Step5) UpdateAppSettings(w http.ResponseWriter, r *http.Request) {
+	serverID := chi.URLParam(r, "serverID")
+	appID := chi.URLParam(r, "appID")
+	userID := middleware.UserIDFromContext(r.Context())
+	if userID == "" {
+		Respond401(w, r)
+		return
+	}
+	if role := s.requireAccess(userID, serverID); role == "" {
+		Respond403(w, r, "You do not have access to this server")
+		return
+	}
+
+	app, err := queries.GetAppByID(s.DB, appID)
+	if err != nil || app == nil || app.ServerID != serverID {
+		Respond404(w, r, "App")
+		return
+	}
+
+	var req struct {
+		MemoryLimitMB   *int `json:"memory_limit_mb"`
+		CPUQuotaPercent *int `json:"cpu_quota_percent"`
+		AppPort         *int `json:"app_port"`
+	}
+	if err := DecodeJSON(w, r, &req); err != nil {
+		Respond400(w, r, err.Error())
+		return
+	}
+
+	mem := app.MemoryLimitMB
+	cpu := app.CpuQuotaPercent
+	port := app.AppPort
+	if req.MemoryLimitMB != nil {
+		if *req.MemoryLimitMB < 64 || *req.MemoryLimitMB > 2048 {
+			Respond400(w, r, "memory_limit_mb must be between 64 and 2048")
+			return
+		}
+		mem = *req.MemoryLimitMB
+	}
+	if req.CPUQuotaPercent != nil {
+		if *req.CPUQuotaPercent < 10 || *req.CPUQuotaPercent > 100 {
+			Respond400(w, r, "cpu_quota_percent must be between 10 and 100")
+			return
+		}
+		cpu = *req.CPUQuotaPercent
+	}
+	if req.AppPort != nil {
+		if *req.AppPort < 1 || *req.AppPort > 65535 {
+			Respond400(w, r, "app_port must be between 1 and 65535")
+			return
+		}
+		port = *req.AppPort
+	}
+
+	if err := queries.UpdateAppSettings(s.DB, appID, mem, cpu, port); err != nil {
+		slog.Error("update app settings", "error", err)
+		Respond500(w, r)
+		return
+	}
+
+	// Best-effort: ask agent to apply limits in place
+	cmdID := uuid.New().String()
+	payloadBytes, _ := json.Marshal(map[string]interface{}{
+		"type":          "update_resources",
+		"project_name":  app.ProjectName,
+		"memory_limit_mb": mem,
+		"cpu_quota_percent": cpu,
+		"app_port":      port,
+	})
+	_ = queries.EnqueuePendingCommand(s.DB, cmdID, serverID, "update_resources", string(payloadBytes), app.ProjectName, "")
+
+	updated, _ := queries.GetAppByID(s.DB, appID)
+	if updated == nil {
+		RespondJSON(w, http.StatusOK, AppToResponse(*app))
+		return
+	}
+	RespondJSON(w, http.StatusOK, AppToResponse(*updated))
 }
 
 // ---------------------------------------------------------------------------

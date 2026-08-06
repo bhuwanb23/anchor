@@ -149,6 +149,7 @@ func NewRouter(database *sql.DB, cfg *config.Config, hub *ws.Hub, delivery *aler
 			r.Get("/servers/{serverID}/apps", step5.ListApps)
 			r.Post("/servers/{serverID}/apps", step5.CreateApp)
 			r.Get("/servers/{serverID}/apps/{appID}", step5.GetApp)
+			r.Patch("/servers/{serverID}/apps/{appID}", step5.UpdateAppSettings)
 			r.Delete("/servers/{serverID}/apps/{appID}", step5.DeleteApp)
 
 			// --- Deployments ---
@@ -179,11 +180,11 @@ func NewRouter(database *sql.DB, cfg *config.Config, hub *ws.Hub, delivery *aler
 			r.Post("/servers/{serverID}/deployments/{deploymentID}/domains", customDomainHandler.AddDomain)
 			r.Post("/servers/{serverID}/deployments/{deploymentID}/domains/{domainID}/verify", customDomainHandler.VerifyDomain)
 			r.Delete("/servers/{serverID}/deployments/{deploymentID}/domains/{domainID}", customDomainHandler.RemoveDomain)
-			// Plan routes (domain owned by an app), Layer 6 Step 5 handlers.
-			r.Get("/servers/{serverID}/apps/{appID}/domains", handlers.NotImplemented)
-			r.Post("/servers/{serverID}/apps/{appID}/domains", handlers.NotImplemented)
-			r.Delete("/servers/{serverID}/apps/{appID}/domains/{domain}", handlers.NotImplemented)
-			r.Post("/servers/{serverID}/apps/{appID}/domains/{domain}/verify", handlers.NotImplemented)
+			// Plan routes (domain owned by an app), Layer 6 Step 5 / Layer 7 Step 10.
+			r.Get("/servers/{serverID}/apps/{appID}/domains", customDomainHandler.ListAppDomains)
+			r.Post("/servers/{serverID}/apps/{appID}/domains", customDomainHandler.AddAppDomain)
+			r.Delete("/servers/{serverID}/apps/{appID}/domains/{domain}", customDomainHandler.RemoveAppDomain)
+			r.Post("/servers/{serverID}/apps/{appID}/domains/{domain}/verify", customDomainHandler.VerifyAppDomain)
 
 			// --- Metrics (Layer 6 Step 5 handlers) ---
 			r.Get("/servers/{serverID}/metrics", step5.GetServerMetrics)
