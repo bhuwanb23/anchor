@@ -420,6 +420,8 @@ func (t *Teams) SendInvitation(w http.ResponseWriter, r *http.Request) {
 		"invitation_id": invitationID,
 		"email":         email,
 		"role":          role,
+		"token":         token,
+		"accept_path":   "/invite/" + token,
 	})
 }
 

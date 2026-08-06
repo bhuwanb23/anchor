@@ -231,11 +231,11 @@ var planRoutes = []planRoute{
 	{http.MethodGet, "/api/v1/servers/srv-1/apps/app-1/databases", true},
 	{http.MethodPost, "/api/v1/servers/srv-1/apps/app-1/databases", true},
 	{http.MethodDelete, "/api/v1/servers/srv-1/apps/app-1/databases/db-1", true},
-	// Domains (plan URL)
-	{http.MethodGet, "/api/v1/servers/srv-1/apps/app-1/domains", true},
-	{http.MethodPost, "/api/v1/servers/srv-1/apps/app-1/domains", true},
-	{http.MethodDelete, "/api/v1/servers/srv-1/apps/app-1/domains/example.com", true},
-	{http.MethodPost, "/api/v1/servers/srv-1/apps/app-1/domains/example.com/verify", true},
+	// Domains (implemented: app_domains.go)
+	{http.MethodGet, "/api/v1/servers/srv-1/apps/app-1/domains", false},
+	{http.MethodPost, "/api/v1/servers/srv-1/apps/app-1/domains", false},
+	{http.MethodDelete, "/api/v1/servers/srv-1/apps/app-1/domains/example.com", false},
+	{http.MethodPost, "/api/v1/servers/srv-1/apps/app-1/domains/example.com/verify", false},
 	// Metrics
 	{http.MethodGet, "/api/v1/servers/srv-1/metrics", false},          // implemented: step5.GetServerMetrics
 	{http.MethodGet, "/api/v1/servers/srv-1/metrics/history", false},  // implemented: step5.GetServerMetricsHistory

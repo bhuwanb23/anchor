@@ -349,11 +349,17 @@ func (s *Server) DeleteServer(w http.ResponseWriter, r *http.Request) {
 
 	role, err := queries.GetUserTeamRole(s.DB, teamID, userID)
 	if err != nil || role == "" {
-		http.Error(w, "forbidden", http.StatusForbidden)
+		writeJSON(w, http.StatusForbidden, map[string]string{
+			"error": "You do not have access to this server.",
+			"code":  "forbidden",
+		})
 		return
 	}
 	if role != "owner" && role != "admin" {
-		http.Error(w, "insufficient permissions", http.StatusForbidden)
+		writeJSON(w, http.StatusForbidden, map[string]string{
+			"error": "Only the server owner can delete this server. Ask the owner if you need it removed.",
+			"code":  "insufficient_permissions",
+		})
 		return
 	}
 
