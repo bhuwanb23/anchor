@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import { WSClient, WSMessage } from "@/lib/ws";
+import { getWSClient, type WSMessage } from "@/lib/ws";
 import { Alert } from "@/types";
 import api from "@/lib/api";
 
@@ -12,14 +12,20 @@ export interface AlertItem extends Alert {
 const MAX_ALERTS = 100;
 
 /**
- * Subscribes to a server's browser WebSocket for live alerts (anomaly_alert
- * plus Caddy error_alert) and loads the persisted alert history from the
+ * Subscribes to the singleton WebSocket for live alerts (anomaly_alert
+ * plus error_alert) and loads the persisted alert history from the
  * control plane on mount. Active alerts float to the top.
  */
 export function useAlerts(serverId: string, enabled = true) {
   const [alerts, setAlerts] = useState<AlertItem[]>([]);
-  const clientRef = useRef<WSClient | null>(null);
   const loadedRef = useRef(false);
+  const unsubRef = (() => {
+    let fns: (() => void)[] = [];
+    return {
+      add: (fn: () => void) => { fns.push(fn); },
+      runAll: () => { fns.forEach((f) => f()); fns = []; },
+    };
+  })();
 
   // Load persisted alert history from the control plane.
   useEffect(() => {
@@ -39,7 +45,7 @@ export function useAlerts(serverId: string, enabled = true) {
       });
   }, [enabled, serverId]);
 
-  /** Marks an active alert as acknowledged (Layer 4C Step 6). */
+  /** Marks an active alert as acknowledged. */
   const acknowledge = useCallback(
     async (id: string) => {
       try {
@@ -59,8 +65,35 @@ export function useAlerts(serverId: string, enabled = true) {
     [serverId]
   );
 
-  const handleMessage = useCallback((msg: WSMessage) => {
-    if (msg.type !== "anomaly_alert" && msg.type !== "error_alert") return;
+  // Register WebSocket handler on mount, deregister on unmount.
+  useEffect(() => {
+    if (!enabled || !serverId) return;
+
+    const client = getWSClient();
+
+    // Subscribe to this server's updates
+    client.subscribeServer(serverId);
+    unsubRef.add(() => client.unsubscribeServer());
+
+    const unsub = client.on("anomaly_alert", (msg: WSMessage) => {
+      handleAlert(msg);
+    });
+    unsubRef.add(unsub);
+
+    const unsub2 = client.on("error_alert", (msg: WSMessage) => {
+      handleAlert(msg);
+    });
+    unsubRef.add(unsub2);
+
+    // Ensure the singleton is connected
+    client.connect();
+
+    return () => {
+      unsubRef.runAll();
+    };
+  }, [enabled, serverId]);
+
+  function handleAlert(msg: WSMessage) {
     const a = msg.payload as Partial<Alert>;
     if (!a?.message && !a?.title) return;
 
@@ -92,27 +125,10 @@ export function useAlerts(serverId: string, enabled = true) {
     };
 
     setAlerts((prev) => {
-      // Replace in place if the id matches (escalation/resolution updates),
-      // otherwise prepend.
       const without = prev.filter((x) => x.id !== item.id);
       return [item, ...without].slice(0, MAX_ALERTS);
     });
-  }, [serverId]);
-
-  useEffect(() => {
-    if (!enabled || !serverId) return;
-
-    const client = new WSClient(serverId);
-    clientRef.current = client;
-    const unsub = client.onMessage(handleMessage);
-    client.connect();
-
-    return () => {
-      unsub();
-      client.disconnect();
-      clientRef.current = null;
-    };
-  }, [enabled, serverId, handleMessage]);
+  }
 
   return { alerts, acknowledge };
 }
