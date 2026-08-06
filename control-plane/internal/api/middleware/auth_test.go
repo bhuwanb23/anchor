@@ -201,15 +201,19 @@ func TestAuth_TamperedToken(t *testing.T) {
 	if err != nil {
 		t.Fatalf("generate token: %v", err)
 	}
-	// Flip one char in the signature so it no longer matches. The last char
-	// of a base64url signature is always in [A-Za-z0-9_-], so replacing it
-	// with 'A' (or 'B' if it already is 'A') is always a valid flip.
-	last := valid[len(valid)-1]
+	// Flip one char in the middle of the signature so the decoded bytes
+	// definitely change. (The FINAL char of a base64url-encoded 32-byte HS256
+	// signature only encodes 4 real bits + 2 padding bits, so for some values
+	// — e.g. 'A' — a flip to 'B' changes only padding and the token still
+	// validates. That made this test flaky ~1/16 of runs.)
+	sigStart := strings.LastIndex(valid, ".") + 1
+	idx := sigStart + 10 // safely inside the signature, never the last char
+	c := valid[idx]
 	flip := byte('A')
-	if last == 'A' {
+	if c == 'A' {
 		flip = 'B'
 	}
-	tampered := valid[:len(valid)-1] + string(flip)
+	tampered := valid[:idx] + string(flip) + valid[idx+1:]
 
 	w := env.serve(bearerRequest(tampered))
 	if w.Code != http.StatusUnauthorized {
