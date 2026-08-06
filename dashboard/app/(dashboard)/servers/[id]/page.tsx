@@ -378,7 +378,7 @@ export default function ServerDetailPage({
                     )}
                   </div>
                   <span className="shrink-0 text-xs text-gray-400">
-                    {new Date(e.created_at).toLocaleString()}
+                    {e.created_at ? new Date(e.created_at).toLocaleString() : ""}
                   </span>
                 </div>
               ))}
