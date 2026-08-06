@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { getWSClient, type WSMessage } from "@/lib/ws";
 import { Alert } from "@/types";
 import api from "@/lib/api";
@@ -19,7 +19,6 @@ const MAX_ALERTS = 100;
  */
 export function useAlerts(serverId: string, enabled = true) {
   const [alerts, setAlerts] = useState<AlertItem[]>([]);
-  const loadedRef = useRef(false);
   const unsubRef = (() => {
     let fns: (() => void)[] = [];
     return {
@@ -30,12 +29,12 @@ export function useAlerts(serverId: string, enabled = true) {
 
   // Load persisted alert history from the control plane.
   useEffect(() => {
-    if (!enabled || !serverId || loadedRef.current) return;
-    loadedRef.current = true;
+    if (!enabled || !serverId) return;
     api
-      .get<Alert[]>(`/servers/${serverId}/alerts`)
+      .get<Alert[]>(`/api/v1/servers/${serverId}/alerts`)
       .then((res) => {
-        const items: AlertItem[] = (res.data || []).map((a) => ({
+        const raw = Array.isArray(res.data) ? res.data : [];
+        const items: AlertItem[] = raw.map((a) => ({
           ...a,
           at: a.fired_at || a.resolved_at || new Date().toISOString(),
         }));
@@ -51,15 +50,17 @@ export function useAlerts(serverId: string, enabled = true) {
   const acknowledge = useCallback(
     async (id: string) => {
       try {
-        await api.post(`/servers/${serverId}/alerts/${id}/ack`);
+        await api.post(`/api/v1/servers/${serverId}/alerts/${id}/ack`);
         const now = new Date().toISOString();
-        setAlerts((prev) =>
-          prev.map((a) =>
+        setAlerts((prev) => {
+          const next = prev.map((a) =>
             a.id === id && a.status === "active"
-              ? { ...a, status: "acknowledged", acknowledged_at: now }
+              ? { ...a, status: "acknowledged" as const, acknowledged_at: now }
               : a
-          )
-        );
+          );
+          useServerStore.getState().acknowledgeAlert(id);
+          return next;
+        });
       } catch {
         // Ignore: alert list will reconcile on next fetch.
       }

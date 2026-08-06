@@ -2,11 +2,19 @@
 
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { getWSClient, type WSMessage } from "@/lib/ws";
-import { LogEntry } from "@/types";
+import type { LogEntry, LogStream } from "@/types";
 
-interface LogStreamPayload extends Partial<LogEntry> {
+export type LogConnectionStatus = "live" | "reconnecting" | "stopped" | "idle";
+
+interface LogStreamPayload {
+  project?: string;
+  container?: string;
+  stream?: LogStream;
+  line?: string;
+  timestamp?: string;
   lines?: LogEntry[];
   reason?: string;
+  type?: string;
 }
 
 interface UseLogStreamOptions {
@@ -15,15 +23,30 @@ interface UseLogStreamOptions {
   containers?: string[];
   tail?: number;
   enabled?: boolean;
+  maxLines?: number;
 }
 
 interface UseLogStreamResult {
   logs: LogEntry[];
+  status: LogConnectionStatus;
   isConnected: boolean;
   error: string | null;
   startStreaming: () => void;
   stopStreaming: () => void;
   clearLogs: () => void;
+}
+
+const STOP_MARKER = "--- Container stopped ---";
+
+function normalizeEntry(raw: Partial<LogEntry> & { line?: string; message?: string }): LogEntry {
+  return {
+    type: "log_line",
+    project: raw.project || "",
+    container: raw.container || "",
+    stream: raw.stream === "stderr" ? "stderr" : "stdout",
+    line: raw.line || (raw as { message?: string }).message || "",
+    timestamp: raw.timestamp || new Date().toISOString(),
+  };
 }
 
 export function useLogStream({
@@ -32,35 +55,38 @@ export function useLogStream({
   containers = ["app"],
   tail = 200,
   enabled = true,
+  maxLines = 2000,
 }: UseLogStreamOptions): UseLogStreamResult {
   const [logs, setLogs] = useState<LogEntry[]>([]);
-  const [isConnected, setIsConnected] = useState(false);
+  const [status, setStatus] = useState<LogConnectionStatus>("idle");
   const [error, setError] = useState<string | null>(null);
-  const MAX_LOGS = 1000;
+  const cleanupRef = useRef<(() => void) | null>(null);
 
   const containersKey = containers.join(",");
   const containerRoles = useMemo(
-    () => containersKey.split(","),
+    () => containersKey.split(",").filter(Boolean),
     [containersKey]
   );
 
-  const appendLogs = useCallback((entries: LogEntry[]) => {
-    if (entries.length === 0) return;
-    setLogs((prev) => {
-      const next = [...prev, ...entries];
-      return next.length > MAX_LOGS ? next.slice(next.length - MAX_LOGS) : next;
-    });
-  }, []);
+  const appendLogs = useCallback(
+    (entries: LogEntry[]) => {
+      if (entries.length === 0) return;
+      setLogs((prev) => {
+        const next = [...prev, ...entries];
+        return next.length > maxLines ? next.slice(next.length - maxLines) : next;
+      });
+    },
+    [maxLines]
+  );
 
-  const prependLogs = useCallback((entries: LogEntry[]) => {
-    if (entries.length === 0) return;
-    setLogs((prev) => {
-      const combined = [...entries, ...prev];
-      return combined.length > MAX_LOGS
-        ? combined.slice(combined.length - MAX_LOGS)
-        : combined;
-    });
-  }, []);
+  const replaceWithHistory = useCallback(
+    (entries: LogEntry[]) => {
+      const sliced =
+        entries.length > maxLines ? entries.slice(entries.length - maxLines) : entries;
+      setLogs(sliced);
+    },
+    [maxLines]
+  );
 
   const sendStreamCommand = useCallback(() => {
     const client = getWSClient();
@@ -76,90 +102,16 @@ export function useLogStream({
         },
       },
     });
+    // Also try start_log_stream alias used by some agents
+    client.send({
+      type: "start_log_stream",
+      payload: {
+        project_name: projectName,
+        containers: containerRoles,
+        tail,
+      },
+    });
   }, [projectName, containerRoles, tail]);
-
-  const startStreaming = useCallback(() => {
-    const client = getWSClient();
-
-    // Re-send stream command on reconnect
-    const unsubConnect = client.onConnect(() => {
-      setIsConnected(true);
-      sendStreamCommand();
-    });
-
-    const unsubDisconnect = client.onDisconnect(() => {
-      setIsConnected(false);
-    });
-
-    // Subscribe to this server
-    client.subscribeServer(serverId);
-
-    // Register message handlers
-    const unsubConnected = client.on("connected", () => {
-      setIsConnected(true);
-      setError(null);
-    });
-
-    const unsubLogLine = client.on("log_line", (msg: WSMessage) => {
-      const payload = msg.payload as LogStreamPayload | undefined;
-      if (!payload?.line) return;
-      if (payload.project && payload.project !== projectName) return;
-      if (payload.container && !containerRoles.includes(payload.container)) return;
-      appendLogs([payload as LogEntry]);
-    });
-
-    const unsubLogLines = client.on("log_lines", (msg: WSMessage) => {
-      const payload = msg.payload as LogStreamPayload | undefined;
-      if (!payload?.lines) return;
-      if (payload.project && payload.project !== projectName) return;
-      if (payload.container && !containerRoles.includes(payload.container)) return;
-      appendLogs(payload.lines);
-    });
-
-    const unsubLogHistory = client.on("log_history", (msg: WSMessage) => {
-      const payload = msg.payload as LogStreamPayload | undefined;
-      if (!payload?.lines) return;
-      if (payload.project && payload.project !== projectName) return;
-      if (payload.container && !containerRoles.includes(payload.container)) return;
-      prependLogs(payload.lines);
-    });
-
-    const unsubStreamEnded = client.on("stream_ended", (msg: WSMessage) => {
-      const payload = msg.payload as LogStreamPayload | undefined;
-      if (!payload) return;
-      if (payload.project && payload.project !== projectName) return;
-      appendLogs([
-        {
-          type: "log_line",
-          project: payload.project ?? "",
-          container: payload.container ?? "",
-          stream: "stdout",
-          line:
-            payload.reason === "read_error"
-              ? "[Log stream error]"
-              : "[Container stopped]",
-          timestamp: new Date().toISOString(),
-        },
-      ]);
-    });
-
-    // Ensure connection
-    client.connect();
-
-    // Send initial stream command
-    sendStreamCommand();
-
-    // Return cleanup function
-    return () => {
-      unsubConnect();
-      unsubDisconnect();
-      unsubConnected();
-      unsubLogLine();
-      unsubLogLines();
-      unsubLogHistory();
-      unsubStreamEnded();
-    };
-  }, [serverId, projectName, containerRoles, tail, appendLogs, prependLogs, sendStreamCommand]);
 
   const stopStreaming = useCallback(() => {
     const client = getWSClient();
@@ -171,30 +123,143 @@ export function useLogStream({
         payload: {
           project_name: projectName,
           containers: containerRoles,
+          all: false,
         },
       },
     });
-    setIsConnected(false);
+    client.send({
+      type: "stop_log_stream",
+      payload: {
+        project_name: projectName,
+        containers: containerRoles,
+      },
+    });
+    setStatus((s) => (s === "stopped" ? s : "idle"));
   }, [projectName, containerRoles]);
 
   const clearLogs = useCallback(() => {
     setLogs([]);
   }, []);
 
+  const startStreaming = useCallback(() => {
+    cleanupRef.current?.();
+    const client = getWSClient();
+    setStatus("reconnecting");
+    setError(null);
+
+    const unsubConnect = client.onConnect(() => {
+      setStatus("live");
+      sendStreamCommand();
+    });
+
+    const unsubDisconnect = client.onDisconnect(() => {
+      setStatus((s) => (s === "stopped" ? s : "reconnecting"));
+    });
+
+    client.subscribeServer(serverId);
+
+    const matchesProject = (p?: LogStreamPayload) =>
+      !p?.project || p.project === projectName;
+
+    const matchesContainer = (p?: LogStreamPayload) => {
+      if (!p?.container) return true;
+      // Accept role names or container name containing role
+      return containerRoles.some(
+        (role) => p.container === role || (p.container || "").includes(role)
+      );
+    };
+
+    const unsubLogLine = client.on("log_line", (msg: WSMessage) => {
+      const payload = (msg.payload || msg) as LogStreamPayload;
+      if (!payload?.line && !(payload as { message?: string }).message) return;
+      if (!matchesProject(payload) || !matchesContainer(payload)) return;
+      setStatus("live");
+      appendLogs([normalizeEntry(payload)]);
+    });
+
+    const unsubLogLines = client.on("log_lines", (msg: WSMessage) => {
+      const payload = (msg.payload || msg) as LogStreamPayload;
+      if (!payload?.lines?.length) return;
+      if (!matchesProject(payload) || !matchesContainer(payload)) return;
+      setStatus("live");
+      appendLogs(payload.lines.map(normalizeEntry));
+    });
+
+    const onHistory = (msg: WSMessage) => {
+      const payload = (msg.payload || msg) as LogStreamPayload;
+      if (!payload?.lines) return;
+      if (!matchesProject(payload) || !matchesContainer(payload)) return;
+      setStatus("live");
+      replaceWithHistory(payload.lines.map(normalizeEntry));
+    };
+
+    const unsubHistory = client.on("log_history", onHistory);
+    const unsubInitial = client.on("initial_logs", onHistory);
+
+    const unsubStreamEnded = client.on("stream_ended", (msg: WSMessage) => {
+      const payload = (msg.payload || msg) as LogStreamPayload;
+      if (!matchesProject(payload)) return;
+      setStatus("stopped");
+      appendLogs([
+        {
+          type: "log_line",
+          project: payload.project ?? projectName,
+          container: payload.container ?? containerRoles[0] ?? "",
+          stream: "stdout",
+          line: STOP_MARKER,
+          timestamp: new Date().toISOString(),
+        },
+      ]);
+    });
+
+    client.connect();
+    if (client /* already open */) {
+      // Send immediately; onConnect will re-send if reconnecting
+      sendStreamCommand();
+      setStatus("live");
+    }
+
+    const cleanup = () => {
+      unsubConnect();
+      unsubDisconnect();
+      unsubLogLine();
+      unsubLogLines();
+      unsubHistory();
+      unsubInitial();
+      unsubStreamEnded();
+      stopStreaming();
+    };
+    cleanupRef.current = cleanup;
+    return cleanup;
+  }, [
+    serverId,
+    projectName,
+    containerRoles,
+    sendStreamCommand,
+    appendLogs,
+    replaceWithHistory,
+    stopStreaming,
+  ]);
+
   useEffect(() => {
     if (!enabled || !serverId || !projectName) return;
+    clearLogs();
     const cleanup = startStreaming();
     return () => {
       cleanup?.();
+      cleanupRef.current = null;
     };
-  }, [enabled, serverId, projectName, containersKey, startStreaming]);
+  }, [enabled, serverId, projectName, containersKey, startStreaming, clearLogs]);
 
   return {
     logs,
-    isConnected,
+    status,
+    isConnected: status === "live",
     error,
     startStreaming,
     stopStreaming,
     clearLogs,
   };
 }
+
+export { STOP_MARKER };
