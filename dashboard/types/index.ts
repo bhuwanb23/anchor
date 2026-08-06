@@ -9,7 +9,7 @@
 
 export type ServerStatus = "pending" | "connected" | "disconnected" | "updating" | "error";
 export type AppStatus = "deploying" | "running" | "stopped" | "failed" | "crashed" | "removing";
-export type DeploymentStatus = "deploying" | "running" | "stopped" | "failed";
+export type DeploymentStatus = "deploying" | "running" | "stopped" | "failed" | "success" | "rolled_back";
 export type CommandStatus = "queued" | "in_progress" | "success" | "failed" | "timeout";
 export type AlertSeverity = "warning" | "critical";
 export type AlertStatus = "active" | "resolved" | "acknowledged";
