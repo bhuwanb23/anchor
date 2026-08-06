@@ -30,11 +30,13 @@ function StatusBadge({ status }: { status: string }) {
     pending: "warning",
     updating: "warning",
     error: "danger",
+    success: "success",
     running: "success",
     stopped: "default",
     failed: "danger",
     crashed: "danger",
     deploying: "warning",
+    rolled_back: "warning",
   };
 
   const labels: Record<string, string> = {
@@ -48,6 +50,8 @@ function StatusBadge({ status }: { status: string }) {
     failed: "Crashed",
     crashed: "Crashed",
     deploying: "Deploying",
+    success: "Success",
+    rolled_back: "Rolled Back",
   };
 
   return (

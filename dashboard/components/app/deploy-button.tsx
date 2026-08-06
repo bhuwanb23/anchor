@@ -2,38 +2,29 @@
 
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import api from "@/lib/api";
-import { toast } from "sonner";
+import { DeployDialog } from "@/components/app/deploy-dialog";
 import { Rocket } from "lucide-react";
 
 interface DeployButtonProps {
   serverId: string;
   appId: string;
   projectName: string;
+  currentImage?: string;
+  currentPort?: number;
+  liveUrl?: string | null;
+  onSuccess?: () => void;
 }
 
-export function DeployButton({ serverId, appId, projectName }: DeployButtonProps) {
+export function DeployButton({
+  serverId,
+  appId,
+  projectName,
+  currentImage,
+  currentPort,
+  liveUrl,
+  onSuccess,
+}: DeployButtonProps) {
   const [open, setOpen] = useState(false);
-  const [image, setImage] = useState("");
-  const [port, setPort] = useState(80);
-  const [loading, setLoading] = useState(false);
-
-  const handleDeploy = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setLoading(true);
-    try {
-      await api.post(`/api/v1/servers/${serverId}/apps/${appId}/deploy`, { image, port });
-      toast.success("Deploy started");
-      setOpen(false);
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : "Deploy failed";
-      toast.error(msg);
-    } finally {
-      setLoading(false);
-    }
-  };
 
   return (
     <>
@@ -41,21 +32,17 @@ export function DeployButton({ serverId, appId, projectName }: DeployButtonProps
         <Rocket className="mr-1 h-3 w-3" />
         Deploy
       </Button>
-      <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Deploy {projectName}</DialogTitle>
-          </DialogHeader>
-          <form onSubmit={handleDeploy} className="space-y-4">
-            <Input label="Docker image" value={image} onChange={(e) => setImage(e.target.value)} placeholder="nginx:latest" required />
-            <Input label="Port" type="number" value={port} onChange={(e) => setPort(Number(e.target.value))} required />
-            <DialogFooter>
-              <Button type="button" variant="ghost" onClick={() => setOpen(false)}>Cancel</Button>
-              <Button type="submit" disabled={loading}>{loading ? "Deploying..." : "Deploy"}</Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
+      <DeployDialog
+        open={open}
+        onOpenChange={setOpen}
+        serverId={serverId}
+        appId={appId}
+        projectName={projectName}
+        currentImage={currentImage}
+        currentPort={currentPort}
+        liveUrl={liveUrl}
+        onSuccess={onSuccess}
+      />
     </>
   );
 }

@@ -16,7 +16,7 @@ function getTitle(pathname: string, serverName?: string): string {
   if (pathname.match(/^\/servers\/[^/]+\/backups$/)) return "Backups";
   if (pathname.match(/^\/servers\/[^/]+\/alerts$/)) return "Alerts";
   if (pathname.match(/^\/servers\/[^/]+\/apps\/new$/)) return "Deploy New App";
-  if (pathname.match(/^\/servers\/[^/]+\/apps\//)) return "App";
+  if (pathname.match(/^\/servers\/[^/]+\/apps\/[^/]+/)) return "App";
   if (pathname.match(/^\/servers\/[^/]+$/)) return serverName || "Server";
   return "Dashboard";
 }
