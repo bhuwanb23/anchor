@@ -18,11 +18,14 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/yourname/yourplatform/control-plane/internal/alerts"
+	"github.com/yourname/yourplatform/control-plane/internal/auth"
 	"github.com/yourname/yourplatform/control-plane/internal/config"
 	"github.com/yourname/yourplatform/control-plane/internal/db"
+	"github.com/yourname/yourplatform/control-plane/internal/db/queries"
 	"github.com/yourname/yourplatform/control-plane/internal/mailer"
 	"github.com/yourname/yourplatform/control-plane/internal/ws"
 )
@@ -30,6 +33,13 @@ import (
 // newTestRouter builds the production router exactly as main.go wires it,
 // against a migrated in-memory database.
 func newTestRouter(t *testing.T) http.Handler {
+	r, _ := newTestRouterDB(t)
+	return r
+}
+
+// newTestRouterDB is newTestRouter plus the migrated database handle, so
+// tests can seed users and mint JWTs for authenticated requests.
+func newTestRouterDB(t *testing.T) (http.Handler, *sql.DB) {
 	t.Helper()
 	database, err := sql.Open("sqlite", ":memory:")
 	if err != nil {
@@ -48,7 +58,7 @@ func newTestRouter(t *testing.T) http.Handler {
 	hub := ws.NewHub()
 	sender := mailer.NewFromConfig(cfg)
 	delivery := alerts.NewDelivery(database, sender, cfg)
-	return NewRouter(database, cfg, hub, delivery, sender)
+	return NewRouter(database, cfg, hub, delivery, sender), database
 }
 
 func doRequest(router http.Handler, method, path string) *httptest.ResponseRecorder {
@@ -162,28 +172,181 @@ func TestRouter_PublicRoutesHaveNoAuth(t *testing.T) {
 	}
 }
 
-// Protected routes reject unauthenticated requests with 401 JSON.
+// planRoute is one entry of the Layer 6 Step 1 protected route table. Routes
+// whose handlers land in later steps are marked stub (they answer 501 until
+// then). One shared table drives every router test, so wiring a stub to a real
+// handler in a later step updates a single flag instead of two tables.
+type planRoute struct {
+	method, path string
+	stub         bool // handler implemented in a later Layer 6 step (501 for now)
+}
+
+var planRoutes = []planRoute{
+	// Auth management
+	{http.MethodGet, "/api/v1/auth/me", false},
+	{http.MethodPost, "/api/v1/auth/logout", false},
+	{http.MethodPost, "/api/v1/auth/logout-all", false},
+	{http.MethodGet, "/api/v1/auth/sessions", false},
+	{http.MethodDelete, "/api/v1/auth/sessions/sess-1", false},
+	// User
+	{http.MethodGet, "/api/v1/user", false},
+	{http.MethodPut, "/api/v1/user", true},
+	{http.MethodDelete, "/api/v1/user", true},
+	// Teams
+	{http.MethodGet, "/api/v1/teams", false},
+	{http.MethodPost, "/api/v1/teams", false},
+	{http.MethodGet, "/api/v1/teams/team-1", false},
+	{http.MethodPut, "/api/v1/teams/team-1", false},
+	{http.MethodGet, "/api/v1/teams/team-1/members", false},
+	{http.MethodDelete, "/api/v1/teams/team-1/members/user-1", false},
+	{http.MethodPost, "/api/v1/teams/team-1/invitations", false},
+	{http.MethodDelete, "/api/v1/teams/team-1/invitations/inv-1", true},
+	{http.MethodPost, "/api/v1/invitations/accept", true},
+	// Servers
+	{http.MethodGet, "/api/v1/servers", false},
+	{http.MethodPost, "/api/v1/servers", false},
+	{http.MethodGet, "/api/v1/servers/srv-1", true},
+	{http.MethodDelete, "/api/v1/servers/srv-1", false},
+	{http.MethodPost, "/api/v1/servers/srv-1/registration-token", true},
+	{http.MethodGet, "/api/v1/servers/srv-1/events", false},
+	// Apps
+	{http.MethodGet, "/api/v1/servers/srv-1/apps", true},
+	{http.MethodPost, "/api/v1/servers/srv-1/apps", true},
+	{http.MethodGet, "/api/v1/servers/srv-1/apps/app-1", true},
+	{http.MethodDelete, "/api/v1/servers/srv-1/apps/app-1", true},
+	// Deployments
+	{http.MethodPost, "/api/v1/servers/srv-1/apps/app-1/deploy", true},
+	{http.MethodPost, "/api/v1/servers/srv-1/apps/app-1/rollback", true},
+	{http.MethodGet, "/api/v1/servers/srv-1/apps/app-1/deployments", true},
+	// App lifecycle
+	{http.MethodPost, "/api/v1/servers/srv-1/apps/app-1/start", true},
+	{http.MethodPost, "/api/v1/servers/srv-1/apps/app-1/stop", true},
+	{http.MethodPost, "/api/v1/servers/srv-1/apps/app-1/restart", true},
+	{http.MethodGet, "/api/v1/servers/srv-1/apps/app-1/logs", true},
+	// Environment variables
+	{http.MethodGet, "/api/v1/servers/srv-1/apps/app-1/env", true},
+	{http.MethodPut, "/api/v1/servers/srv-1/apps/app-1/env/KEY", true},
+	{http.MethodDelete, "/api/v1/servers/srv-1/apps/app-1/env/KEY", true},
+	// Databases
+	{http.MethodGet, "/api/v1/servers/srv-1/apps/app-1/databases", true},
+	{http.MethodPost, "/api/v1/servers/srv-1/apps/app-1/databases", true},
+	{http.MethodDelete, "/api/v1/servers/srv-1/apps/app-1/databases/db-1", true},
+	// Domains (plan URL)
+	{http.MethodGet, "/api/v1/servers/srv-1/apps/app-1/domains", true},
+	{http.MethodPost, "/api/v1/servers/srv-1/apps/app-1/domains", true},
+	{http.MethodDelete, "/api/v1/servers/srv-1/apps/app-1/domains/example.com", true},
+	{http.MethodPost, "/api/v1/servers/srv-1/apps/app-1/domains/example.com/verify", true},
+	// Metrics
+	{http.MethodGet, "/api/v1/servers/srv-1/metrics", true},
+	{http.MethodGet, "/api/v1/servers/srv-1/metrics/history", true},
+	// Alerts
+	{http.MethodGet, "/api/v1/servers/srv-1/alerts", false},
+	{http.MethodPost, "/api/v1/servers/srv-1/alerts/alert-1/acknowledge", false},
+	{http.MethodPost, "/api/v1/servers/srv-1/alerts/alert-1/ack", false},
+	{http.MethodGet, "/api/v1/alerts", false},
+	{http.MethodPost, "/api/v1/alerts/read", false},
+	// Backups (plan URL)
+	{http.MethodGet, "/api/v1/servers/srv-1/backups", true},
+	{http.MethodPost, "/api/v1/servers/srv-1/backups", true},
+	{http.MethodPost, "/api/v1/servers/srv-1/backups/bkp-1/restore", true},
+	// Commands
+	{http.MethodGet, "/api/v1/servers/srv-1/commands", true},
+	{http.MethodGet, "/api/v1/servers/srv-1/commands/cmd-1", true},
+	// Legacy routes kept for the dashboard (all wired)
+	{http.MethodPost, "/api/v1/deploy", false},
+	{http.MethodGet, "/api/v1/deployments", false},
+	{http.MethodPost, "/api/v1/servers/registration-token", false},
+	{http.MethodPost, "/api/v1/teams/team-1/invite", false},
+	{http.MethodPost, "/api/v1/invitations/tok-1/accept", false},
+	{http.MethodPost, "/api/v1/servers/srv-1/deployments/dep-1/domains", false},
+	{http.MethodGet, "/api/v1/servers/srv-1/backup/config", false},
+	{http.MethodPost, "/api/v1/servers/srv-1/backup/trigger", false},
+	{http.MethodGet, "/api/v1/servers/srv-1/backup/history", false},
+}
+
+// Protected routes reject unauthenticated requests with 401 JSON. Every route
+// in the Layer 6 Step 1 route table must be registered AND sit behind the Auth
+// middleware (a 404 would mean it was never registered; a 200/400 would mean
+// it leaked outside the auth group).
 func TestRouter_ProtectedRoutesRequireAuth(t *testing.T) {
 	router := newTestRouter(t)
 
-	protected := []struct{ method, path string }{
-		{http.MethodGet, "/api/v1/auth/me"},
-		{http.MethodPost, "/api/v1/auth/logout"},
-		{http.MethodPost, "/api/v1/auth/logout-all"},
-		{http.MethodGet, "/api/v1/auth/sessions"},
-		{http.MethodGet, "/api/v1/servers"},
-		{http.MethodPost, "/api/v1/servers"},
-		{http.MethodGet, "/api/v1/alerts"},
-		{http.MethodGet, "/api/v1/teams"},
-		{http.MethodPost, "/api/v1/deploy"},
-	}
-	for _, c := range protected {
+	for _, c := range planRoutes {
 		w := doRequest(router, c.method, c.path)
 		if w.Code != http.StatusUnauthorized {
 			t.Errorf("%s %s without token = %d, want 401", c.method, c.path, w.Code)
 		}
 		if !isJSONBody(w) {
 			t.Errorf("%s %s: 401 body is not JSON: %q", c.method, c.path, w.Body.String())
+		}
+	}
+}
+
+// Routes whose handlers land in later Layer 6 steps are registered against
+// NotImplemented and must answer 501 JSON for an authenticated user (proving
+// they are registered and behind Auth, not silently 404).
+func TestRouter_PlanRoutesNotYetImplementedReturn501(t *testing.T) {
+	router, database := newTestRouterDB(t)
+
+	if err := queries.InsertUser(database, "usr-1", "alice@example.com", "Alice", "hash"); err != nil {
+		t.Fatalf("seed user: %v", err)
+	}
+	token, err := auth.GenerateAccessToken("usr-1", "sess-1", "alice@example.com", "Alice", "test-secret", time.Hour)
+	if err != nil {
+		t.Fatalf("mint access token: %v", err)
+	}
+
+	for _, c := range planRoutes {
+		if !c.stub {
+			continue
+		}
+		req := httptest.NewRequest(c.method, c.path, nil)
+		req.Header.Set("Authorization", "Bearer "+token)
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+		if w.Code != http.StatusNotImplemented {
+			t.Errorf("%s %s with token = %d, want 501", c.method, c.path, w.Code)
+		}
+		if !isJSONBody(w) {
+			t.Errorf("%s %s: 501 body is not JSON: %q", c.method, c.path, w.Body.String())
+		}
+		var body map[string]interface{}
+		if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+			t.Fatalf("decode 501 body: %v", err)
+		}
+		if body["error"] != "not_implemented" {
+			t.Errorf("%s %s: error code = %v, want not_implemented", c.method, c.path, body["error"])
+		}
+	}
+}
+
+// GET /api/v1/user (plan URL) is served by the same handler as /auth/me and
+// must return the authenticated user for a valid JWT.
+func TestRouter_UserRouteWired(t *testing.T) {
+	router, database := newTestRouterDB(t)
+
+	if err := queries.InsertUser(database, "usr-1", "alice@example.com", "Alice", "hash"); err != nil {
+		t.Fatalf("seed user: %v", err)
+	}
+	token, err := auth.GenerateAccessToken("usr-1", "sess-1", "alice@example.com", "Alice", "test-secret", time.Hour)
+	if err != nil {
+		t.Fatalf("mint access token: %v", err)
+	}
+
+	for _, path := range []string{"/api/v1/user", "/api/v1/auth/me"} {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		req.Header.Set("Authorization", "Bearer "+token)
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+		if w.Code != http.StatusOK {
+			t.Errorf("GET %s with token = %d, want 200", path, w.Code)
+		}
+		var body map[string]interface{}
+		if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+			t.Fatalf("decode %s response: %v", path, err)
+		}
+		if body["email"] != "alice@example.com" {
+			t.Errorf("GET %s: email = %v, want alice@example.com", path, body["email"])
 		}
 	}
 }

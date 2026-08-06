@@ -86,6 +86,8 @@ func NewRouter(database *sql.DB, cfg *config.Config, hub *ws.Hub, delivery *aler
 	teamHandler := &handlers.Teams{DB: database, Mailer: sender, Logger: slog.Default()}
 
 	r.Route("/api/v1", func(r chi.Router) {
+		// Public routes (no auth): registration, login, token refresh,
+		// password recovery, and agent registration (registration-token auth).
 		r.Post("/auth/register", authHandler.Register)
 		r.Post("/auth/login", authHandler.Login)
 		r.Post("/auth/refresh", authHandler.Refresh)
@@ -93,29 +95,105 @@ func NewRouter(database *sql.DB, cfg *config.Config, hub *ws.Hub, delivery *aler
 		r.Post("/auth/reset-password", authHandler.ResetPassword)
 		r.Post("/agent/register", agentHandler.Register)
 
+		// Protected routes — every route below runs through the JWT Auth
+		// middleware (Layer 6 Step 1 route layout). Routes whose handlers are
+		// implemented in later Layer 6 steps are registered against
+		// handlers.NotImplemented (501) so the URL contract exists from day
+		// one and the done condition "all routes are registered" holds.
 		r.Group(func(r chi.Router) {
 			r.Use(appmiddleware.Auth(database, cfg.JWTSecret))
-			r.Get("/auth/me", authHandler.Me)
+
+			// --- Auth management ---
+			r.Get("/auth/me", authHandler.Me) // legacy alias; plan URL is GET /user
 			r.Post("/auth/logout", authHandler.Logout)
 			r.Post("/auth/logout-all", authHandler.LogoutAll)
 			r.Get("/auth/sessions", authHandler.Sessions)
 			r.Delete("/auth/sessions/{sessionID}", authHandler.DeleteSession)
+
+			// --- User ---
+			r.Get("/user", authHandler.Me)
+			r.Put("/user", handlers.NotImplemented)    // Layer 6 Step 5
+			r.Delete("/user", handlers.NotImplemented) // Layer 6 Step 5
+
+			// --- Teams ---
+			r.Get("/teams", teamHandler.ListTeams)
+			r.Post("/teams", teamHandler.CreateTeam)
+			r.Get("/teams/{teamID}", teamHandler.GetTeam)
+			r.Put("/teams/{teamID}", teamHandler.UpdateTeam)
+			r.Delete("/teams/{teamID}", teamHandler.DeleteTeam)
+			r.Post("/teams/{teamID}/transfer-ownership", teamHandler.TransferOwnership)
+			r.Get("/teams/{teamID}/members", teamHandler.ListMembers)
+			r.Put("/teams/{teamID}/members/{memberID}/role", teamHandler.UpdateMemberRole)
+			r.Delete("/teams/{teamID}/members/{memberID}", teamHandler.RemoveMember)
+			r.Post("/teams/{teamID}/invite", teamHandler.SendInvitation)        // legacy alias
+			r.Post("/teams/{teamID}/invitations", teamHandler.SendInvitation) // plan URL
+			r.Delete("/teams/{teamID}/invitations/{invitationID}", handlers.NotImplemented) // Layer 6 Step 5
+			r.Post("/invitations/{token}/accept", teamHandler.AcceptInvitation) // legacy (token in URL)
+			r.Post("/invitations/accept", handlers.NotImplemented)              // plan URL; token-in-body contract is Layer 6 Step 5
+
+			// --- Servers ---
 			r.Get("/servers", server.ListServers)
 			r.Post("/servers", server.CreateServer)
+			r.Get("/servers/{serverID}", handlers.NotImplemented) // Layer 6 Step 5
 			r.Delete("/servers/{serverID}", server.DeleteServer)
+			r.Post("/servers/registration-token", tokenHandler.CreateRegistrationToken)   // legacy alias
+			r.Post("/servers/{serverID}/registration-token", handlers.NotImplemented)     // plan URL, Layer 6 Step 5
 			r.Get("/servers/{serverID}/events", server.ListEvents)
-			r.Get("/servers/{serverID}/alerts", server.ListAlerts)
-			r.Post("/servers/{serverID}/alerts/{alertID}/ack", server.AcknowledgeAlert)
-			r.Get("/alerts", server.ListAllAlerts)
-			r.Post("/alerts/read", server.MarkAllAlertsRead)
-			r.Post("/servers/registration-token", tokenHandler.CreateRegistrationToken)
-			r.Post("/deploy", handlers.MakeDeployApp(database, cfg, hub))
-			r.Get("/deployments", handlers.GetDeploymentStatus)
+
+			// --- Apps (Layer 6 Step 5 handlers) ---
+			r.Get("/servers/{serverID}/apps", handlers.NotImplemented)
+			r.Post("/servers/{serverID}/apps", handlers.NotImplemented)
+			r.Get("/servers/{serverID}/apps/{appID}", handlers.NotImplemented)
+			r.Delete("/servers/{serverID}/apps/{appID}", handlers.NotImplemented)
+
+			// --- Deployments ---
+			r.Post("/deploy", handlers.MakeDeployApp(database, cfg, hub)) // legacy alias
+			r.Get("/deployments", handlers.GetDeploymentStatus)            // legacy alias
+			r.Post("/servers/{serverID}/apps/{appID}/deploy", handlers.NotImplemented)      // plan URL, Layer 6 Step 5
+			r.Post("/servers/{serverID}/apps/{appID}/rollback", handlers.NotImplemented)    // Layer 6 Step 5
+			r.Get("/servers/{serverID}/apps/{appID}/deployments", handlers.NotImplemented)  // Layer 6 Step 5
+
+			// --- App lifecycle (Layer 6 Step 5 handlers) ---
+			r.Post("/servers/{serverID}/apps/{appID}/start", handlers.NotImplemented)
+			r.Post("/servers/{serverID}/apps/{appID}/stop", handlers.NotImplemented)
+			r.Post("/servers/{serverID}/apps/{appID}/restart", handlers.NotImplemented)
+			r.Get("/servers/{serverID}/apps/{appID}/logs", handlers.NotImplemented)
+
+			// --- Environment variables (Layer 6 Step 5 handlers) ---
+			r.Get("/servers/{serverID}/apps/{appID}/env", handlers.NotImplemented)
+			r.Put("/servers/{serverID}/apps/{appID}/env/{key}", handlers.NotImplemented)
+			r.Delete("/servers/{serverID}/apps/{appID}/env/{key}", handlers.NotImplemented)
+
+			// --- Databases (Layer 6 Step 5 handlers) ---
+			r.Get("/servers/{serverID}/apps/{appID}/databases", handlers.NotImplemented)
+			r.Post("/servers/{serverID}/apps/{appID}/databases", handlers.NotImplemented)
+			r.Delete("/servers/{serverID}/apps/{appID}/databases/{dbID}", handlers.NotImplemented)
+
+			// --- Domains ---
+			// Legacy routes (domain owned by a deployment).
 			r.Post("/servers/{serverID}/deployments/{deploymentID}/domains", customDomainHandler.AddDomain)
 			r.Post("/servers/{serverID}/deployments/{deploymentID}/domains/{domainID}/verify", customDomainHandler.VerifyDomain)
 			r.Delete("/servers/{serverID}/deployments/{deploymentID}/domains/{domainID}", customDomainHandler.RemoveDomain)
+			// Plan routes (domain owned by an app), Layer 6 Step 5 handlers.
+			r.Get("/servers/{serverID}/apps/{appID}/domains", handlers.NotImplemented)
+			r.Post("/servers/{serverID}/apps/{appID}/domains", handlers.NotImplemented)
+			r.Delete("/servers/{serverID}/apps/{appID}/domains/{domain}", handlers.NotImplemented)
+			r.Post("/servers/{serverID}/apps/{appID}/domains/{domain}/verify", handlers.NotImplemented)
 
-			// Backup management routes
+			// --- Metrics (Layer 6 Step 5 handlers) ---
+			r.Get("/servers/{serverID}/metrics", handlers.NotImplemented)
+			r.Get("/servers/{serverID}/metrics/history", handlers.NotImplemented)
+
+			// --- Alerts ---
+			r.Get("/servers/{serverID}/alerts", server.ListAlerts)
+			r.Post("/servers/{serverID}/alerts/{alertID}/ack", server.AcknowledgeAlert)             // legacy alias
+			r.Post("/servers/{serverID}/alerts/{alertID}/acknowledge", server.AcknowledgeAlert)     // plan URL
+			r.Get("/alerts", server.ListAllAlerts)
+			r.Post("/alerts/read", server.MarkAllAlertsRead)
+
+			// --- Backups ---
+			// Legacy rich routes (config/snapshots/jobs/schedule/usage/restore/
+			// verification/storage) — the dashboard depends on these.
 			r.Get("/servers/{serverID}/backup/config", backupHandler.GetBackupConfig)
 			r.Put("/servers/{serverID}/backup/config", backupHandler.UpdateBackupConfig)
 			r.Get("/servers/{serverID}/backup/snapshots", backupHandler.GetBackupSnapshots)
@@ -131,19 +209,15 @@ func NewRouter(database *sql.DB, cfg *config.Config, hub *ws.Hub, delivery *aler
 			r.Post("/servers/{serverID}/backup/verification/trigger", backupHandler.TriggerBackupVerification)
 			r.Get("/servers/{serverID}/backup/storage/stats", backupHandler.GetStorageStats)
 			r.Post("/servers/{serverID}/backup/storage/maintenance", backupHandler.TriggerMaintenance)
+			// Plan routes (Layer 6 Step 5 handlers): a paginated backup list, a
+			// run-backup trigger, and a per-backup restore.
+			r.Get("/servers/{serverID}/backups", handlers.NotImplemented)
+			r.Post("/servers/{serverID}/backups", handlers.NotImplemented)
+			r.Post("/servers/{serverID}/backups/{backupID}/restore", handlers.NotImplemented)
 
-			// Team management routes
-			r.Get("/teams", teamHandler.ListTeams)
-			r.Post("/teams", teamHandler.CreateTeam)
-			r.Get("/teams/{teamID}", teamHandler.GetTeam)
-			r.Put("/teams/{teamID}", teamHandler.UpdateTeam)
-			r.Delete("/teams/{teamID}", teamHandler.DeleteTeam)
-			r.Post("/teams/{teamID}/transfer-ownership", teamHandler.TransferOwnership)
-			r.Get("/teams/{teamID}/members", teamHandler.ListMembers)
-			r.Put("/teams/{teamID}/members/{memberID}/role", teamHandler.UpdateMemberRole)
-			r.Delete("/teams/{teamID}/members/{memberID}", teamHandler.RemoveMember)
-			r.Post("/teams/{teamID}/invite", teamHandler.SendInvitation)
-			r.Post("/invitations/{token}/accept", teamHandler.AcceptInvitation)
+			// --- Commands (Layer 6 Step 5 handlers) ---
+			r.Get("/servers/{serverID}/commands", handlers.NotImplemented)
+			r.Get("/servers/{serverID}/commands/{commandID}", handlers.NotImplemented)
 		})
 	})
 
