@@ -165,7 +165,6 @@ export default function ServerDetailPage({
               <Activity className="h-4 w-4 text-gray-400" />
               <span className="text-sm text-gray-900 dark:text-white">
                 {server.ram_total_mb ? `${server.ram_total_mb} MB` : "N/A"}
-                {server.ram_available_mb ? ` (${server.ram_available_mb} MB free)` : ""}
               </span>
             </div>
           </CardContent>
