@@ -2,19 +2,20 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
 const publicPaths = ["/login", "/register", "/forgot-password", "/reset-password"];
+const SESSION_COOKIE = "yp_session";
 
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
-  const token = request.cookies.get("access_token")?.value;
+  const hasSession = !!request.cookies.get(SESSION_COOKIE)?.value;
 
   if (publicPaths.some((p) => pathname.startsWith(p))) {
-    if (token) {
+    if (hasSession) {
       return NextResponse.redirect(new URL("/overview", request.url));
     }
     return NextResponse.next();
   }
 
-  if (!token) {
+  if (!hasSession) {
     return NextResponse.redirect(new URL("/login", request.url));
   }
 
