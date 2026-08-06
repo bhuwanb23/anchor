@@ -883,6 +883,27 @@ func (h *Hub) LookupPendingCommand(commandID string) string {
 	return connID
 }
 
+// TimeoutPendingCommand fires when a command's deadline passes (Layer 5B
+// Step 4B): it removes the pending entry, notifies the waiting dashboard with
+// a timeout result, and returns the dashboard's connection id ("" when the
+// command already completed and the entry is gone). The caller updates the DB.
+func (h *Hub) TimeoutPendingCommand(commandID string) string {
+	reply := make(chan interface{}, 1)
+	h.ops <- hubOp{kind: opTimeoutCommand, commandID: commandID, reply: reply}
+	connID, _ := (<-reply).(string)
+	return connID
+}
+
+// FindBrowserByUser returns an active browser connection id for the user, or
+// "" if the user has no live dashboard. Used to route late command results to
+// a reconnected dashboard (Layer 5B Step 4A).
+func (h *Hub) FindBrowserByUser(userID string) string {
+	reply := make(chan interface{}, 1)
+	h.ops <- hubOp{kind: opFindBrowserByUser, userID: userID, reply: reply}
+	connID, _ := (<-reply).(string)
+	return connID
+}
+
 // HasInFlightCommand reports whether there is any pending command for the given
 // server (used to deduplicate concurrent browser commands).
 func (h *Hub) HasInFlightCommand(serverID string) bool {

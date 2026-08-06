@@ -440,6 +440,19 @@ func trackStreamCommand(hub *Hub, serverID string, msg Message, agentMsg []byte)
 	}
 }
 
+// browserCommandID extracts the command id from a browser command message, or
+// "" when the message carries no id (e.g. stream control messages). Used to
+// track which dashboard is waiting on a delivered command (Layer 5B Step 2).
+func browserCommandID(msg Message) string {
+	var inner struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(msg.Payload, &inner); err != nil {
+		return ""
+	}
+	return inner.ID
+}
+
 // browserCommand is a normalized command from the dashboard.
 type browserCommand struct {
 	ID           string

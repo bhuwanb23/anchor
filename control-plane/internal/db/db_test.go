@@ -180,8 +180,8 @@ func TestMigrations_RecordsAppliedCount(t *testing.T) {
 	if err := db.QueryRow("SELECT COUNT(*) FROM schema_migrations").Scan(&count); err != nil {
 		t.Fatalf("count migrations: %v", err)
 	}
-	if count != 23 {
-		t.Errorf("expected 23 applied migrations, got %d", count)
+	if count != 24 {
+		t.Errorf("expected 24 applied migrations, got %d", count)
 	}
 }
 
@@ -191,7 +191,7 @@ func TestMigrateDir(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReadDir: %v", err)
 	}
-	if len(entries) != 23 {
-		t.Errorf("expected 23 embedded migrations, got %d", len(entries))
+	if len(entries) != 24 {
+		t.Errorf("expected 24 embedded migrations, got %d", len(entries))
 	}
 }
