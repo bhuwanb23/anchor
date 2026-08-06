@@ -5,6 +5,7 @@ import { getWSClient, type WSMessage } from "@/lib/ws";
 import { Alert } from "@/types";
 import api from "@/lib/api";
 import { useServerStore } from "@/store/server-store";
+import { toast } from "sonner";
 
 export interface AlertItem extends Alert {
   at: string;
@@ -61,6 +62,7 @@ export function useAlerts(serverId: string, enabled = true) {
           useServerStore.getState().acknowledgeAlert(id);
           return next;
         });
+        toast.success("Alert acknowledged");
       } catch {
         // Ignore: alert list will reconcile on next fetch.
       }
