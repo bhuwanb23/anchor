@@ -8,8 +8,8 @@ interface WSState {
   connected: boolean;
   connect: (serverId: string) => void;
   disconnect: () => void;
-  send: (msg: any) => void;
-  onMessage: (handler: (msg: any) => void) => () => void;
+  send: (msg: WSMessage) => void;
+  onMessage: (handler: (msg: WSMessage) => void) => () => void;
 }
 
 export const useWSStore = create<WSState>((set, get) => ({
