@@ -52,7 +52,7 @@ func NewRouter(database *sql.DB, cfg *config.Config, hub *ws.Hub, delivery *aler
 		writeError(w, r, http.StatusMethodNotAllowed, "method_not_allowed", "The requested method is not allowed for this resource")
 	})
 
-	r.Get("/health", handlers.Health)
+	r.Get("/health", (&handlers.Health{DB: database, Hub: hub}).ServeHTTP)
 	r.Get("/install.sh", func(w http.ResponseWriter, r *http.Request) {
 		http.ServeFile(w, r, "./scripts/install.sh")
 	})
