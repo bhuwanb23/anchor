@@ -2,7 +2,6 @@ package handlers
 
 import (
 	"database/sql"
-	"encoding/json"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -71,8 +70,8 @@ func (t *Teams) CreateTeam(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Name string `json:"name"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request body"})
+	if err := DecodeJSON(w, r, &req); err != nil {
+		writeAPIError(w, r, http.StatusBadRequest, "invalid_request", err.Error())
 		return
 	}
 
@@ -148,8 +147,8 @@ func (t *Teams) UpdateTeam(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Name string `json:"name"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request body"})
+	if err := DecodeJSON(w, r, &req); err != nil {
+		writeAPIError(w, r, http.StatusBadRequest, "invalid_request", err.Error())
 		return
 	}
 
@@ -247,8 +246,8 @@ func (t *Teams) UpdateMemberRole(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Role string `json:"role"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request body"})
+	if err := DecodeJSON(w, r, &req); err != nil {
+		writeAPIError(w, r, http.StatusBadRequest, "invalid_request", err.Error())
 		return
 	}
 
@@ -306,8 +305,8 @@ func (t *Teams) TransferOwnership(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		NewOwnerID string `json:"new_owner_id"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request body"})
+	if err := DecodeJSON(w, r, &req); err != nil {
+		writeAPIError(w, r, http.StatusBadRequest, "invalid_request", err.Error())
 		return
 	}
 
@@ -355,8 +354,8 @@ func (t *Teams) SendInvitation(w http.ResponseWriter, r *http.Request) {
 		Email string `json:"email"`
 		Role  string `json:"role"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request body"})
+	if err := DecodeJSON(w, r, &req); err != nil {
+		writeAPIError(w, r, http.StatusBadRequest, "invalid_request", err.Error())
 		return
 	}
 

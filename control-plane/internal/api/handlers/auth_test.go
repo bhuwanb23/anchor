@@ -204,6 +204,16 @@ func TestRegister_InvalidEmail(t *testing.T) {
 		if w.Code != http.StatusBadRequest {
 			t.Errorf("email %q: expected 400, got %d", email, w.Code)
 		}
+		// Step 3C format: validation_failed with a fields map.
+		var resp map[string]interface{}
+		json.NewDecoder(w.Body).Decode(&resp)
+		if resp["error"] != "validation_failed" {
+			t.Errorf("email %q: error = %v, want validation_failed", email, resp["error"])
+		}
+		fields, _ := resp["fields"].(map[string]interface{})
+		if _, ok := fields["email"]; !ok {
+			t.Errorf("email %q: fields missing email entry: %v", email, resp["fields"])
+		}
 	}
 }
 
@@ -220,6 +230,12 @@ func TestRegister_InvalidPassword(t *testing.T) {
 		})
 		if w.Code != http.StatusBadRequest {
 			t.Errorf("password %q: expected 400, got %d", password, w.Code)
+		}
+		var resp map[string]interface{}
+		json.NewDecoder(w.Body).Decode(&resp)
+		fields, _ := resp["fields"].(map[string]interface{})
+		if _, ok := fields["password"]; !ok {
+			t.Errorf("password %q: fields missing password entry: %v", password, resp["fields"])
 		}
 	}
 }
@@ -238,6 +254,97 @@ func TestRegister_InvalidName(t *testing.T) {
 		if w.Code != http.StatusBadRequest {
 			t.Errorf("name %q: expected 400, got %d", name, w.Code)
 		}
+		var resp map[string]interface{}
+		json.NewDecoder(w.Body).Decode(&resp)
+		fields, _ := resp["fields"].(map[string]interface{})
+		if _, ok := fields["name"]; !ok {
+			t.Errorf("name %q: fields missing name entry: %v", name, resp["fields"])
+		}
+	}
+}
+
+// TestRegister_AllFieldErrorsAtOnce verifies the Step 3C contract: EVERY
+// invalid field is reported in one response, never just the first.
+func TestRegister_AllFieldErrorsAtOnce(t *testing.T) {
+	db := setupAuthTestDB(t)
+	defer db.Close()
+	h := newAuthHandler(db)
+
+	w := registerRequest(t, h, map[string]string{
+		"name":     "J",
+		"email":    "not-an-email",
+		"password": "short",
+	})
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+	var resp map[string]interface{}
+	json.NewDecoder(w.Body).Decode(&resp)
+	fields, _ := resp["fields"].(map[string]interface{})
+	for _, field := range []string{"email", "password", "name"} {
+		if _, ok := fields[field]; !ok {
+			t.Errorf("fields missing %q entry: %v", field, resp["fields"])
+		}
+	}
+}
+
+// TestRegister_UnknownFieldRejected verifies DecodeJSON's strict unknown-field
+// handling (Step 3A): a misspelled field is an error, not silently ignored.
+func TestRegister_UnknownFieldRejected(t *testing.T) {
+	db := setupAuthTestDB(t)
+	defer db.Close()
+	h := newAuthHandler(db)
+
+	body := []byte(`{"name":"Alice Smith","email":"alice@example.com","password":"correct horse battery staple","role":"admin"}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/register", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	h.Register(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "Unknown field") {
+		t.Errorf("body missing unknown-field message: %s", w.Body.String())
+	}
+}
+
+// TestRegister_BodyTooLarge verifies the 1MB body cap (Step 3A).
+func TestRegister_BodyTooLarge(t *testing.T) {
+	db := setupAuthTestDB(t)
+	defer db.Close()
+	h := newAuthHandler(db)
+
+	body := `{"name":"Alice Smith","email":"alice@example.com","password":"` +
+		strings.Repeat("a", 1<<20+1) + `"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/register", bytes.NewReader([]byte(body)))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	h.Register(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+// TestRegister_SensitiveValuesNeverInErrors verifies that validation errors
+// never echo back the submitted values (which may be passwords).
+func TestRegister_SensitiveValuesNeverInErrors(t *testing.T) {
+	db := setupAuthTestDB(t)
+	defer db.Close()
+	h := newAuthHandler(db)
+
+	secret := "super-secret-password-value"
+	w := registerRequest(t, h, map[string]string{
+		"name":     "J",
+		"email":    "not-an-email",
+		"password": secret,
+	})
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", w.Code)
+	}
+	if strings.Contains(w.Body.String(), secret) {
+		t.Errorf("response leaked the submitted password: %s", w.Body.String())
 	}
 }
 

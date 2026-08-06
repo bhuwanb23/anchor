@@ -276,8 +276,8 @@ func (s *Server) CreateServer(w http.ResponseWriter, r *http.Request) {
 		Name   string `json:"name"`
 		TeamID string `json:"team_id"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "invalid request body", http.StatusBadRequest)
+	if err := DecodeJSON(w, r, &req); err != nil {
+		writeAPIError(w, r, http.StatusBadRequest, "invalid_request", err.Error())
 		return
 	}
 

@@ -66,8 +66,8 @@ func (h *Backup) UpdateBackupConfig(w http.ResponseWriter, r *http.Request) {
 		S3Bucket         *string `json:"s3_bucket,omitempty"`
 		S3Region         *string `json:"s3_region,omitempty"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "invalid request body", http.StatusBadRequest)
+	if err := DecodeJSON(w, r, &req); err != nil {
+		writeAPIError(w, r, http.StatusBadRequest, "invalid_request", err.Error())
 		return
 	}
 
@@ -165,8 +165,8 @@ func (h *Backup) TriggerBackup(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Paths []string `json:"paths"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "invalid request body", http.StatusBadRequest)
+	if err := DecodeJSON(w, r, &req); err != nil {
+		writeAPIError(w, r, http.StatusBadRequest, "invalid_request", err.Error())
 		return
 	}
 
@@ -293,8 +293,8 @@ func (h *Backup) UpdateBackupSchedule(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		HourUTC int `json:"hour_utc"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "invalid request body", http.StatusBadRequest)
+	if err := DecodeJSON(w, r, &req); err != nil {
+		writeAPIError(w, r, http.StatusBadRequest, "invalid_request", err.Error())
 		return
 	}
 
@@ -387,8 +387,8 @@ func (h *Backup) TriggerRestore(w http.ResponseWriter, r *http.Request) {
 		SnapshotID  string `json:"snapshot_id"`
 		ProjectName string `json:"project_name"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "invalid request body", http.StatusBadRequest)
+	if err := DecodeJSON(w, r, &req); err != nil {
+		writeAPIError(w, r, http.StatusBadRequest, "invalid_request", err.Error())
 		return
 	}
 
@@ -588,8 +588,9 @@ func (h *Backup) TriggerMaintenance(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Operation string `json:"operation"` // "cache_cleanup", "rebuild_index", "all"
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		req.Operation = "all"
+	if err := DecodeJSON(w, r, &req); err != nil {
+		writeAPIError(w, r, http.StatusBadRequest, "invalid_request", err.Error())
+		return
 	}
 
 	if req.Operation == "" {
