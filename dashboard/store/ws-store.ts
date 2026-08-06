@@ -1,45 +1,29 @@
 "use client";
 
 import { create } from "zustand";
-import { WSClient, WSMessage } from "@/lib/ws";
+import { getWSClient, type BrowserWSClient } from "@/lib/ws";
 
 interface WSState {
-  client: WSClient | null;
+  client: BrowserWSClient;
   connected: boolean;
-  connect: (serverId: string) => void;
+  connect: () => void;
   disconnect: () => void;
-  send: (msg: WSMessage) => void;
-  onMessage: (handler: (msg: WSMessage) => void) => () => void;
 }
 
 export const useWSStore = create<WSState>((set, get) => ({
-  client: null,
+  client: getWSClient(),
   connected: false,
 
-  connect: (serverId: string) => {
-    const existing = get().client;
-    if (existing) existing.disconnect();
-
-    const client = new WSClient(serverId);
+  connect: () => {
+    const { client } = get();
+    // Listen for connection state changes
     client.onConnect(() => set({ connected: true }));
-    // onclose handler in WSClient handles reconnect; we track connected state via onConnect
-    // For disconnection tracking, we poll or rely on reconnect logic
+    client.onDisconnect(() => set({ connected: false }));
     client.connect();
-    set({ client });
   },
 
   disconnect: () => {
-    get().client?.disconnect();
-    set({ client: null, connected: false });
-  },
-
-  send: (msg: WSMessage) => {
-    get().client?.send(msg);
-  },
-
-  onMessage: (handler) => {
-    const client = get().client;
-    if (!client) return () => {};
-    return client.onMessage(handler);
+    get().client.disconnect();
+    set({ connected: false });
   },
 }));
