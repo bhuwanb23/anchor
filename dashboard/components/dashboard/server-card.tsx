@@ -10,7 +10,7 @@ interface ServerCardProps {
 }
 
 export function ServerCard({ server }: ServerCardProps) {
-  const lastSeen = new Date(server.last_seen).toLocaleString();
+  const lastSeen = server.last_seen ? new Date(server.last_seen).toLocaleString() : "N/A";
 
   return (
     <Link href={`/servers/${server.id}`}>
