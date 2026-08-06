@@ -80,8 +80,8 @@ export default function ServerDetailPage({
     );
   }
 
-  const lastSeen = new Date(server.last_seen).toLocaleString();
-  const connectedAt = new Date(server.connected_at).toLocaleString();
+  const lastSeen = server.last_seen ? new Date(server.last_seen).toLocaleString() : "N/A";
+  const connectedAt = server.connected_at ? new Date(server.connected_at).toLocaleString() : "N/A";
 
   return (
     <div className="space-y-6">
