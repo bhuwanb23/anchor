@@ -48,10 +48,7 @@ export function AlertCard({ alert, onAcknowledge }: AlertCardProps) {
           <p className="text-xs text-gray-400" title={alert.fired_at}>
             Fired {timeAgo(alert.fired_at || alert.created_at)}
           </p>
-          {alert.message && alert.message !== (alert.title || "") && (
-            <p className="text-sm text-gray-700 dark:text-gray-300">{alert.message}</p>
-          )}
-          {!alert.title && alert.message && (
+          {!!alert.title && alert.message && alert.message !== alert.title && (
             <p className="text-sm text-gray-700 dark:text-gray-300">{alert.message}</p>
           )}
           {alert.action && (

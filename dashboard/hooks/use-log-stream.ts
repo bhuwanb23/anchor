@@ -38,13 +38,20 @@ interface UseLogStreamResult {
 
 const STOP_MARKER = "--- Container stopped ---";
 
-function normalizeEntry(raw: Partial<LogEntry> & { line?: string; message?: string }): LogEntry {
+function normalizeEntry(raw: {
+  project?: string;
+  container?: string;
+  stream?: LogStream | string;
+  line?: string;
+  message?: string;
+  timestamp?: string;
+}): LogEntry {
   return {
     type: "log_line",
     project: raw.project || "",
     container: raw.container || "",
     stream: raw.stream === "stderr" ? "stderr" : "stdout",
-    line: raw.line || (raw as { message?: string }).message || "",
+    line: raw.line || raw.message || "",
     timestamp: raw.timestamp || new Date().toISOString(),
   };
 }
