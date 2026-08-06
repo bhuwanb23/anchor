@@ -41,21 +41,23 @@ export function useCommand() {
       trackCommand(res.data.command_id);
       toast.success("Deploy started");
       return res.data;
-    } catch (err: any) {
-      toast.error(err.response?.data?.message || "Deploy failed");
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Deploy failed";
+      toast.error(msg);
       throw err;
     }
   }, [trackCommand]);
 
   const rollback = useCallback(async (serverId: string, appId: string, deploymentId?: string) => {
     try {
-      const body: any = deploymentId ? { target: "specific", deployment_id: deploymentId } : {};
+      const body = deploymentId ? { target: "specific" as const, deployment_id: deploymentId } : {};
       const res = await api.post(`/api/v1/servers/${serverId}/apps/${appId}/rollback`, body);
       trackCommand(res.data.command_id);
       toast.success("Rollback started");
       return res.data;
-    } catch (err: any) {
-      toast.error(err.response?.data?.message || "Rollback failed");
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Rollback failed";
+      toast.error(msg);
       throw err;
     }
   }, [trackCommand]);
