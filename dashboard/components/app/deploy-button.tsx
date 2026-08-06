@@ -27,8 +27,9 @@ export function DeployButton({ serverId, appId, projectName }: DeployButtonProps
       await api.post(`/api/v1/servers/${serverId}/apps/${appId}/deploy`, { image, port });
       toast.success("Deploy started");
       setOpen(false);
-    } catch (err: any) {
-      toast.error(err.response?.data?.message || "Deploy failed");
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Deploy failed";
+      toast.error(msg);
     } finally {
       setLoading(false);
     }
