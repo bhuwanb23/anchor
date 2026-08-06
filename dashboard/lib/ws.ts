@@ -44,6 +44,8 @@ class BrowserWSClient {
   private reconnectAttempt = 0;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private intentionalClose = false;
+  private autoReconnectPending = false;
+  private reconnectingHandlers = new Set<ConnectionHandler>();
 
   // Heartbeat state
   private pingTimer: ReturnType<typeof setInterval> | null = null;
@@ -69,6 +71,7 @@ class BrowserWSClient {
     this.ws.onopen = () => {
       console.log("[ws] connected");
       this.reconnectAttempt = 0;
+      this.autoReconnectPending = false;
       this.alive = true;
       this.startPing();
       this.connectHandlers.forEach((h) => h());
@@ -94,7 +97,11 @@ class BrowserWSClient {
       this.alive = false;
       this.disconnectHandlers.forEach((h) => h());
       if (!this.intentionalClose) {
+        this.autoReconnectPending = true;
+        this.reconnectingHandlers.forEach((h) => h());
         this.scheduleReconnect();
+      } else {
+        this.autoReconnectPending = false;
       }
     };
 
@@ -106,10 +113,16 @@ class BrowserWSClient {
 
   disconnect(): void {
     this.intentionalClose = true;
+    this.autoReconnectPending = false;
     this.stopPing();
     this.clearReconnect();
     this.ws?.close();
     this.ws = null;
+  }
+
+  /** True while exponential backoff reconnect is scheduled or in flight. */
+  isReconnecting(): boolean {
+    return this.autoReconnectPending && !this.intentionalClose;
   }
 
   // ---------------------------------------------------------------------------
@@ -153,6 +166,13 @@ class BrowserWSClient {
     this.disconnectHandlers.add(handler);
     return () => {
       this.disconnectHandlers.delete(handler);
+    };
+  }
+
+  onReconnecting(handler: ConnectionHandler): () => void {
+    this.reconnectingHandlers.add(handler);
+    return () => {
+      this.reconnectingHandlers.delete(handler);
     };
   }
 

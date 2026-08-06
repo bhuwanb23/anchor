@@ -49,7 +49,11 @@ export const useWSStore = create<WSState>((set, get) => ({
   connect: () => {
     const { client } = get();
     client.onConnect(() => set({ status: "connected" }));
-    client.onDisconnect(() => set({ status: "disconnected" }));
+    client.onDisconnect(() => {
+      // During auto-reconnect backoff, keep yellow "connecting" (Reconnecting)
+      set({ status: client.isReconnecting() ? "connecting" : "disconnected" });
+    });
+    client.onReconnecting(() => set({ status: "connecting" }));
     set({ status: "connecting" });
     client.connect();
   },
