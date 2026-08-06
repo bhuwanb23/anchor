@@ -320,6 +320,73 @@ func TestRouter_PlanRoutesNotYetImplementedReturn501(t *testing.T) {
 	}
 }
 
+// Every response — success, 404, 405, and 401 alike — carries an X-Request-ID
+// header and the security headers (Layer 6 Step 2 done conditions: "every
+// response").
+func TestRouter_EveryResponseHasRequestIDAndSecurityHeaders(t *testing.T) {
+	router := newTestRouter(t)
+
+	cases := []struct{ method, path string }{
+		{http.MethodGet, "/health"},
+		{http.MethodGet, "/api/v1/nonexistent"},          // 404
+		{http.MethodDelete, "/health"},                  // 405
+		{http.MethodGet, "/api/v1/servers"},             // 401 (protected)
+		{http.MethodGet, "/ws/browser"},                 // WS handler runs
+	}
+	for _, c := range cases {
+		w := doRequest(router, c.method, c.path)
+		if got := w.Header().Get("X-Request-ID"); got == "" {
+			t.Errorf("%s %s: missing X-Request-ID header", c.method, c.path)
+		}
+		if got := w.Header().Get("X-Content-Type-Options"); got != "nosniff" {
+			t.Errorf("%s %s: X-Content-Type-Options = %q, want nosniff", c.method, c.path, got)
+		}
+		if got := w.Header().Get("Cache-Control"); got != "no-store" {
+			t.Errorf("%s %s: Cache-Control = %q, want no-store", c.method, c.path, got)
+		}
+	}
+}
+
+// CORS is enforced end-to-end through the router: the dashboard origin
+// passes, a foreign origin is rejected with 403 before any handler runs, and
+// an OPTIONS preflight returns 204 with the CORS headers.
+func TestRouter_CORSEnforced(t *testing.T) {
+	router := newTestRouter(t)
+
+	// Allowed origin.
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/servers", nil)
+	req.Header.Set("Origin", "http://localhost:3000")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("allowed origin GET /api/v1/servers = %d, want 401 (reached auth)", w.Code)
+	}
+	if got := w.Header().Get("Access-Control-Allow-Origin"); got != "http://localhost:3000" {
+		t.Errorf("Allow-Origin = %q, want echo", got)
+	}
+
+	// Disallowed origin: 403 before auth even runs.
+	req2 := httptest.NewRequest(http.MethodGet, "/api/v1/servers", nil)
+	req2.Header.Set("Origin", "https://evil.example.com")
+	w2 := httptest.NewRecorder()
+	router.ServeHTTP(w2, req2)
+	if w2.Code != http.StatusForbidden {
+		t.Errorf("foreign origin GET /api/v1/servers = %d, want 403", w2.Code)
+	}
+
+	// Preflight from the allowed origin: 204 + CORS headers.
+	req3 := httptest.NewRequest(http.MethodOptions, "/api/v1/servers", nil)
+	req3.Header.Set("Origin", "http://localhost:3000")
+	w3 := httptest.NewRecorder()
+	router.ServeHTTP(w3, req3)
+	if w3.Code != http.StatusNoContent {
+		t.Errorf("preflight = %d, want 204", w3.Code)
+	}
+	if got := w3.Header().Get("Access-Control-Max-Age"); got != "3600" {
+		t.Errorf("preflight Max-Age = %q, want 3600", got)
+	}
+}
+
 // GET /api/v1/user (plan URL) is served by the same handler as /auth/me and
 // must return the authenticated user for a valid JWT.
 func TestRouter_UserRouteWired(t *testing.T) {
