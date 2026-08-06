@@ -7,12 +7,20 @@ import { useAuth } from "@/hooks/use-auth";
 import { useWSStore } from "@/store/ws-store";
 import { useServerStore } from "@/store/server-store";
 import { useRealtimeShell } from "@/hooks/use-realtime-shell";
+import { useAlerts } from "@/hooks/use-alerts";
 import { Sidebar } from "@/components/layout/sidebar";
 import { Header } from "@/components/layout/header";
+import { CriticalAlertBanner } from "@/components/alerts/alert-banner";
 
 function serverIdFromPath(pathname: string): string | null {
   const m = pathname.match(/^\/servers\/([^/]+)/);
   return m ? m[1] : null;
+}
+
+function CriticalBannerHost({ serverId }: { serverId: string | null }) {
+  useAlerts(serverId || "", !!serverId);
+  const storeAlerts = useServerStore((s) => s.alerts);
+  return <CriticalAlertBanner serverId={serverId} alerts={storeAlerts} />;
 }
 
 export default function DashboardLayout({
@@ -42,7 +50,6 @@ export default function DashboardLayout({
     connect();
   }, [connect]);
 
-  // Keep store selection in sync with URL (survives refresh / deep links)
   useEffect(() => {
     const id = serverIdFromPath(pathname);
     if (id && id !== selectedServerId) {
@@ -64,17 +71,14 @@ export default function DashboardLayout({
 
   return (
     <div className="flex h-screen overflow-hidden">
-      {/* Icon bar on small/medium screens */}
       <div className="flex shrink-0 lg:hidden">
         <Sidebar collapsed onExpand={() => setMobileMenuOpen(true)} />
       </div>
 
-      {/* Full sidebar on large screens */}
       <div className="hidden lg:flex lg:shrink-0">
         <Sidebar />
       </div>
 
-      {/* Full sidebar overlay (hamburger) */}
       {mobileMenuOpen && (
         <div className="fixed inset-0 z-50 lg:hidden">
           <div className="fixed inset-0 bg-black/40" onClick={closeMobileMenu} />
@@ -86,6 +90,7 @@ export default function DashboardLayout({
 
       <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
         <Header onMenuClick={() => setMobileMenuOpen(true)} />
+        <CriticalBannerHost serverId={selectedServerId} />
         <main className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8">{children}</main>
       </div>
     </div>

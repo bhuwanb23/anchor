@@ -1,24 +1,83 @@
 "use client";
 
-import { AlertTriangle, X } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
+import { X } from "lucide-react";
+import type { Alert } from "@/types";
 
-interface AlertBannerProps {
-  message: string;
-  severity?: "warning" | "error";
+interface CriticalAlertBannerProps {
+  serverId: string | null;
+  alerts: Alert[];
 }
 
-export function AlertBanner({ message, severity = "warning" }: AlertBannerProps) {
-  const [dismissed, setDismissed] = useState(false);
-  if (dismissed) return null;
+/**
+ * Session-dismissible banner for active critical alerts.
+ * Reappears when a new critical alert arrives after dismissal.
+ */
+export function CriticalAlertBanner({ serverId, alerts }: CriticalAlertBannerProps) {
+  const [dismissedIds, setDismissedIds] = useState<Set<string>>(new Set());
 
-  const bg = severity === "error" ? "bg-red-50 text-red-800 dark:bg-red-950 dark:text-red-300" : "bg-amber-50 text-amber-800 dark:bg-amber-950 dark:text-amber-300";
+  const critical = useMemo(
+    () =>
+      alerts.filter(
+        (a) =>
+          a.status === "active" &&
+          a.severity === "critical" &&
+          !dismissedIds.has(a.id)
+      ),
+    [alerts, dismissedIds]
+  );
+
+  // Drop dismissals for alerts that are no longer active critical
+  useEffect(() => {
+    const activeIds = new Set(
+      alerts.filter((a) => a.status === "active" && a.severity === "critical").map((a) => a.id)
+    );
+    setDismissedIds((prev) => {
+      let changed = false;
+      const next = new Set<string>();
+      for (const id of prev) {
+        if (activeIds.has(id)) next.add(id);
+        else changed = true;
+      }
+      return changed ? next : prev;
+    });
+  }, [alerts]);
+
+  if (!serverId || critical.length === 0) return null;
+
+  const top = critical[0];
+  const scope = top.project || "Server";
+  const extra = critical.length > 1 ? ` (+${critical.length - 1} more)` : "";
 
   return (
-    <div className={`flex items-center gap-3 rounded-lg px-4 py-3 text-sm ${bg}`}>
-      <AlertTriangle className="h-4 w-4 shrink-0" />
-      <span className="flex-1">{message}</span>
-      <button onClick={() => setDismissed(true)} className="shrink-0 opacity-70 hover:opacity-100">
+    <div className="flex items-center gap-3 border-b border-red-700 bg-red-600 px-4 py-2 text-sm text-white">
+      <p className="min-w-0 flex-1 truncate">
+        <span className="font-semibold">{top.title || top.message}</span>
+        <span className="opacity-90">
+          {" "}
+          · {scope}
+          {extra}
+        </span>
+      </p>
+      <Link
+        href={`/servers/${serverId}/alerts`}
+        className="shrink-0 font-medium underline underline-offset-2 hover:no-underline"
+      >
+        View
+      </Link>
+      <button
+        type="button"
+        aria-label="Dismiss alert banner"
+        className="shrink-0 rounded p-0.5 opacity-80 hover:bg-red-500 hover:opacity-100"
+        onClick={() =>
+          setDismissedIds((prev) => {
+            const next = new Set(prev);
+            for (const a of critical) next.add(a.id);
+            return next;
+          })
+        }
+      >
         <X className="h-4 w-4" />
       </button>
     </div>

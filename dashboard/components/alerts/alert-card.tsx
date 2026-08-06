@@ -1,49 +1,96 @@
 "use client";
 
+import { CheckCircle2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { StatusBadge } from "@/components/ui/badge";
-import api from "@/lib/api";
-import { toast } from "sonner";
+import type { Alert } from "@/types";
 
-interface AlertCardProps {
-  alert: {
-    id: string;
-    server_id: string;
-    severity: string;
-    title: string;
-    message?: string;
-    acknowledged: boolean;
-    created_at: string;
-  };
-  onAck?: () => void;
+function timeAgo(iso?: string | null): string {
+  if (!iso) return "";
+  const ms = Date.now() - new Date(iso).getTime();
+  if (Number.isNaN(ms)) return "";
+  const mins = Math.floor(ms / 60_000);
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins} minute${mins === 1 ? "" : "s"} ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 48) return `${hrs} hour${hrs === 1 ? "" : "s"} ago`;
+  const days = Math.floor(hrs / 24);
+  return `${days} day${days === 1 ? "" : "s"} ago`;
 }
 
-export function AlertCard({ alert, onAck }: AlertCardProps) {
-  const handleAck = async () => {
-    try {
-      await api.post(`/api/v1/servers/${alert.server_id}/alerts/${alert.id}/ack`);
-      toast.success("Alert acknowledged");
-      onAck?.();
-    } catch {
-      toast.error("Failed to acknowledge alert");
-    }
-  };
+interface AlertCardProps {
+  alert: Alert;
+  onAcknowledge?: (id: string) => void;
+}
+
+export function AlertCard({ alert, onAcknowledge }: AlertCardProps) {
+  const severity = alert.severity === "critical" ? "critical" : "warning";
+  const border =
+    alert.status === "resolved"
+      ? "border-green-500"
+      : severity === "critical"
+      ? "border-red-500"
+      : "border-amber-500";
+
+  const scope = alert.project || "Server";
 
   return (
-    <div className="flex items-start justify-between rounded-lg border p-4 dark:border-gray-800">
-      <div className="space-y-1">
-        <div className="flex items-center gap-2">
-          <StatusBadge status={alert.severity} />
-          <span className="font-medium">{alert.title}</span>
+    <div
+      className={`rounded-r-lg border border-l-4 bg-white p-4 dark:border-gray-800 dark:bg-gray-950 ${border}`}
+    >
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0 space-y-1.5">
+          <div className="flex flex-wrap items-center gap-2">
+            <h3 className="font-semibold text-gray-900 dark:text-white">
+              {alert.title || alert.message}
+            </h3>
+            <span className="text-xs text-gray-500">{scope}</span>
+          </div>
+          <p className="text-xs text-gray-400" title={alert.fired_at}>
+            Fired {timeAgo(alert.fired_at || alert.created_at)}
+          </p>
+          {alert.message && alert.message !== (alert.title || "") && (
+            <p className="text-sm text-gray-700 dark:text-gray-300">{alert.message}</p>
+          )}
+          {!alert.title && alert.message && (
+            <p className="text-sm text-gray-700 dark:text-gray-300">{alert.message}</p>
+          )}
+          {alert.action && (
+            <p className="text-sm text-gray-600 dark:text-gray-400">
+              <span className="font-medium text-gray-800 dark:text-gray-200">What to do: </span>
+              {alert.action}
+            </p>
+          )}
+          {alert.status === "resolved" && alert.resolved_at && (
+            <p className="text-xs text-green-700 dark:text-green-400">
+              Resolved {timeAgo(alert.resolved_at)}
+            </p>
+          )}
+          {alert.status === "acknowledged" && (
+            <p className="text-xs text-gray-500">
+              Acknowledged{alert.acknowledged_at ? ` ${timeAgo(alert.acknowledged_at)}` : ""}
+            </p>
+          )}
         </div>
-        {alert.message && <p className="text-sm text-gray-500">{alert.message}</p>}
-        <p className="text-xs text-gray-400">{new Date(alert.created_at).toLocaleString()}</p>
+        {alert.status === "active" && (
+          <Button size="sm" variant="secondary" onClick={() => onAcknowledge?.(alert.id)}>
+            Acknowledge
+          </Button>
+        )}
       </div>
-      {!alert.acknowledged && (
-        <Button size="sm" variant="ghost" onClick={handleAck}>
-          Ack
-        </Button>
-      )}
+    </div>
+  );
+}
+
+export function AlertsAllClear() {
+  return (
+    <div className="flex flex-col items-center justify-center gap-3 rounded-xl border border-green-200 bg-green-50 px-6 py-12 text-center dark:border-green-900/40 dark:bg-green-950/30">
+      <CheckCircle2 className="h-10 w-10 text-green-600 dark:text-green-400" />
+      <p className="text-base font-medium text-green-800 dark:text-green-200">
+        All clear — no active alerts
+      </p>
+      <p className="max-w-sm text-sm text-green-700/80 dark:text-green-300/80">
+        Your server is healthy. We&apos;ll notify you here if something needs attention.
+      </p>
     </div>
   );
 }

@@ -1,10 +1,34 @@
 "use client";
 
-import { use } from "react";
+import { use, useMemo, useState } from "react";
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import { useAlerts } from "@/hooks/use-alerts";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { AlertCard, AlertsAllClear } from "@/components/alerts/alert-card";
+import type { Alert } from "@/types";
+
+type FilterTab = "active" | "resolved" | "all";
+
+function severityRank(a: Alert): number {
+  return a.severity === "critical" ? 0 : 1;
+}
+
+function sortAlerts(list: Alert[]): Alert[] {
+  return [...list].sort((a, b) => {
+    const sev = severityRank(a) - severityRank(b);
+    if (sev !== 0) return sev;
+    const at = new Date(a.fired_at || a.created_at || 0).getTime();
+    const bt = new Date(b.fired_at || b.created_at || 0).getTime();
+    return bt - at;
+  });
+}
+
+function matchesFilter(a: Alert, tab: FilterTab): boolean {
+  if (tab === "all") return true;
+  if (tab === "resolved") return a.status === "resolved";
+  // Active tab: currently happening — active only (acknowledged is separate)
+  return a.status === "active";
+}
 
 export default function ServerAlertsPage({
   params,
@@ -13,7 +37,18 @@ export default function ServerAlertsPage({
 }) {
   const { id } = use(params);
   const { alerts, acknowledge } = useAlerts(id);
-  const active = alerts.filter((a) => a.status === "active");
+  const [tab, setTab] = useState<FilterTab>("active");
+
+  const filtered = useMemo(
+    () => sortAlerts(alerts.filter((a) => matchesFilter(a, tab))),
+    [alerts, tab]
+  );
+
+  const tabs: { id: FilterTab; label: string }[] = [
+    { id: "active", label: "Active" },
+    { id: "resolved", label: "Resolved" },
+    { id: "all", label: "All" },
+  ];
 
   return (
     <div className="mx-auto max-w-3xl space-y-6">
@@ -25,61 +60,43 @@ export default function ServerAlertsPage({
         Back to server
       </Link>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>
-            Alerts
-            <span className="ml-2 text-sm font-normal text-gray-400">
-              {active.length} active
-            </span>
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          {alerts.length === 0 ? (
-            <p className="text-sm text-gray-500">No alerts — all systems normal.</p>
-          ) : (
-            <div className="space-y-3">
-              {alerts.map((a) => (
-                <div
-                  key={a.id}
-                  className={`rounded-r border-l-4 p-3 ${
-                    a.status === "resolved"
-                      ? "border-green-500 bg-green-50 dark:bg-green-950/40"
-                      : a.severity === "critical"
-                      ? "border-red-500 bg-red-50 dark:bg-red-950/40"
-                      : "border-amber-500 bg-amber-50 dark:bg-amber-950/40"
-                  }`}
-                >
-                  <div className="flex items-start justify-between gap-2">
-                    <div>
-                      <p className="text-sm font-medium text-gray-900 dark:text-white">
-                        {a.title || a.message}
-                      </p>
-                      {a.title && a.message && a.title !== a.message && (
-                        <p className="mt-1 text-sm text-gray-600 dark:text-gray-300">
-                          {a.message}
-                        </p>
-                      )}
-                      <p className="mt-1 text-xs text-gray-400">
-                        {new Date(a.at).toLocaleString()}
-                      </p>
-                    </div>
-                    {a.status === "active" && (
-                      <button
-                        type="button"
-                        onClick={() => acknowledge(a.id)}
-                        className="shrink-0 rounded-md border px-2 py-1 text-xs text-gray-600 hover:border-green-400 hover:text-green-600"
-                      >
-                        Acknowledge
-                      </button>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </CardContent>
-      </Card>
+      <div>
+        <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Alerts</h1>
+        <p className="mt-1 text-sm text-gray-500">
+          Current and historical alerts for this server
+        </p>
+      </div>
+
+      <div className="border-b border-gray-200 dark:border-gray-800">
+        <nav className="-mb-px flex gap-6">
+          {tabs.map((t) => (
+            <button
+              key={t.id}
+              type="button"
+              onClick={() => setTab(t.id)}
+              className={`border-b-2 px-1 pb-3 text-sm font-medium transition ${
+                tab === t.id
+                  ? "border-blue-600 text-blue-600"
+                  : "border-transparent text-gray-500 hover:text-gray-800"
+              }`}
+            >
+              {t.label}
+            </button>
+          ))}
+        </nav>
+      </div>
+
+      {tab === "active" && filtered.length === 0 ? (
+        <AlertsAllClear />
+      ) : filtered.length === 0 ? (
+        <p className="text-sm text-gray-500">No alerts in this view.</p>
+      ) : (
+        <div className="space-y-3">
+          {filtered.map((a) => (
+            <AlertCard key={a.id} alert={a} onAcknowledge={acknowledge} />
+          ))}
+        </div>
+      )}
     </div>
   );
 }

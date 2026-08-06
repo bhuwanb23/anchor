@@ -14,7 +14,6 @@ import {
   Undo2,
 } from "lucide-react";
 import { useApp } from "@/hooks/use-app";
-import { useLogStream } from "@/hooks/use-log-stream";
 import { useServerStore } from "@/store/server-store";
 import { StatusBadge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -25,7 +24,7 @@ import { Input } from "@/components/ui/input";
 import { EnvVarList } from "@/components/app/env-var-list";
 import { DomainsSection } from "@/components/app/domains-section";
 import { DeployDialog } from "@/components/app/deploy-dialog";
-import { LogViewer } from "@/components/logs/log-viewer";
+import { AppLogsPanel } from "@/components/logs/app-logs-panel";
 import api from "@/lib/api";
 import { toast } from "sonner";
 import { getWSClient } from "@/lib/ws";
@@ -87,18 +86,6 @@ export default function AppDetailClient({
     () => containers.filter((c) => c.project === app?.project_name),
     [containers, app?.project_name]
   );
-
-  const {
-    logs,
-    isConnected: logConnected,
-    startStreaming,
-    stopStreaming,
-    clearLogs,
-  } = useLogStream({
-    serverId,
-    projectName: app?.project_name || "",
-    enabled: tab === "logs" && !!app?.project_name,
-  });
 
   useEffect(() => {
     if (app) {
@@ -385,35 +372,23 @@ export default function AppDetailClient({
 
       {/* Logs */}
       {tab === "logs" && (
-        <div className="space-y-3">
-          <div className="flex items-center gap-2">
-            {logConnected ? (
-              <Button
-                size="sm"
-                variant="secondary"
-                onClick={() => {
-                  stopStreaming();
-                  clearLogs();
-                }}
-              >
-                Stop stream
-              </Button>
-            ) : (
-              <Button size="sm" onClick={startStreaming}>
-                Start stream
-              </Button>
-            )}
-            {logConnected && (
-              <span className="text-xs text-green-600">Live</span>
-            )}
+        <div className="space-y-2">
+          <div className="flex justify-end">
+            <Link
+              href={`/servers/${serverId}/apps/${appId}/logs`}
+              className="text-xs text-blue-600 hover:underline"
+            >
+              Open full-page viewer
+            </Link>
           </div>
-          <LogViewer
-            logs={logs.map((l) => ({
-              timestamp: l.timestamp,
-              container: l.container,
-              message: l.line || "",
-            }))}
-          />
+          <div className="h-[28rem]">
+            <AppLogsPanel
+              serverId={serverId}
+              projectName={app.project_name}
+              fill
+              enabled={tab === "logs"}
+            />
+          </div>
         </div>
       )}
 
