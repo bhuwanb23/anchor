@@ -10,6 +10,44 @@ import (
 	"github.com/yourname/yourplatform/control-plane/internal/ratelimit"
 )
 
+// TestRegister_RateLimited mirrors the Layer 6 Step 2E rule: registration is
+// capped per IP (default 5 per hour). Distinct emails keep the per-email
+// dimension out of the way so the per-IP limit is what trips.
+func TestRegister_RateLimited(t *testing.T) {
+	db := setupAuthTestDB(t)
+	defer db.Close()
+	h := newAuthHandler(db)
+	h.Limiter = ratelimit.New() // production defaults: 5/IP per hour
+
+	prefix := fmt.Sprintf("newbie-%d", time.Now().UnixNano())
+	for i := 0; i < 5; i++ {
+		email := fmt.Sprintf("%s-%d@example.com", prefix, i)
+		if w := registerRequest(t, h, map[string]string{
+			"name":     "New User",
+			"email":    email,
+			"password": "correct horse battery staple",
+		}); w.Code != http.StatusCreated {
+			t.Fatalf("registration %d: expected 201, got %d: %s", i+1, w.Code, w.Body.String())
+		}
+	}
+
+	// The 6th registration from the same IP trips the limit.
+	w := registerRequest(t, h, map[string]string{
+		"name":     "New User",
+		"email":    prefix + "-6@example.com",
+		"password": "correct horse battery staple",
+	})
+	if w.Code != http.StatusTooManyRequests {
+		t.Fatalf("6th registration: expected 429, got %d: %s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "Too many registration attempts") {
+		t.Errorf("body missing retry message: %s", w.Body.String())
+	}
+	if got := w.Header().Get("Retry-After"); got == "" {
+		t.Error("expected Retry-After header on 429")
+	}
+}
+
 func TestLogin_RateLimited(t *testing.T) {
 	db := setupAuthTestDB(t)
 	defer db.Close()
