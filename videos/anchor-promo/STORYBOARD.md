@@ -14,7 +14,20 @@ captions: enabled
 - **Motion defaults + shot model:** every frame is a directed shot — `entrance → development → settle`. Default ease `power3.out` for arrivals, `power2.inOut` for repositioning, `circ.inOut` for camera moves. Idle budget: ONE living element per frame maximum (wordmark glow, camera micro-drift, or a CTA sheen) — everything else settles and holds.
 - **Negative list:** no slideshow enter-then-freeze; no screensaver (everything drifting independently); no purple-blue AI gradients; no invented product screenshots, domain names, or live URLs (project is pre-launch — use "your domain" wording and the repo's own diagrams only); no drop shadows on content; no second accent color.
 - **Stillness allocation:** Frame 6 (CTA) is the sole held frame — wordmark + ring pulse only, letting the promise land. Every other frame develops mid-shot.
-- **Caption band:** bottom ~180px is the caption pill's zone; all primary content lives above it.
+- **Caption band:** bottom ~180px is the caption pill's zone; all primary content lives above it. Implemented as `.caption-stage` at y=892–1064; every frame's lowest element must clear y=892.
+
+### Recorded deviations from frame.md
+
+Deliberate, reviewed exceptions — not drift. Anything not listed here should follow `frame.md` exactly.
+
+1. **Frame 2 (pain) uses semantic warning/error color as fill.** `frame.md` says "no second accent color" and restricts positive/negative to inline text only, never fills. Frame 2 uses amber (`#e8833a` / `#c2410c`) on the disk meter and cert numeral, and red (`#b91c1c`) on the pager, including tinted icon-chip fills. **Rationale:** the pain frame's whole job is to read as alarm; rendering failure states in cobalt would neutralise the one beat that must feel wrong. The exception is scoped to Frame 2 only — Frames 1, 3, 4, 5, 6 remain single-accent cobalt. **Accepted.**
+2. **Frame 5 uses a green status affordance** (`#22c55e` dot / `#15803d` text) on the "valid / verified / readable" chips, same inline-only spirit as above, as the visual answer to Frame 2's alarm. Scoped to status chips and TLS lock glyphs. **Accepted.**
+3. **Cards use solid white (`#fff`) rather than 4% cobalt tint.** Retains the no-shadow rule; the white card on cream ground gives the UI-panel read the brief asked for. **Accepted.**
+
+### Verified facts (do not re-invent)
+
+- Repo URL is `github.com/bhuwanb23/anchor` — confirmed from `git remote -v`, not guessed. Frame 6 may cite it.
+- No voiceover track exists. TTS is unconfigured (no Kokoro deps, no provider key); **captions carry the narration**. The audio bed is BGM + SFX only.
 
 ---
 
