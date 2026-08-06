@@ -92,18 +92,18 @@ func (a *Auth) Register(w http.ResponseWriter, r *http.Request) {
 		Name     string `json:"name"`
 	}
 
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request body"})
+	// Layer 6 Step 3A — 1MB body cap, strict unknown-field rejection, and
+	// specific decode errors.
+	if err := DecodeJSON(w, r, &req); err != nil {
+		writeAPIError(w, r, http.StatusBadRequest, "invalid_request", err.Error())
 		return
 	}
 
+	// Layer 6 Step 3B/3C — validate ALL fields and report every error at once
+	// (Step 3C format), before any database work.
 	email := auth.NormalizeEmail(req.Email)
-	if err := auth.ValidateEmail(email); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
-		return
-	}
-	if err := auth.ValidatePassword(req.Password); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+	if ve := ValidateRegisterRequest(email, req.Password, strings.TrimSpace(req.Name)); ve.HasErrors() {
+		writeValidationError(w, r, ve)
 		return
 	}
 
@@ -117,10 +117,6 @@ func (a *Auth) Register(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	name := strings.TrimSpace(req.Name)
-	if err := auth.ValidateName(name); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
-		return
-	}
 
 	// Uniqueness check before hashing — hashing is ~300ms, so fail fast.
 	// The UNIQUE index on email is the backstop for concurrent registrations.
@@ -184,8 +180,8 @@ func (a *Auth) Login(w http.ResponseWriter, r *http.Request) {
 		Password string `json:"password"`
 	}
 
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request body"})
+	if err := DecodeJSON(w, r, &req); err != nil {
+		writeAPIError(w, r, http.StatusBadRequest, "invalid_request", err.Error())
 		return
 	}
 
@@ -242,8 +238,8 @@ func (a *Auth) Refresh(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		RefreshToken string `json:"refresh_token"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request body"})
+	if err := DecodeJSON(w, r, &req); err != nil {
+		writeAPIError(w, r, http.StatusBadRequest, "invalid_request", err.Error())
 		return
 	}
 	if req.RefreshToken == "" {
@@ -384,8 +380,8 @@ func (a *Auth) Logout(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		RefreshToken string `json:"refresh_token"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request body"})
+	if err := DecodeJSON(w, r, &req); err != nil {
+		writeAPIError(w, r, http.StatusBadRequest, "invalid_request", err.Error())
 		return
 	}
 	if req.RefreshToken == "" {
@@ -559,8 +555,8 @@ func (a *Auth) ForgotPassword(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Email string `json:"email"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request body"})
+	if err := DecodeJSON(w, r, &req); err != nil {
+		writeAPIError(w, r, http.StatusBadRequest, "invalid_request", err.Error())
 		return
 	}
 
@@ -652,8 +648,8 @@ func (a *Auth) ResetPassword(w http.ResponseWriter, r *http.Request) {
 		Token       string `json:"token"`
 		NewPassword string `json:"new_password"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request body"})
+	if err := DecodeJSON(w, r, &req); err != nil {
+		writeAPIError(w, r, http.StatusBadRequest, "invalid_request", err.Error())
 		return
 	}
 	if req.Token == "" {

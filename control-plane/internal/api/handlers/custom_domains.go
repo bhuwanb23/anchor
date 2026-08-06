@@ -29,8 +29,8 @@ func (h *CustomDomain) AddDomain(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Domain string `json:"domain"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "invalid request body", http.StatusBadRequest)
+	if err := DecodeJSON(w, r, &req); err != nil {
+		writeAPIError(w, r, http.StatusBadRequest, "invalid_request", err.Error())
 		return
 	}
 

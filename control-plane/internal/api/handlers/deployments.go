@@ -24,8 +24,8 @@ func MakeDeployApp(db *sql.DB, cfg *config.Config, hub *ws.Hub) http.HandlerFunc
 			Domain   string `json:"domain,omitempty"`
 		}
 
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			http.Error(w, "invalid request body", http.StatusBadRequest)
+		if err := DecodeJSON(w, r, &req); err != nil {
+			writeAPIError(w, r, http.StatusBadRequest, "invalid_request", err.Error())
 			return
 		}
 
