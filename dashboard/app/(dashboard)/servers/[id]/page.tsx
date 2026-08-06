@@ -140,7 +140,7 @@ export default function ServerDetailPage({
             <div className="flex items-center gap-2">
               <Server className="h-4 w-4 text-gray-400" />
               <span className="text-sm text-gray-900 dark:text-white">
-                {server.os_pretty || (server.os_info && server.os_version ? `${server.os_info} ${server.os_version}` : server.os_info || "N/A")}
+                {server.os ? `${server.os} ${server.os_version || ""}`.trim() : "N/A"}
               </span>
             </div>
           </CardContent>
@@ -164,7 +164,7 @@ export default function ServerDetailPage({
             <div className="flex items-center gap-2">
               <Activity className="h-4 w-4 text-gray-400" />
               <span className="text-sm text-gray-900 dark:text-white">
-                {server.ram_mb ? `${server.ram_mb} MB` : "N/A"}
+                {server.ram_total_mb ? `${server.ram_total_mb} MB` : "N/A"}
                 {server.ram_available_mb ? ` (${server.ram_available_mb} MB free)` : ""}
               </span>
             </div>
@@ -178,7 +178,7 @@ export default function ServerDetailPage({
             <div className="flex items-center gap-2">
               <HardDrive className="h-4 w-4 text-gray-400" />
               <span className="text-sm text-gray-900 dark:text-white">
-                {server.disk_total_gb ? `${server.disk_total_gb} GB` : server.disk_gb ? `${server.disk_gb} GB` : "N/A"}
+                {server.disk_total_gb ? `${server.disk_total_gb} GB` : "N/A"}
                 {server.disk_available_gb ? ` (${server.disk_available_gb} GB free)` : ""}
               </span>
             </div>
@@ -189,7 +189,7 @@ export default function ServerDetailPage({
             <CardTitle className="text-sm font-medium text-gray-500">Docker</CardTitle>
           </CardHeader>
           <CardContent>
-            <span className="text-sm text-gray-900 dark:text-white">{server.docker_version || "N/A"}</span>
+            <span className="text-sm text-gray-900 dark:text-white">N/A</span>
           </CardContent>
         </Card>
         <Card>
