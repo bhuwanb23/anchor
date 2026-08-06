@@ -106,6 +106,8 @@ const (
 	opResolvePendingCommand
 	opLookupPendingCommand
 	opFailTimedOutCommand
+	opTimeoutCommand
+	opFindBrowserByUser
 	opHasInFlightCommand
 	opAgentPong
 	opBrowserPong
@@ -486,6 +488,48 @@ func (h *Hub) handleOp(op hubOp) {
 			}
 		}
 
+	case opTimeoutCommand:
+		// A command's deadline passed (Layer 5B Step 4B): remove the pending
+		// entry and tell the waiting dashboard. The caller updates the DB.
+		entry, ok := h.pendingCommands[op.commandID]
+		delete(h.pendingCommands, op.commandID)
+		if op.reply == nil {
+			break
+		}
+		if !ok {
+			op.reply <- ""
+			break
+		}
+		timeoutMsg, _ := json.Marshal(map[string]interface{}{
+			"type":       "command_result",
+			"command_id": op.commandID,
+			"status":     "timeout",
+			"error":      "Command did not complete within the allotted time. Your server may be experiencing issues. Check the server status and try again.",
+		})
+		if browser, ok := h.browsers[entry.connID]; ok {
+			select {
+			case browser.Send <- timeoutMsg:
+				h.messagesRouted++
+			default:
+				h.failedSends++
+				slog.Debug("dropped ws message for slow browser", "connection_id", entry.connID)
+			}
+		}
+		op.reply <- entry.connID
+
+	case opFindBrowserByUser:
+		if op.reply == nil {
+			break
+		}
+		found := ""
+		for _, b := range h.browsers {
+			if b.UserID == op.userID {
+				found = b.ID
+				break
+			}
+		}
+		op.reply <- found
+
 	case opLookupPendingCommand:
 		// Non-destructive lookup for progress messages: the entry stays until
 		// the final result arrives.
@@ -536,7 +580,6 @@ func (h *Hub) handleOp(op hubOp) {
 				slog.Debug("dropped ws message for slow browser", "connection_id", op.connID)
 			}
 		}
-		op.reply <- found
 
 	case opRegisterLogStream:
 		if _, ok := h.browsers[op.connID]; ok {
