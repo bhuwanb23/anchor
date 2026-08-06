@@ -2,15 +2,44 @@
 
 import { create } from "zustand";
 import * as authLib from "@/lib/auth";
+import type { AuthUser } from "@/types";
 
-interface User {
-  id: string;
-  email: string;
-  name: string;
+// ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
+
+const USER_STORAGE_KEY = "yp_user";
+
+// ---------------------------------------------------------------------------
+// Persistence helpers — persist user to localStorage so no flash of
+// unauthenticated state on page refresh.
+// ---------------------------------------------------------------------------
+
+function loadPersistedUser(): AuthUser | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = localStorage.getItem(USER_STORAGE_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
 }
 
+function persistUser(user: AuthUser | null): void {
+  if (typeof window === "undefined") return;
+  if (user) {
+    localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(user));
+  } else {
+    localStorage.removeItem(USER_STORAGE_KEY);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Auth Store
+// ---------------------------------------------------------------------------
+
 interface AuthState {
-  user: User | null;
+  user: AuthUser | null;
   isLoading: boolean;
   isAuthenticated: boolean;
   login: (email: string, password: string) => Promise<void>;
@@ -20,13 +49,15 @@ interface AuthState {
 }
 
 export const useAuthStore = create<AuthState>((set) => ({
-  user: null,
+  // Initialize from localStorage to avoid flash on page refresh
+  user: loadPersistedUser(),
   isLoading: true,
-  isAuthenticated: false,
+  isAuthenticated: !!loadPersistedUser(),
 
   login: async (email, password) => {
     const res = await authLib.login({ email, password });
-    set({ user: res.user, isAuthenticated: true });
+    persistUser(res.user);
+    set({ user: res.user, isAuthenticated: true, isLoading: false });
   },
 
   register: async (name, email, password) => {
@@ -35,18 +66,22 @@ export const useAuthStore = create<AuthState>((set) => ({
 
   logout: async () => {
     await authLib.logout();
-    set({ user: null, isAuthenticated: false });
+    persistUser(null);
+    set({ user: null, isAuthenticated: false, isLoading: false });
   },
 
   loadUser: async () => {
     try {
       if (!authLib.isLoggedIn()) {
-        set({ isLoading: false, isAuthenticated: false });
+        persistUser(null);
+        set({ user: null, isLoading: false, isAuthenticated: false });
         return;
       }
       const user = await authLib.getMe();
+      persistUser(user);
       set({ user, isAuthenticated: true, isLoading: false });
     } catch {
+      persistUser(null);
       set({ user: null, isAuthenticated: false, isLoading: false });
     }
   },
