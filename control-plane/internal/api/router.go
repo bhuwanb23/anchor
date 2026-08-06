@@ -22,12 +22,16 @@ import (
 func NewRouter(database *sql.DB, cfg *config.Config, hub *ws.Hub, delivery *alerts.Delivery, sender mailer.Sender) http.Handler {
 	r := chi.NewRouter()
 
-	r.Use(middleware.RequestID)
+	// Layer 6 Step 2 middleware stack, in plan order:
+	// RequestID → RealIP → Logging → Recoverer → SecurityHeaders → CORS → Auth.
+	// RealIP runs before Logging so the request log records the caller's real
+	// IP (from X-Forwarded-For), not the proxy's.
+	r.Use(appmiddleware.RequestID) // req-{12hex}, sets X-Request-ID response header
 	r.Use(middleware.RealIP)
-	r.Use(middleware.Logger)
+	r.Use(appmiddleware.Logging) // structured request log (Layer 6 Step 2B)
 	r.Use(middleware.Recoverer)
 	// Security headers first so even CORS-short-circuited preflight (OPTIONS)
-	// responses carry them — "every response" (Layer 5A Step 8B).
+	// responses carry them — "every response" (Layer 5A Step 8B / 6 Step 2F).
 	r.Use(appmiddleware.SecurityHeaders)
 	r.Use(appmiddleware.CORS(cfg.FrontendURL))
 
