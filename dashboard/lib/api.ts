@@ -7,7 +7,7 @@ import type { AuthResponse } from "@/types";
 
 const ACCESS_TOKEN_KEY = "token";
 const REFRESH_TOKEN_KEY = "refresh_token";
-const SESSION_COOKIE = "yp_session";
+const SESSION_COOKIE = "has_session";
 
 // ---------------------------------------------------------------------------
 // Cookie helpers — the session indicator cookie enables Next.js middleware
