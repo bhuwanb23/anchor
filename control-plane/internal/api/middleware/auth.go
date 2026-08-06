@@ -42,6 +42,10 @@ type authError struct {
 }
 
 func writeAuthError(w http.ResponseWriter, r *http.Request, code, message string, extraHeaders map[string]string) {
+	// Auth failure ⇒ the request log line reports user_id="unauthenticated"
+	// (Layer 6 Step 2B/2D). No-op when the request bypassed the request
+	// logger (direct handler tests).
+	setLogUserID(r, "unauthenticated")
 	for k, v := range extraHeaders {
 		w.Header().Set(k, v)
 	}
@@ -110,7 +114,9 @@ func Auth(db *sql.DB, jwtSecret string) func(http.Handler) http.Handler {
 			}
 
 			// 3B.7 — attach the user and the validated claims so handlers never
-			// parse tokens or query the DB themselves.
+			// parse tokens or query the DB themselves. Also record the user id
+			// for the request log line (Layer 6 Step 2B).
+			setLogUserID(r, user.ID)
 			ctx := context.WithValue(r.Context(), userContextKey, user)
 			ctx = context.WithValue(ctx, claimsContextKey, claims)
 			next.ServeHTTP(w, r.WithContext(ctx))
