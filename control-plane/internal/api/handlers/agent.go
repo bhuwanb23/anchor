@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -17,6 +18,8 @@ import (
 	"github.com/yourname/yourplatform/control-plane/internal/db/queries"
 	"github.com/yourname/yourplatform/control-plane/internal/dns"
 )
+
+const controlPlaneVersion = "1.0.0"
 
 type Agent struct {
 	DB      *sql.DB
@@ -39,18 +42,24 @@ func (a *Agent) Register(w http.ResponseWriter, r *http.Request) {
 			DiskUsedPercent float64 `json:"disk_used_percent"`
 			DockerVersion   string  `json:"docker_version,omitempty"`
 		} `json:"system_info"`
-		IPAddress string          `json:"ip_address"`
-		Warnings  json.RawMessage `json:"warnings,omitempty"`
-		AutoFixed json.RawMessage `json:"auto_fixed,omitempty"`
+		AgentVersion string          `json:"agent_version"`
+		IPAddress    string          `json:"ip_address"`
+		Warnings     json.RawMessage `json:"warnings,omitempty"`
+		AutoFixed    json.RawMessage `json:"auto_fixed,omitempty"`
 	}
 
 	if err := DecodeJSON(w, r, &req); err != nil {
-		writeAPIError(w, r, http.StatusBadRequest, "invalid_request", err.Error())
+		Respond400(w, r, err.Error())
 		return
 	}
 
 	if req.Token == "" {
-		http.Error(w, "token is required", http.StatusBadRequest)
+		Respond400(w, r, "token is required")
+		return
+	}
+
+	if !strings.HasPrefix(req.Token, "reg_") {
+		RespondError(w, r, http.StatusUnauthorized, "invalid_token", "Invalid registration token")
 		return
 	}
 
@@ -58,46 +67,52 @@ func (a *Agent) Register(w http.ResponseWriter, r *http.Request) {
 
 	tokenID, userID, serverName, expiresAt, usedAt, err := queries.FindRegistrationTokenByHash(a.DB, tokenHash)
 	if err == sql.ErrNoRows {
-		http.Error(w, "invalid registration token", http.StatusUnauthorized)
+		RespondError(w, r, http.StatusUnauthorized, "invalid_token", "Invalid registration token")
 		return
 	}
 	if err != nil {
 		slog.Error("query registration token", "error", err)
-		http.Error(w, "internal server error", http.StatusInternalServerError)
+		Respond500(w, r)
 		return
 	}
 
 	if usedAt.Valid {
-		http.Error(w, "registration token has already been used", http.StatusConflict)
+		RespondError(w, r, http.StatusUnauthorized, "token_already_used", "Registration token already used")
 		return
 	}
 
 	expiry, err := time.Parse(time.RFC3339, expiresAt)
 	if err != nil {
 		slog.Error("parse expiry time", "error", err)
-		http.Error(w, "internal server error", http.StatusInternalServerError)
+		Respond500(w, r)
 		return
 	}
 
 	if time.Now().After(expiry) {
-		http.Error(w, "registration token has expired", http.StatusGone)
+		RespondError(w, r, http.StatusUnauthorized, "token_expired", "Registration token expired. Generate a new one.")
 		return
 	}
 
 	serverID := uuid.New().String()
-	agentID := uuid.New().String()
+
+	agentID, err := generateAgentID()
+	if err != nil {
+		slog.Error("generate agent id", "error", err)
+		Respond500(w, r)
+		return
+	}
 
 	agentSecret, err := generateAgentSecret()
 	if err != nil {
 		slog.Error("generate agent secret", "error", err)
-		http.Error(w, "internal server error", http.StatusInternalServerError)
+		Respond500(w, r)
 		return
 	}
 	agentSecretHash := hashAgentSecret(agentSecret)
 
 	name := serverName
 	if name == "" {
-		name = "server-" + agentID[:8]
+		name = "server-" + agentID[4:12]
 	}
 
 	err = queries.InsertServerWithAgent(
@@ -108,29 +123,25 @@ func (a *Agent) Register(w http.ResponseWriter, r *http.Request) {
 	)
 	if err != nil {
 		slog.Error("insert server", "error", err)
-		http.Error(w, "internal server error", http.StatusInternalServerError)
+		Respond500(w, r)
 		return
 	}
 
-	// Update richer system info
 	_ = queries.UpdateServerSystemInfo(a.DB, serverID,
 		req.SystemInfo.OSVersion, req.SystemInfo.OSPretty, req.SystemInfo.DockerVersion,
 		req.SystemInfo.RAMAvailableMB, req.SystemInfo.DiskTotalGB, req.SystemInfo.DiskAvailableGB,
 		req.SystemInfo.DiskUsedPercent,
 	)
 
-	// Create wildcard DNS record if DNS is configured
 	if a.DNS != nil && a.Config != nil && req.IPAddress != "" {
 		subdomain := "srv-" + serverID[:8]
 		if err := a.DNS.UpsertWildcard(r.Context(), subdomain, req.IPAddress); err != nil {
 			slog.Error("create wildcard DNS record", "error", err, "server_id", serverID, "ip", req.IPAddress)
-			// Non-fatal: server registration succeeded, DNS can be retried
 		} else {
 			slog.Info("created wildcard DNS record", "subdomain", subdomain, "ip", req.IPAddress)
 		}
 	}
 
-	// Link server to user's personal team
 	teamID, err := queries.EnsureUserPersonalTeam(a.DB, userID, "")
 	if err != nil {
 		slog.Error("failed to get personal team for agent registration", "error", err, "user_id", userID)
@@ -138,7 +149,8 @@ func (a *Agent) Register(w http.ResponseWriter, r *http.Request) {
 		slog.Error("failed to link server to team on agent registration", "error", err, "server_id", serverID, "team_id", teamID)
 	}
 
-	// Record auto-fix events
+	_ = queries.InsertServerEvent(a.DB, uuid.New().String(), serverID, "server_registered", "registration", "Server registered", "")
+
 	if len(req.AutoFixed) > 0 {
 		var fixes []struct {
 			Check  string `json:"check"`
@@ -159,16 +171,31 @@ func (a *Agent) Register(w http.ResponseWriter, r *http.Request) {
 		slog.Error("mark token used", "error", err)
 	}
 
-	wsURL := fmt.Sprintf("ws://%s/ws/agent", r.Host)
+	scheme := "ws://"
+	if r.TLS != nil {
+		scheme = "wss://"
+	}
+	wsHost := r.Host
+	if a.Config != nil && a.Config.BaseDomain != "" {
+		wsHost = "ws." + a.Config.BaseDomain
+	}
+	wsURL := scheme + wsHost + "/ws/agent"
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(map[string]string{
-		"agent_id":     agentID,
-		"agent_secret": agentSecret,
-		"server_id":    serverID,
-		"ws_url":       wsURL,
+	RespondJSON(w, http.StatusCreated, map[string]string{
+		"agent_id":              agentID,
+		"agent_secret":          agentSecret,
+		"server_id":             serverID,
+		"websocket_url":         wsURL,
+		"control_plane_version": controlPlaneVersion,
 	})
+}
+
+func generateAgentID() (string, error) {
+	b := make([]byte, 12)
+	if _, err := rand.Read(b); err != nil {
+		return "", fmt.Errorf("generate random agent id: %w", err)
+	}
+	return "agt-" + hex.EncodeToString(b), nil
 }
 
 func generateAgentSecret() (string, error) {
