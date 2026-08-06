@@ -205,28 +205,28 @@ var planRoutes = []planRoute{
 	// Servers
 	{http.MethodGet, "/api/v1/servers", false},
 	{http.MethodPost, "/api/v1/servers", false},
-	{http.MethodGet, "/api/v1/servers/srv-1", true},
+	{http.MethodGet, "/api/v1/servers/srv-1", false},           // implemented: step5.GetServer
 	{http.MethodDelete, "/api/v1/servers/srv-1", false},
-	{http.MethodPost, "/api/v1/servers/srv-1/registration-token", true},
+	{http.MethodPost, "/api/v1/servers/srv-1/registration-token", false}, // implemented: step5.CreateServerRegistrationToken
 	{http.MethodGet, "/api/v1/servers/srv-1/events", false},
 	// Apps
-	{http.MethodGet, "/api/v1/servers/srv-1/apps", true},
-	{http.MethodPost, "/api/v1/servers/srv-1/apps", true},
-	{http.MethodGet, "/api/v1/servers/srv-1/apps/app-1", true},
-	{http.MethodDelete, "/api/v1/servers/srv-1/apps/app-1", true},
+	{http.MethodGet, "/api/v1/servers/srv-1/apps", false},       // implemented: step5.ListApps
+	{http.MethodPost, "/api/v1/servers/srv-1/apps", false},      // implemented: step5.CreateApp
+	{http.MethodGet, "/api/v1/servers/srv-1/apps/app-1", false}, // implemented: step5.GetApp
+	{http.MethodDelete, "/api/v1/servers/srv-1/apps/app-1", false}, // implemented: step5.DeleteApp
 	// Deployments
-	{http.MethodPost, "/api/v1/servers/srv-1/apps/app-1/deploy", true},
-	{http.MethodPost, "/api/v1/servers/srv-1/apps/app-1/rollback", true},
-	{http.MethodGet, "/api/v1/servers/srv-1/apps/app-1/deployments", true},
+	{http.MethodPost, "/api/v1/servers/srv-1/apps/app-1/deploy", false},     // implemented: step5.DeployApp
+	{http.MethodPost, "/api/v1/servers/srv-1/apps/app-1/rollback", false},   // implemented: step5.RollbackApp
+	{http.MethodGet, "/api/v1/servers/srv-1/apps/app-1/deployments", false}, // implemented: step5.ListDeployments
 	// App lifecycle
-	{http.MethodPost, "/api/v1/servers/srv-1/apps/app-1/start", true},
-	{http.MethodPost, "/api/v1/servers/srv-1/apps/app-1/stop", true},
-	{http.MethodPost, "/api/v1/servers/srv-1/apps/app-1/restart", true},
-	{http.MethodGet, "/api/v1/servers/srv-1/apps/app-1/logs", true},
+	{http.MethodPost, "/api/v1/servers/srv-1/apps/app-1/start", false},   // implemented: step5.StartApp
+	{http.MethodPost, "/api/v1/servers/srv-1/apps/app-1/stop", false},    // implemented: step5.StopApp
+	{http.MethodPost, "/api/v1/servers/srv-1/apps/app-1/restart", false}, // implemented: step5.RestartApp
+	{http.MethodGet, "/api/v1/servers/srv-1/apps/app-1/logs", false},     // implemented: step5.GetAppLogs
 	// Environment variables
-	{http.MethodGet, "/api/v1/servers/srv-1/apps/app-1/env", true},
-	{http.MethodPut, "/api/v1/servers/srv-1/apps/app-1/env/KEY", true},
-	{http.MethodDelete, "/api/v1/servers/srv-1/apps/app-1/env/KEY", true},
+	{http.MethodGet, "/api/v1/servers/srv-1/apps/app-1/env", false},          // implemented: step5.ListEnvVars
+	{http.MethodPut, "/api/v1/servers/srv-1/apps/app-1/env/KEY", false},      // implemented: step5.SetEnvVar
+	{http.MethodDelete, "/api/v1/servers/srv-1/apps/app-1/env/KEY", false},   // implemented: step5.DeleteEnvVar
 	// Databases
 	{http.MethodGet, "/api/v1/servers/srv-1/apps/app-1/databases", true},
 	{http.MethodPost, "/api/v1/servers/srv-1/apps/app-1/databases", true},
@@ -237,8 +237,8 @@ var planRoutes = []planRoute{
 	{http.MethodDelete, "/api/v1/servers/srv-1/apps/app-1/domains/example.com", true},
 	{http.MethodPost, "/api/v1/servers/srv-1/apps/app-1/domains/example.com/verify", true},
 	// Metrics
-	{http.MethodGet, "/api/v1/servers/srv-1/metrics", true},
-	{http.MethodGet, "/api/v1/servers/srv-1/metrics/history", true},
+	{http.MethodGet, "/api/v1/servers/srv-1/metrics", false},          // implemented: step5.GetServerMetrics
+	{http.MethodGet, "/api/v1/servers/srv-1/metrics/history", false},  // implemented: step5.GetServerMetricsHistory
 	// Alerts
 	{http.MethodGet, "/api/v1/servers/srv-1/alerts", false},
 	{http.MethodPost, "/api/v1/servers/srv-1/alerts/alert-1/acknowledge", false},
@@ -246,9 +246,9 @@ var planRoutes = []planRoute{
 	{http.MethodGet, "/api/v1/alerts", false},
 	{http.MethodPost, "/api/v1/alerts/read", false},
 	// Backups (plan URL)
-	{http.MethodGet, "/api/v1/servers/srv-1/backups", true},
-	{http.MethodPost, "/api/v1/servers/srv-1/backups", true},
-	{http.MethodPost, "/api/v1/servers/srv-1/backups/bkp-1/restore", true},
+	{http.MethodGet, "/api/v1/servers/srv-1/backups", false},              // implemented: step5.ListBackupsPlan
+	{http.MethodPost, "/api/v1/servers/srv-1/backups", false},             // implemented: step5.TriggerBackupPlan
+	{http.MethodPost, "/api/v1/servers/srv-1/backups/bkp-1/restore", false}, // implemented: step5.RestoreBackupPlan
 	// Commands
 	{http.MethodGet, "/api/v1/servers/srv-1/commands", true},
 	{http.MethodGet, "/api/v1/servers/srv-1/commands/cmd-1", true},
