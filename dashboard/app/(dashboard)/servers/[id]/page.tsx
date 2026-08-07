@@ -87,22 +87,17 @@ export default function ServerOverviewPage({
   // Seed store from REST poll when WS hasn't delivered yet
   useEffect(() => {
     if (polledMetrics && !storeMetrics) {
-      const m = polledMetrics as MetricsSnapshot;
-      if (m.cpu_percent !== undefined || (m as { disk_used_percent?: number }).disk_used_percent !== undefined) {
-        updateMetrics({
-          cpu_percent: m.cpu_percent || 0,
-          ram_used_mb: m.ram_used_mb || 0,
-          ram_total_mb: m.ram_total_mb || 0,
-          ram_percent: m.ram_percent || 0,
-          disk_used_gb: m.disk_used_gb || 0,
-          disk_total_gb: m.disk_total_gb || 0,
-          disk_percent:
-            m.disk_percent ||
-            (m as { disk_used_percent?: number }).disk_used_percent ||
-            0,
-          load_1min: m.load_1min || 0,
-        });
-      }
+      const m = polledMetrics as MetricsSnapshot & { disk_used_percent?: number };
+      updateMetrics({
+        cpu_percent: m.cpu_percent ?? 0,
+        ram_used_mb: m.ram_used_mb ?? 0,
+        ram_total_mb: m.ram_total_mb ?? 0,
+        ram_percent: m.ram_percent ?? 0,
+        disk_used_gb: m.disk_used_gb ?? 0,
+        disk_total_gb: m.disk_total_gb ?? 0,
+        disk_percent: m.disk_percent ?? m.disk_used_percent ?? 0,
+        load_1min: m.load_1min ?? 0,
+      });
     }
   }, [polledMetrics, storeMetrics, updateMetrics]);
 
@@ -111,14 +106,14 @@ export default function ServerOverviewPage({
     if (!polledMetrics) return;
     const m = polledMetrics as MetricsSnapshot & { disk_used_percent?: number };
     updateMetrics({
-      cpu_percent: m.cpu_percent || 0,
-      ram_used_mb: m.ram_used_mb || 0,
-      ram_total_mb: m.ram_total_mb || 0,
-      ram_percent: m.ram_percent || 0,
-      disk_used_gb: m.disk_used_gb || 0,
-      disk_total_gb: m.disk_total_gb || 0,
-      disk_percent: m.disk_percent || m.disk_used_percent || 0,
-      load_1min: m.load_1min || 0,
+      cpu_percent: m.cpu_percent ?? 0,
+      ram_used_mb: m.ram_used_mb ?? 0,
+      ram_total_mb: m.ram_total_mb ?? 0,
+      ram_percent: m.ram_percent ?? 0,
+      disk_used_gb: m.disk_used_gb ?? 0,
+      disk_total_gb: m.disk_total_gb ?? 0,
+      disk_percent: m.disk_percent ?? m.disk_used_percent ?? 0,
+      load_1min: m.load_1min ?? 0,
     });
   }, [polledMetrics, updateMetrics]);
 

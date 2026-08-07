@@ -7,7 +7,9 @@ interface ProgressProps extends React.HTMLAttributes<HTMLDivElement> {
 }
 
 export function Progress({ value = 0, max = 100, className, ...props }: ProgressProps) {
-  const pct = Math.min(100, Math.max(0, (value / max) * 100));
+  const v = typeof value === "number" && Number.isFinite(value) ? value : 0;
+  const m = typeof max === "number" && Number.isFinite(max) && max > 0 ? max : 100;
+  const pct = Math.min(100, Math.max(0, (v / m) * 100));
   return (
     <div className={`h-2 w-full overflow-hidden rounded-full bg-gray-200 dark:bg-gray-800 ${className || ""}`} {...props}>
       <div

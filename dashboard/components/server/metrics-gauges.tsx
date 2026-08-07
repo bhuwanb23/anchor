@@ -3,7 +3,11 @@
 import type { MetricsSnapshot } from "@/types";
 
 interface MetricsGaugesProps {
-  metrics: MetricsSnapshot | null;
+  metrics: MetricsSnapshot | null | Partial<MetricsSnapshot>;
+}
+
+function num(n: unknown, fallback = 0): number {
+  return typeof n === "number" && Number.isFinite(n) ? n : fallback;
 }
 
 function gaugeColor(pct: number, yellowAt: number, redAt: number): string {
@@ -18,9 +22,10 @@ function barColor(pct: number, yellowAt: number, redAt: number): string {
   return "bg-green-500";
 }
 
-function formatGB(n: number): string {
-  if (n >= 10) return `${Math.round(n)}GB`;
-  return `${n.toFixed(1)}GB`;
+function formatGB(n: unknown): string {
+  const v = num(n, 0);
+  if (v >= 10) return `${Math.round(v)}GB`;
+  return `${v.toFixed(1)}GB`;
 }
 
 function ResourceGauge({
@@ -36,7 +41,7 @@ function ResourceGauge({
   yellowAt: number;
   redAt: number;
 }) {
-  const pct = Math.min(100, Math.max(0, percent));
+  const pct = Math.min(100, Math.max(0, num(percent)));
   return (
     <div className="flex flex-col rounded-xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-gray-900">
       <div className="mb-3 text-xs font-medium uppercase tracking-wider text-gray-400">
@@ -60,7 +65,14 @@ function ResourceGauge({
 }
 
 export function MetricsGauges({ metrics }: MetricsGaugesProps) {
-  if (!metrics) {
+  const hasAny =
+    metrics &&
+    (metrics.cpu_percent != null ||
+      metrics.ram_percent != null ||
+      metrics.disk_percent != null ||
+      (metrics as { disk_used_percent?: number }).disk_used_percent != null);
+
+  if (!hasAny) {
     return (
       <div className="grid gap-4 sm:grid-cols-3">
         {["CPU", "RAM", "Disk"].map((label) => (
@@ -78,28 +90,30 @@ export function MetricsGauges({ metrics }: MetricsGaugesProps) {
     );
   }
 
-  const ramUsed = metrics.ram_used_mb / 1024;
-  const ramTotal = metrics.ram_total_mb / 1024;
+  const cpu = num(metrics.cpu_percent);
+  const ramPct = num(metrics.ram_percent);
+  const ramUsed = num(metrics.ram_used_mb) / 1024;
+  const ramTotal = num(metrics.ram_total_mb) / 1024;
+  const diskPct = num(
+    metrics.disk_percent ?? (metrics as { disk_used_percent?: number }).disk_used_percent
+  );
+  const diskUsed = num(metrics.disk_used_gb);
+  const diskTotal = num(metrics.disk_total_gb);
 
   return (
     <div className="grid gap-4 sm:grid-cols-3">
-      <ResourceGauge
-        label="CPU"
-        percent={metrics.cpu_percent}
-        yellowAt={70}
-        redAt={85}
-      />
+      <ResourceGauge label="CPU" percent={cpu} yellowAt={70} redAt={85} />
       <ResourceGauge
         label="RAM"
-        percent={metrics.ram_percent}
+        percent={ramPct}
         subtitle={`${formatGB(ramUsed)} / ${formatGB(ramTotal)}`}
         yellowAt={70}
         redAt={85}
       />
       <ResourceGauge
         label="Disk"
-        percent={metrics.disk_percent}
-        subtitle={`${formatGB(metrics.disk_used_gb)} / ${formatGB(metrics.disk_total_gb)}`}
+        percent={diskPct}
+        subtitle={`${formatGB(diskUsed)} / ${formatGB(diskTotal)}`}
         yellowAt={75}
         redAt={90}
       />

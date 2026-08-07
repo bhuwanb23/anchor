@@ -23,7 +23,8 @@ function Badge({ variant = "default", className = "", children, ...props }: Badg
   );
 }
 
-function StatusBadge({ status }: { status: string }) {
+function StatusBadge({ status }: { status?: string | null }) {
+  const key = status || "disconnected";
   const variantMap: Record<string, "success" | "danger" | "warning" | "info" | "default"> = {
     connected: "success",
     disconnected: "default",
@@ -55,8 +56,8 @@ function StatusBadge({ status }: { status: string }) {
   };
 
   return (
-    <Badge variant={variantMap[status] || "default"}>
-      {labels[status] || status}
+    <Badge variant={variantMap[key] || "default"}>
+      {labels[key] || key}
     </Badge>
   );
 }
