@@ -63,14 +63,14 @@ export default function DashboardLayout({
 
   if (isLoading) {
     return (
-      <div className="flex min-h-screen items-center justify-center">
-        <div className="h-8 w-8 animate-spin rounded-full border-4 border-blue-600 border-t-transparent" />
+      <div className="flex min-h-screen items-center justify-center bg-[var(--color-paper)]">
+        <div className="h-9 w-9 animate-spin rounded-full border-[3px] border-[var(--color-accent-soft)] border-t-[var(--color-accent)]" />
       </div>
     );
   }
 
   return (
-    <div className="flex h-screen overflow-hidden">
+    <div className="flex h-screen overflow-hidden bg-[var(--color-paper)]">
       <div className="flex shrink-0 lg:hidden">
         <Sidebar collapsed onExpand={() => setMobileMenuOpen(true)} />
       </div>
@@ -81,8 +81,8 @@ export default function DashboardLayout({
 
       {mobileMenuOpen && (
         <div className="fixed inset-0 z-50 lg:hidden">
-          <div className="fixed inset-0 bg-black/40" onClick={closeMobileMenu} />
-          <div className="fixed inset-y-0 left-0 z-50 w-60 shadow-xl">
+          <div className="fixed inset-0 bg-[oklch(22%_0.02_165/0.4)]" onClick={closeMobileMenu} />
+          <div className="fixed inset-y-0 left-0 z-50 w-64 shadow-[var(--shadow-lift)]">
             <Sidebar onNavigate={closeMobileMenu} />
           </div>
         </div>
@@ -91,7 +91,9 @@ export default function DashboardLayout({
       <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
         <Header onMenuClick={() => setMobileMenuOpen(true)} />
         <CriticalBannerHost serverId={selectedServerId} />
-        <main className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8">{children}</main>
+        <main className="flex-1 overflow-y-auto px-4 py-5 sm:px-6 sm:py-6 lg:px-8 lg:py-8">
+          {children}
+        </main>
       </div>
     </div>
   );
