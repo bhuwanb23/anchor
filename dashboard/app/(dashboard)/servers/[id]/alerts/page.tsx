@@ -42,8 +42,13 @@ export default function ServerAlertsPage({
 
   useEffect(() => {
     api
-      .get<App[]>(`/api/v1/servers/${id}/apps`)
-      .then((res) => setApps(Array.isArray(res.data) ? res.data : []))
+      .get<App[] | { data?: App[] }>(`/api/v1/servers/${id}/apps`)
+      .then((res) => {
+        const list = Array.isArray(res.data)
+          ? res.data
+          : (res.data as { data?: App[] })?.data || [];
+        setApps(list);
+      })
       .catch(() => setApps([]));
   }, [id]);
 

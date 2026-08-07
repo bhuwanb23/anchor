@@ -41,10 +41,10 @@ export default function DashboardLayout({
       router.replace("/login");
       return;
     }
-    if (!user && !isLoading) {
+    if (!user) {
       loadUser();
     }
-  }, [user, isLoading, loadUser, router]);
+  }, [user, loadUser, router]);
 
   useEffect(() => {
     connect();

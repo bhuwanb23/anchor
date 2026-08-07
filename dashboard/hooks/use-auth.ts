@@ -2,7 +2,7 @@
 
 import { create } from "zustand";
 import type { User } from "@/types";
-import { getMe, login as authLogin, logout as authLogout } from "@/lib/auth";
+import { getMe, login as authLogin, logout as authLogout, isLoggedIn } from "@/lib/auth";
 import type { LoginRequest } from "@/types";
 
 interface AuthState {
@@ -10,7 +10,7 @@ interface AuthState {
   isLoading: boolean;
   isAuthenticated: boolean;
   login: (data: LoginRequest) => Promise<void>;
-  logout: () => void;
+  logout: () => Promise<void>;
   loadUser: () => Promise<void>;
 }
 
@@ -20,17 +20,28 @@ export const useAuth = create<AuthState>((set) => ({
   isAuthenticated: false,
 
   login: async (data: LoginRequest) => {
-    await authLogin(data);
-    const user = await getMe();
-    set({ user, isAuthenticated: true });
+    set({ isLoading: true });
+    try {
+      await authLogin(data);
+      const user = await getMe();
+      set({ user, isAuthenticated: true, isLoading: false });
+    } catch (e) {
+      set({ user: null, isAuthenticated: false, isLoading: false });
+      throw e;
+    }
   },
 
-  logout: () => {
-    authLogout();
-    set({ user: null, isAuthenticated: false });
+  logout: async () => {
+    await authLogout();
+    set({ user: null, isAuthenticated: false, isLoading: false });
   },
 
   loadUser: async () => {
+    if (!isLoggedIn()) {
+      set({ user: null, isAuthenticated: false, isLoading: false });
+      return;
+    }
+    set({ isLoading: true });
     try {
       const user = await getMe();
       set({ user, isAuthenticated: true, isLoading: false });

@@ -80,6 +80,9 @@ export default function ServerOverviewPage({
   const updateMetrics = useServerStore((s) => s.updateMetrics);
   const { apps, isLoading: appsLoading, refetch } = useApps(id);
   const { alerts } = useAlerts(id);
+  const [showSkel, setShowSkel] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleteConfirm, setDeleteConfirm] = useState("");
 
   // Seed store from REST poll when WS hasn't delivered yet
   useEffect(() => {
@@ -119,9 +122,6 @@ export default function ServerOverviewPage({
     });
   }, [polledMetrics, updateMetrics]);
 
-  const metrics = storeMetrics;
-
-  const [showSkel, setShowSkel] = useState(false);
   useEffect(() => {
     if (!isLoading) {
       setShowSkel(false);
@@ -130,6 +130,8 @@ export default function ServerOverviewPage({
     const t = setTimeout(() => setShowSkel(true), 200);
     return () => clearTimeout(t);
   }, [isLoading]);
+
+  const metrics = storeMetrics;
 
   if (isLoading && showSkel) {
     return <ServerOverviewSkeleton />;
@@ -150,8 +152,6 @@ export default function ServerOverviewPage({
   }
 
   const disconnected = server.status !== "connected";
-  const [deleteOpen, setDeleteOpen] = useState(false);
-  const [deleteConfirm, setDeleteConfirm] = useState("");
 
   const deleteServer = async () => {
     try {
