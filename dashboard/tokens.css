@@ -1,0 +1,89 @@
+/* Hallmark · macrostructure: Workbench · theme: studied-DNA emerald
+ * fonts: Plus Jakarta Sans + JetBrains Mono · accent: deep emerald
+ * Nav: grouped left rail with emerald active bar
+ */
+:root {
+  /* Paper & ink */
+  --color-paper: oklch(96.5% 0.008 165);
+  --color-paper-2: oklch(94% 0.01 165);
+  --color-surface: oklch(99.5% 0.005 165);
+  --color-ink: oklch(22% 0.02 165);
+  --color-muted: oklch(52% 0.02 165);
+  --color-border: oklch(90% 0.015 165);
+
+  /* Accent — deep emerald + mint */
+  --color-accent: oklch(42% 0.11 160);
+  --color-accent-hover: oklch(36% 0.11 160);
+  --color-accent-soft: oklch(94% 0.04 160);
+  --color-accent-2: oklch(72% 0.12 160);
+  --color-accent-fg: oklch(99% 0.01 160);
+
+  /* Status */
+  --color-success: oklch(48% 0.12 150);
+  --color-success-soft: oklch(94% 0.04 150);
+  --color-warning: oklch(68% 0.14 75);
+  --color-warning-soft: oklch(95% 0.04 85);
+  --color-danger: oklch(55% 0.18 25);
+  --color-danger-soft: oklch(95% 0.03 25);
+  --color-info: oklch(55% 0.1 230);
+  --color-info-soft: oklch(95% 0.03 230);
+
+  /* Focus */
+  --color-focus: oklch(55% 0.12 160);
+
+  /* Shape */
+  --radius-sm: 0.5rem;
+  --radius-md: 0.875rem;
+  --radius-lg: 1.25rem;
+  --radius-xl: 1.5rem;
+  --radius-full: 9999px;
+
+  /* Elevation */
+  --shadow-card: 0 1px 2px oklch(22% 0.02 165 / 0.04), 0 8px 24px oklch(22% 0.02 165 / 0.06);
+  --shadow-lift: 0 4px 16px oklch(22% 0.02 165 / 0.1);
+
+  /* Space (4pt) */
+  --space-xs: 0.25rem;
+  --space-sm: 0.5rem;
+  --space-md: 1rem;
+  --space-lg: 1.5rem;
+  --space-xl: 2rem;
+  --space-2xl: 3rem;
+
+  /* Type */
+  --font-display: var(--font-jakarta), ui-sans-serif, system-ui, sans-serif;
+  --font-body: var(--font-jakarta), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-jetbrains), ui-monospace, monospace;
+
+  /* Motion */
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --dur-fast: 120ms;
+  --dur-med: 200ms;
+
+  /* Compat aliases used by existing Tailwind-ish code */
+  --background: var(--color-paper);
+  --foreground: var(--color-ink);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-paper: oklch(18% 0.02 165);
+    --color-paper-2: oklch(22% 0.02 165);
+    --color-surface: oklch(24% 0.02 165);
+    --color-ink: oklch(95% 0.01 165);
+    --color-muted: oklch(70% 0.02 165);
+    --color-border: oklch(32% 0.02 165);
+    --color-accent: oklch(68% 0.12 160);
+    --color-accent-hover: oklch(74% 0.12 160);
+    --color-accent-soft: oklch(28% 0.05 160);
+    --color-accent-2: oklch(62% 0.1 160);
+    --color-accent-fg: oklch(18% 0.02 165);
+    --color-success-soft: oklch(28% 0.05 150);
+    --color-warning-soft: oklch(30% 0.05 85);
+    --color-danger-soft: oklch(28% 0.06 25);
+    --color-info-soft: oklch(28% 0.05 230);
+    --shadow-card: 0 1px 2px oklch(0% 0 0 / 0.3), 0 8px 24px oklch(0% 0 0 / 0.35);
+    --background: var(--color-paper);
+    --foreground: var(--color-ink);
+  }
+}
