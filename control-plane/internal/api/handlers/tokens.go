@@ -3,19 +3,21 @@ package handlers
 import (
 	"database/sql"
 	"encoding/json"
-	"log/slog"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/yourname/yourplatform/control-plane/internal/api/middleware"
 	"github.com/yourname/yourplatform/control-plane/internal/auth"
+	"github.com/yourname/yourplatform/control-plane/internal/config"
 	"github.com/yourname/yourplatform/control-plane/internal/db/queries"
 )
 
 type Token struct {
-	DB *sql.DB
+	DB  *sql.DB
+	Cfg *config.Config
 }
 
 func (t *Token) CreateRegistrationToken(w http.ResponseWriter, r *http.Request) {
@@ -49,11 +51,10 @@ func (t *Token) CreateRegistrationToken(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	scheme := "http://"
-	if r.TLS != nil {
-		scheme = "https://"
+	baseURL := "http://localhost:8080"
+	if t.Cfg != nil {
+		baseURL = t.Cfg.HTTPBaseURL(r)
 	}
-	baseURL := scheme + r.Host
 	installCommand := fmt.Sprintf("curl -fsSL %s/install.sh | sudo sh -s -- --token=%s --base-url=%s", baseURL, rawToken, baseURL)
 
 	w.Header().Set("Content-Type", "application/json")

@@ -171,15 +171,10 @@ func (a *Agent) Register(w http.ResponseWriter, r *http.Request) {
 		slog.Error("mark token used", "error", err)
 	}
 
-	scheme := "ws://"
-	if r.TLS != nil {
-		scheme = "wss://"
+	wsURL := "ws://localhost:8080/ws/agent"
+	if a.Config != nil {
+		wsURL = a.Config.AgentWebSocketURL(r)
 	}
-	wsHost := r.Host
-	if a.Config != nil && a.Config.BaseDomain != "" {
-		wsHost = "ws." + a.Config.BaseDomain
-	}
-	wsURL := scheme + wsHost + "/ws/agent"
 
 	RespondJSON(w, http.StatusCreated, map[string]string{
 		"agent_id":              agentID,

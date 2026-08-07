@@ -83,12 +83,12 @@ func NewRouter(database *sql.DB, cfg *config.Config, hub *ws.Hub, delivery *aler
 
 	authHandler := &handlers.Auth{DB: database, Cfg: cfg, Mailer: sender, Limiter: ratelimit.New()}
 	server := &handlers.Server{DB: database}
-	tokenHandler := &handlers.Token{DB: database}
+	tokenHandler := &handlers.Token{DB: database, Cfg: cfg}
 	agentHandler := &handlers.Agent{DB: database, DNS: dnsClient, Config: cfg}
 	customDomainHandler := &handlers.CustomDomain{DB: database, Hub: hub}
 	backupHandler := &handlers.Backup{DB: database, Hub: hub}
 	teamHandler := &handlers.Teams{DB: database, Mailer: sender, Logger: slog.Default()}
-	step5 := &handlers.Step5{DB: database}
+	step5 := &handlers.Step5{DB: database, Cfg: cfg}
 
 	r.Route("/api/v1", func(r chi.Router) {
 		// Public routes (no auth): registration, login, token refresh,

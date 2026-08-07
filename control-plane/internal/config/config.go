@@ -1,8 +1,11 @@
 package config
 
 import (
+	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 type Config struct {
@@ -13,6 +16,10 @@ type Config struct {
 	RefreshTokenDays int // Layer 5A Step 2C — refresh token lifetime (default 30)
 	DatabasePath     string
 	FrontendURL      string
+	// PublicBaseURL is the externally reachable control-plane origin
+	// (e.g. https://anchor-api.onrender.com). Required behind TLS-terminating
+	// proxies where r.TLS is nil and Host alone would emit http:// URLs.
+	PublicBaseURL    string
 	WSPath           string
 	BaseDomain       string
 	CloudflareToken  string
@@ -20,15 +27,15 @@ type Config struct {
 
 	// Layer 4C Step 6 — alert email delivery (SMTP).
 	// When disabled, alerts are logged instead of emailed.
-	EmailEnabled   bool
-	SMTPHost       string
-	SMTPPort       int
-	SMTPUser       string
-	SMTPPass       string
-	SMTPFrom       string
-	AlertEmailTo   string // optional override; default is the server owner's email
-	WorkHourStart  int    // resolved-alert emails only sent between these hours
-	WorkHourEnd    int
+	EmailEnabled  bool
+	SMTPHost      string
+	SMTPPort      int
+	SMTPUser      string
+	SMTPPass      string
+	SMTPFrom      string
+	AlertEmailTo  string // optional override; default is the server owner's email
+	WorkHourStart int    // resolved-alert emails only sent between these hours
+	WorkHourEnd   int
 
 	// Layer 5C Step 5 — backup of the database itself.
 	// Local backups (VACUUM INTO + gzip) run every DBBackupIntervalHours and
@@ -54,6 +61,7 @@ func Load() *Config {
 		RefreshTokenDays: parseInt(getEnv("REFRESH_TOKEN_DAYS", "30")),
 		DatabasePath:     getEnv("DATABASE_PATH", "./data/yourplatform.db"),
 		FrontendURL:      getEnv("FRONTEND_URL", "http://localhost:3000"),
+		PublicBaseURL:    strings.TrimRight(getEnv("PUBLIC_BASE_URL", ""), "/"),
 		WSPath:           getEnv("WS_PATH", "/ws/agent"),
 		BaseDomain:       getEnv("BASE_DOMAIN", "yourplatform.app"),
 		CloudflareToken:  os.Getenv("CLOUDFLARE_API_TOKEN"),
@@ -106,6 +114,61 @@ func (c *Config) DNSConfigured() bool {
 func (c *Config) S3Configured() bool {
 	return c.S3Endpoint != "" && c.S3AccessKey != "" && c.S3SecretKey != "" &&
 		c.S3Bucket != "" && c.DBBackupEncryptionKey != ""
+}
+
+// HTTPBaseURL returns the externally reachable HTTP(S) origin for install
+// scripts and agent --base-url. Prefers PublicBaseURL; otherwise derives from
+// the request (honoring X-Forwarded-Proto behind Render TLS).
+func (c *Config) HTTPBaseURL(r *http.Request) string {
+	if c != nil && c.PublicBaseURL != "" {
+		return c.PublicBaseURL
+	}
+	scheme := "http"
+	if r != nil {
+		if r.TLS != nil || strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https") {
+			scheme = "https"
+		}
+		if r.Host != "" {
+			return scheme + "://" + r.Host
+		}
+	}
+	return "http://localhost:8080"
+}
+
+// AgentWebSocketURL returns the agent WS endpoint advertised at registration.
+// Prefers PublicBaseURL (same host as the API — correct for *.onrender.com).
+// Falls back to ws.{BaseDomain} when PublicBaseURL is unset (custom DNS setup).
+func (c *Config) AgentWebSocketURL(r *http.Request) string {
+	wsPath := "/ws/agent"
+	if c != nil && c.WSPath != "" {
+		wsPath = c.WSPath
+	}
+
+	if c != nil && c.PublicBaseURL != "" {
+		u, err := url.Parse(c.PublicBaseURL)
+		if err == nil && u.Host != "" {
+			scheme := "wss"
+			if u.Scheme == "http" {
+				scheme = "ws"
+			}
+			return scheme + "://" + u.Host + wsPath
+		}
+	}
+
+	scheme := "ws"
+	host := "localhost:8080"
+	if r != nil {
+		if r.TLS != nil || strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https") {
+			scheme = "wss"
+		}
+		if r.Host != "" {
+			host = r.Host
+		}
+	}
+	if c != nil && c.BaseDomain != "" && c.PublicBaseURL == "" {
+		host = "ws." + c.BaseDomain
+	}
+	return scheme + "://" + host + wsPath
 }
 
 func getEnv(key, fallback string) string {

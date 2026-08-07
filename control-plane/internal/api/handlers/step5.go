@@ -16,12 +16,14 @@ import (
 	"github.com/google/uuid"
 	"github.com/yourname/yourplatform/control-plane/internal/api/middleware"
 	"github.com/yourname/yourplatform/control-plane/internal/auth"
+	"github.com/yourname/yourplatform/control-plane/internal/config"
 	"github.com/yourname/yourplatform/control-plane/internal/db/queries"
 )
 
 // Step5 holds the database dependency for all Step 5 handlers.
 type Step5 struct {
-	DB *sql.DB
+	DB  *sql.DB
+	Cfg *config.Config
 }
 
 // requireAccess checks if the user can access the server. Returns the role or "".
@@ -122,11 +124,10 @@ func (s *Step5) CreateServerRegistrationToken(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	scheme := "http://"
-	if r.TLS != nil {
-		scheme = "https://"
+	baseURL := "http://localhost:8080"
+	if s.Cfg != nil {
+		baseURL = s.Cfg.HTTPBaseURL(r)
 	}
-	baseURL := scheme + r.Host
 	installCommand := fmt.Sprintf("curl -fsSL %s/install.sh | sudo sh -s -- --token=%s --base-url=%s", baseURL, rawToken, baseURL)
 
 	RespondJSON(w, http.StatusOK, map[string]string{
