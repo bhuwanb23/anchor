@@ -11,6 +11,11 @@ export function useBackupHistory(serverId: string, pollIntervalMs = 10000) {
   const mountedRef = useRef(true);
 
   const fetchHistory = useCallback(async () => {
+    if (!serverId) {
+      setJobs([]);
+      setIsLoading(false);
+      return;
+    }
     try {
       const res = await api.get<BackupJob[]>(
         `/api/v1/servers/${serverId}/backup/history`
@@ -108,6 +113,11 @@ export function useBackupUsage(serverId: string) {
   const mountedRef = useRef(true);
 
   const fetchUsage = useCallback(async () => {
+    if (!serverId) {
+      setUsage(null);
+      setIsLoading(false);
+      return;
+    }
     try {
       const res = await api.get<BackupUsage>(
         `/api/v1/servers/${serverId}/backup/usage`
