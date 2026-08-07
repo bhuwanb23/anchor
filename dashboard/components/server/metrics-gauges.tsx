@@ -11,15 +11,15 @@ function num(n: unknown, fallback = 0): number {
 }
 
 function gaugeColor(pct: number, yellowAt: number, redAt: number): string {
-  if (pct >= redAt) return "text-red-600 dark:text-red-400";
-  if (pct >= yellowAt) return "text-amber-500 dark:text-amber-400";
-  return "text-green-600 dark:text-green-400";
+  if (pct >= redAt) return "text-[var(--color-danger)]";
+  if (pct >= yellowAt) return "text-[var(--color-warning)]";
+  return "text-[var(--color-success)]";
 }
 
 function barColor(pct: number, yellowAt: number, redAt: number): string {
-  if (pct >= redAt) return "bg-red-500";
-  if (pct >= yellowAt) return "bg-amber-400";
-  return "bg-green-500";
+  if (pct >= redAt) return "bg-[var(--color-danger)]";
+  if (pct >= yellowAt) return "bg-[var(--color-warning)]";
+  return "bg-[var(--color-accent)]";
 }
 
 function formatGB(n: unknown): string {
@@ -43,20 +43,20 @@ function ResourceGauge({
 }) {
   const pct = Math.min(100, Math.max(0, num(percent)));
   return (
-    <div className="flex flex-col rounded-xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-gray-900">
-      <div className="mb-3 text-xs font-medium uppercase tracking-wider text-gray-400">
+    <div className="flex flex-col rounded-[var(--radius-lg)] border border-[var(--color-border)] bg-[var(--color-surface)] p-5 shadow-[var(--shadow-card)]">
+      <div className="mb-3 text-xs font-semibold uppercase tracking-wider text-[var(--color-muted)]">
         {label}
       </div>
-      <div className={`text-4xl font-semibold tabular-nums ${gaugeColor(pct, yellowAt, redAt)}`}>
+      <div className={`text-4xl font-extrabold tabular-nums tracking-tight ${gaugeColor(pct, yellowAt, redAt)}`}>
         {Math.round(pct)}
-        <span className="text-xl font-medium">%</span>
+        <span className="text-xl font-semibold">%</span>
       </div>
       {subtitle && (
-        <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">{subtitle}</p>
+        <p className="mt-1 text-sm text-[var(--color-muted)]">{subtitle}</p>
       )}
-      <div className="mt-4 h-2 w-full overflow-hidden rounded-full bg-gray-100 dark:bg-gray-800">
+      <div className="mt-4 h-2.5 w-full overflow-hidden rounded-full bg-[var(--color-paper-2)]">
         <div
-          className={`h-full rounded-full transition-all duration-500 ${barColor(pct, yellowAt, redAt)}`}
+          className={`h-full rounded-full transition-[width] duration-500 ease-[var(--ease-out)] ${barColor(pct, yellowAt, redAt)}`}
           style={{ width: `${pct}%` }}
         />
       </div>
@@ -78,12 +78,12 @@ export function MetricsGauges({ metrics }: MetricsGaugesProps) {
         {["CPU", "RAM", "Disk"].map((label) => (
           <div
             key={label}
-            className="rounded-xl border border-dashed border-gray-200 p-5 dark:border-gray-800"
+            className="rounded-[var(--radius-lg)] border border-dashed border-[var(--color-border)] bg-[var(--color-surface)] p-5"
           >
-            <div className="mb-3 text-xs font-medium uppercase tracking-wider text-gray-400">
+            <div className="mb-3 text-xs font-semibold uppercase tracking-wider text-[var(--color-muted)]">
               {label}
             </div>
-            <p className="text-sm text-gray-400">Waiting for health report…</p>
+            <p className="text-sm text-[var(--color-muted)]">Waiting for health report…</p>
           </div>
         ))}
       </div>

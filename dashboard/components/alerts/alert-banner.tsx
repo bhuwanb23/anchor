@@ -51,7 +51,7 @@ export function CriticalAlertBanner({ serverId, alerts }: CriticalAlertBannerPro
   const extra = critical.length > 1 ? ` (+${critical.length - 1} more)` : "";
 
   return (
-    <div className="flex items-center gap-3 border-b border-red-700 bg-red-600 px-4 py-2 text-sm text-white">
+    <div className="flex items-center gap-3 border-b border-[var(--color-danger)] bg-[var(--color-danger)] px-4 py-2.5 text-sm text-white">
       <p className="min-w-0 flex-1 truncate">
         <span className="font-semibold">{top.title || top.message}</span>
         <span className="opacity-90">
@@ -62,14 +62,14 @@ export function CriticalAlertBanner({ serverId, alerts }: CriticalAlertBannerPro
       </p>
       <Link
         href={`/servers/${serverId}/alerts`}
-        className="shrink-0 font-medium underline underline-offset-2 hover:no-underline"
+        className="shrink-0 font-semibold underline underline-offset-2 hover:no-underline"
       >
         View
       </Link>
       <button
         type="button"
         aria-label="Dismiss alert banner"
-        className="shrink-0 rounded p-0.5 opacity-80 hover:bg-red-500 hover:opacity-100"
+        className="shrink-0 rounded p-0.5 opacity-80 hover:bg-white/15 hover:opacity-100"
         onClick={() =>
           setDismissedIds((prev) => {
             const next = new Set(prev);

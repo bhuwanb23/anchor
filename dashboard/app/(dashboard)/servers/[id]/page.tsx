@@ -47,19 +47,19 @@ function AlertSummary({
   const n = active.length;
 
   return (
-    <section className="rounded-xl border border-amber-200 bg-amber-50 p-4 dark:border-amber-900/50 dark:bg-amber-950/30">
-      <h2 className="text-sm font-semibold text-amber-900 dark:text-amber-200">
-        ⚠ {n} Active Alert{n === 1 ? "" : "s"}
+    <section className="rounded-[var(--radius-lg)] border border-[var(--color-warning)]/30 bg-[var(--color-warning-soft)] p-4">
+      <h2 className="text-sm font-semibold text-[var(--color-warning)]">
+        {n} Active Alert{n === 1 ? "" : "s"}
       </h2>
-      <p className="mt-2 font-medium text-gray-900 dark:text-white">
+      <p className="mt-2 font-medium text-[var(--color-ink)]">
         {top.title || top.message}
       </p>
       {top.title && top.message && top.title !== top.message && (
-        <p className="mt-1 text-sm text-gray-600 dark:text-gray-300">{top.message}</p>
+        <p className="mt-1 text-sm text-[var(--color-muted)]">{top.message}</p>
       )}
       <Link
         href={`/servers/${serverId}/alerts`}
-        className="mt-3 inline-block text-sm font-medium text-blue-600 hover:underline dark:text-blue-400"
+        className="mt-3 inline-block text-sm font-semibold text-[var(--color-accent)] hover:underline"
       >
         View All Alerts →
       </Link>
@@ -169,31 +169,32 @@ export default function ServerOverviewPage({
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <div className="flex flex-wrap items-center gap-3">
-            <h1 className="text-3xl font-bold tracking-tight text-gray-900 dark:text-white">
+            <h1 className="text-3xl font-extrabold tracking-tight text-[var(--color-ink)]">
               {server.name}
             </h1>
             <StatusBadge status={server.status === "error" ? "error" : server.status} />
           </div>
           {server.agent_version && (
-            <p className="mt-1 text-sm text-gray-500">Agent v{server.agent_version}</p>
+            <p className="mt-1 text-sm text-[var(--color-muted)]">Agent v{server.agent_version}</p>
           )}
         </div>
         <div className="flex flex-wrap gap-2">
           <Link href={`/servers/${id}/apps/new`}>
-            <Button size="lg">
-              <Rocket className="mr-2 h-4 w-4" />
+            <Button size="lg" className="gap-2">
+              <Rocket className="h-4 w-4" />
               Deploy New App
             </Button>
           </Link>
           <Button
             size="lg"
             variant="secondary"
+            className="gap-2"
             onClick={() => {
               setDeleteConfirm("");
               setDeleteOpen(true);
             }}
           >
-            <Trash2 className="mr-2 h-4 w-4" />
+            <Trash2 className="h-4 w-4" />
             Delete server
           </Button>
         </div>
@@ -209,13 +210,13 @@ export default function ServerOverviewPage({
       {/* Section 3: Apps */}
       <section>
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-          <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
+          <h2 className="text-lg font-bold tracking-tight text-[var(--color-ink)]">
             Apps
-            <span className="ml-2 font-normal text-gray-400">· {apps.length}</span>
+            <span className="ml-2 font-normal text-[var(--color-muted)]">· {apps.length}</span>
           </h2>
           <Link href={`/servers/${id}/apps/new`}>
-            <Button size="sm" variant="secondary">
-              <Plus className="mr-1 h-4 w-4" />
+            <Button size="sm" variant="secondary" className="gap-1">
+              <Plus className="h-4 w-4" />
               New App
             </Button>
           </Link>
@@ -223,12 +224,12 @@ export default function ServerOverviewPage({
 
         {appsLoading && apps.length === 0 ? (
           <div className="grid gap-4 sm:grid-cols-2">
-            <div className="h-32 animate-pulse rounded-xl bg-gray-200 dark:bg-gray-800" />
-            <div className="h-32 animate-pulse rounded-xl bg-gray-200 dark:bg-gray-800" />
+            <div className="h-32 animate-pulse rounded-[var(--radius-lg)] bg-[var(--color-paper-2)]" />
+            <div className="h-32 animate-pulse rounded-[var(--radius-lg)] bg-[var(--color-paper-2)]" />
           </div>
         ) : apps.length === 0 ? (
-          <div className="rounded-xl border border-dashed border-gray-200 px-6 py-10 text-center dark:border-gray-800">
-            <p className="text-gray-600 dark:text-gray-300">No apps yet</p>
+          <div className="rounded-[var(--radius-lg)] border border-dashed border-[var(--color-border)] bg-[var(--color-surface)] px-6 py-10 text-center">
+            <p className="text-[var(--color-muted)]">No apps yet</p>
             <Link href={`/servers/${id}/apps/new`} className="mt-3 inline-block">
               <Button size="sm">Deploy your first app</Button>
             </Link>
@@ -250,8 +251,8 @@ export default function ServerOverviewPage({
           <DialogHeader>
             <DialogTitle>Delete {server.name}?</DialogTitle>
           </DialogHeader>
-          <p className="text-sm text-gray-600 dark:text-gray-300">
-            This removes the server from your account. Type <strong>{server.name}</strong> to confirm.
+          <p className="text-sm text-[var(--color-muted)]">
+            This removes the server from your account. Type <strong className="text-[var(--color-ink)]">{server.name}</strong> to confirm.
           </p>
           <Input
             value={deleteConfirm}

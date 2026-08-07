@@ -11,9 +11,16 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
 import { PageError } from "@/components/ui/page-states";
-import { Dialog, DialogContent, DialogTrigger } from "@radix-ui/react-dialog";
+import { Skeleton } from "@/components/ui/skeleton";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 import api from "@/lib/api";
-import { Plus, Copy } from "lucide-react";
+import { Plus, Copy, Server } from "lucide-react";
 import type { RegistrationTokenResponse } from "@/types";
 
 const createServerSchema = z.object({
@@ -59,38 +66,55 @@ export default function ServersPage() {
   }
 
   return (
-    <div className="space-y-8">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Servers</h1>
-          <p className="text-gray-500 dark:text-gray-400">Manage your connected servers.</p>
-        </div>
-        <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+    <div className="mx-auto max-w-6xl space-y-6">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <p className="text-sm text-[var(--color-muted)]">
+          Soft status cards for every machine in your fleet.
+        </p>
+        <Dialog
+          open={dialogOpen}
+          onOpenChange={(open) => {
+            setDialogOpen(open);
+            if (!open) {
+              setNewServer(null);
+              reset();
+            }
+          }}
+        >
           <DialogTrigger asChild>
-            <Button>
-              <Plus className="mr-2 h-4 w-4" />
+            <Button className="gap-1.5">
+              <Plus className="h-4 w-4" />
               Add Server
             </Button>
           </DialogTrigger>
-          <DialogContent className="fixed left-1/2 top-1/2 z-50 w-full max-w-md -translate-x-1/2 -translate-y-1/2 rounded-xl border border-gray-200 bg-white p-6 shadow-lg dark:border-gray-700 dark:bg-gray-900">
-            <h2 className="text-lg font-semibold">Add New Server</h2>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Add New Server</DialogTitle>
+            </DialogHeader>
             {newServer ? (
-              <div className="space-y-4">
-                <p className="text-sm text-gray-600 dark:text-gray-400">
+              <div className="mt-4 space-y-4">
+                <p className="text-sm text-[var(--color-muted)]">
                   Run this command on your server to connect it:
                 </p>
-                <div className="flex items-center gap-2 rounded-lg bg-gray-100 p-3 font-mono text-xs dark:bg-gray-800">
+                <div className="flex items-center gap-2 rounded-[var(--radius-md)] bg-[var(--color-paper-2)] p-3 font-mono text-xs text-[var(--color-ink)]">
                   <code className="flex-1 break-all">{newServer.install_command}</code>
                   <Button variant="ghost" size="sm" onClick={copyInstallCommand}>
                     <Copy className="h-4 w-4" />
                   </Button>
                 </div>
-                <Button className="w-full" onClick={() => { setNewServer(null); setDialogOpen(false); reset(); }}>
+                <Button
+                  className="w-full"
+                  onClick={() => {
+                    setNewServer(null);
+                    setDialogOpen(false);
+                    reset();
+                  }}
+                >
                   Done
                 </Button>
               </div>
             ) : (
-              <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+              <form onSubmit={handleSubmit(onSubmit)} className="mt-4 space-y-4">
                 <Input
                   label="Server Name"
                   placeholder="my-server"
@@ -115,16 +139,21 @@ export default function ServersPage() {
       {isLoading ? (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {[1, 2, 3].map((i) => (
-            <div key={i} className="h-36 animate-pulse rounded-xl bg-gray-200 dark:bg-gray-800" />
+            <Skeleton key={i} className="h-36 rounded-[var(--radius-lg)]" />
           ))}
         </div>
       ) : servers.length === 0 ? (
         <Card>
-          <CardContent className="space-y-3 py-12 text-center">
-            <p className="text-lg font-medium text-gray-900 dark:text-white">Welcome to Anchor</p>
-            <p className="text-sm text-gray-500">Connect your first server to start deploying apps.</p>
-            <Button onClick={() => setDialogOpen(true)}>
-              <Plus className="mr-2 h-4 w-4" />
+          <CardContent className="space-y-4 py-14 text-center">
+            <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-[var(--color-accent-soft)] text-[var(--color-accent)]">
+              <Server className="h-6 w-6" />
+            </div>
+            <p className="text-lg font-bold text-[var(--color-ink)]">Welcome to Anchor</p>
+            <p className="text-sm text-[var(--color-muted)]">
+              Connect your first server to start deploying apps.
+            </p>
+            <Button onClick={() => setDialogOpen(true)} className="gap-2">
+              <Plus className="h-4 w-4" />
               Add your first server
             </Button>
           </CardContent>

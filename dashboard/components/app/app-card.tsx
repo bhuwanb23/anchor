@@ -76,26 +76,26 @@ export function AppCard({ serverId, app, onChanged }: AppCardProps) {
 
   return (
     <div
-      className={`rounded-xl border bg-white p-5 dark:bg-gray-900 ${
+      className={`rounded-[var(--radius-lg)] border bg-[var(--color-surface)] p-5 shadow-[var(--shadow-card)] ${
         crashed
-          ? "border-l-4 border-l-red-500 border-gray-200 dark:border-gray-800"
-          : "border-gray-200 dark:border-gray-800"
+          ? "border-l-4 border-l-[var(--color-danger)] border-[var(--color-border)]"
+          : "border-[var(--color-border)]"
       }`}
     >
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <Link
             href={`/servers/${serverId}/apps/${app.id}`}
-            className="text-lg font-semibold text-gray-900 hover:text-blue-600 dark:text-white"
+            className="text-lg font-semibold text-[var(--color-ink)] hover:text-[var(--color-accent)]"
           >
             {app.project_name}
           </Link>
           <div className="mt-1 flex flex-wrap items-center gap-2">
             <StatusBadge status={status === "crashed" ? "failed" : status} />
-            <span className="text-xs text-gray-500">{displayStatus(status)}</span>
+            <span className="text-xs text-[var(--color-muted)]">{displayStatus(status)}</span>
           </div>
           {crashed && (
-            <p className="mt-1 text-sm text-red-600 dark:text-red-400">
+            <p className="mt-1 text-sm text-[var(--color-danger)]">
               Crashed {timeAgo(app.crashed_at || app.updated_at) || "recently"}
             </p>
           )}
@@ -107,7 +107,7 @@ export function AppCard({ serverId, app, onChanged }: AppCardProps) {
           href={url}
           target="_blank"
           rel="noopener noreferrer"
-          className="mt-3 inline-flex items-center gap-1 text-sm text-blue-600 hover:underline dark:text-blue-400"
+          className="mt-3 inline-flex items-center gap-1 text-sm font-medium text-[var(--color-accent)] hover:underline"
         >
           {url.replace(/^https?:\/\//, "")}
           <ExternalLink className="h-3.5 w-3.5" />
@@ -115,7 +115,7 @@ export function AppCard({ serverId, app, onChanged }: AppCardProps) {
       )}
 
       {app.current_image && (
-        <p className="mt-2 truncate text-xs text-gray-500">
+        <p className="mt-2 truncate font-mono text-xs text-[var(--color-muted)]">
           {app.current_image}
           {app.deployed_at || app.updated_at
             ? ` · deployed ${timeAgo(app.deployed_at || app.updated_at)}`
@@ -124,7 +124,7 @@ export function AppCard({ serverId, app, onChanged }: AppCardProps) {
       )}
 
       {crashed && (
-        <p className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-800 dark:bg-red-950/40 dark:text-red-200">
+        <p className="mt-3 rounded-[var(--radius-md)] bg-[var(--color-danger-soft)] px-3 py-2 text-sm text-[var(--color-danger)]">
           {app.crash_message ||
             `Your app ${app.project_name} stopped unexpectedly. Check logs for the reason.`}
         </p>
@@ -133,7 +133,7 @@ export function AppCard({ serverId, app, onChanged }: AppCardProps) {
       {deploying && (
         <div className="mt-4 space-y-2">
           <Progress value={app.deploy_percent ?? 40} />
-          <p className="text-sm text-gray-600 dark:text-gray-300">
+          <p className="text-sm text-[var(--color-muted)]">
             {app.deploy_step || "Starting your app..."}
           </p>
         </div>
@@ -175,17 +175,17 @@ export function AppCard({ serverId, app, onChanged }: AppCardProps) {
               <MoreHorizontal className="h-4 w-4" />
             </Button>
             {menuOpen && (
-              <div className="absolute right-0 z-10 mt-1 w-36 rounded-lg border border-gray-200 bg-white py-1 shadow-lg dark:border-gray-700 dark:bg-gray-900">
+              <div className="absolute right-0 z-10 mt-1 w-36 rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)] py-1 shadow-[var(--shadow-lift)]">
                 <Link
                   href={`/servers/${serverId}/apps/${app.id}`}
-                  className="block px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 dark:text-gray-300 dark:hover:bg-gray-800"
+                  className="block px-3 py-2 text-sm text-[var(--color-ink)] hover:bg-[var(--color-paper-2)]"
                   onClick={() => setMenuOpen(false)}
                 >
                   Open app
                 </Link>
                 <button
                   type="button"
-                  className="block w-full px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 dark:text-gray-300 dark:hover:bg-gray-800"
+                  className="block w-full px-3 py-2 text-left text-sm text-[var(--color-ink)] hover:bg-[var(--color-paper-2)]"
                   onClick={async () => {
                     setMenuOpen(false);
                     try {

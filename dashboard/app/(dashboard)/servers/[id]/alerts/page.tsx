@@ -73,30 +73,29 @@ export default function ServerAlertsPage({
     <div className="mx-auto max-w-3xl space-y-6">
       <Link
         href={`/servers/${id}`}
-        className="inline-flex items-center gap-2 text-sm text-gray-500 hover:text-gray-700"
+        className="inline-flex items-center gap-2 text-sm text-[var(--color-muted)] hover:text-[var(--color-ink)]"
       >
         <ArrowLeft className="h-4 w-4" />
         Back to server
       </Link>
 
       <div>
-        <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Alerts</h1>
-        <p className="mt-1 text-sm text-gray-500">
+        <p className="text-sm text-[var(--color-muted)]">
           Current and historical alerts for this server
         </p>
       </div>
 
-      <div className="border-b border-gray-200 dark:border-gray-800">
+      <div className="border-b border-[var(--color-border)]">
         <nav className="-mb-px flex gap-6">
           {tabs.map((t) => (
             <button
               key={t.id}
               type="button"
               onClick={() => setTab(t.id)}
-              className={`border-b-2 px-1 pb-3 text-sm font-medium transition ${
+              className={`border-b-2 px-1 pb-3 text-sm font-semibold transition ${
                 tab === t.id
-                  ? "border-blue-600 text-blue-600"
-                  : "border-transparent text-gray-500 hover:text-gray-800"
+                  ? "border-[var(--color-accent)] text-[var(--color-accent)]"
+                  : "border-transparent text-[var(--color-muted)] hover:text-[var(--color-ink)]"
               }`}
             >
               {t.label}
@@ -108,7 +107,7 @@ export default function ServerAlertsPage({
       {tab === "active" && filtered.length === 0 ? (
         <AlertsAllClear />
       ) : filtered.length === 0 ? (
-        <p className="text-sm text-gray-500">No alerts in this view.</p>
+        <p className="text-sm text-[var(--color-muted)]">No alerts in this view.</p>
       ) : (
         <div className="space-y-3">
           {filtered.map((a) => {

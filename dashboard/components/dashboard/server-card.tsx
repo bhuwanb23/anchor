@@ -15,16 +15,16 @@ export function ServerCard({ server }: ServerCardProps) {
 
   return (
     <Link href={`/servers/${server.id}`}>
-      <Card className="cursor-pointer transition-colors hover:border-blue-300 hover:shadow-md dark:hover:border-blue-700">
+      <Card className="cursor-pointer transition-[transform,box-shadow,border-color] duration-[var(--dur-med)] ease-[var(--ease-out)] hover:-translate-y-0.5 hover:border-[var(--color-accent)]/40 hover:shadow-[var(--shadow-lift)]">
         <CardHeader>
-          <div className="flex items-center justify-between">
-            <CardTitle>{server.name || "Unnamed server"}</CardTitle>
+          <div className="flex items-center justify-between gap-2">
+            <CardTitle className="truncate">{server.name || "Unnamed server"}</CardTitle>
             <StatusBadge status={server.status || "disconnected"} />
           </div>
         </CardHeader>
         <CardContent>
-          <div className="space-y-1 text-sm text-gray-500 dark:text-gray-400">
-            <p>ID: {idShort}</p>
+          <div className="space-y-1 text-sm text-[var(--color-muted)]">
+            <p className="font-mono text-xs">ID: {idShort}</p>
             <p>Last seen: {lastSeen}</p>
           </div>
         </CardContent>
