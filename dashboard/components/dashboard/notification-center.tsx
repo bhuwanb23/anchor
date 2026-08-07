@@ -101,24 +101,24 @@ export default function NotificationCenter() {
       <button
         onClick={toggle}
         aria-label={`Notifications (${unread} unread)`}
-        className="relative rounded-lg p-2 text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-200"
+        className="relative rounded-[var(--radius-sm)] p-2 text-[var(--color-muted)] transition-colors hover:bg-[var(--color-paper-2)] hover:text-[var(--color-ink)]"
       >
         <Bell className="h-5 w-5" />
-        {unread > 0 && (
-          <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold text-white">
+                  {unread > 0 && (
+          <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-[var(--color-danger)] px-1 text-[10px] font-bold text-white">
             {unread > 9 ? "9+" : unread}
           </span>
         )}
       </button>
 
       {open && (
-        <div className="absolute right-0 top-11 z-50 w-96 max-w-[calc(100vw-2rem)] overflow-hidden rounded-xl border border-gray-200 bg-white shadow-xl dark:border-gray-700 dark:bg-gray-900">
-          <div className="flex items-center justify-between border-b border-gray-200 px-4 py-3 dark:border-gray-700">
-            <span className="text-sm font-semibold text-gray-900 dark:text-white">
+        <div className="absolute right-0 top-11 z-50 w-96 max-w-[calc(100vw-2rem)] overflow-hidden rounded-[var(--radius-lg)] border border-[var(--color-border)] bg-[var(--color-surface)] shadow-[var(--shadow-lift)]">
+          <div className="flex items-center justify-between border-b border-[var(--color-border)] px-4 py-3">
+            <span className="text-sm font-semibold text-[var(--color-ink)]">
               Notifications
             </span>
             {unread > 0 && (
-              <span className="rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-600 dark:bg-red-900/40 dark:text-red-400">
+              <span className="rounded-full bg-[var(--color-danger-soft)] px-2 py-0.5 text-xs font-medium text-[var(--color-danger)]">
                 {unread} unread
               </span>
             )}
@@ -126,9 +126,9 @@ export default function NotificationCenter() {
 
           <div className="max-h-96 overflow-y-auto">
             {loading ? (
-              <p className="px-4 py-6 text-center text-sm text-gray-400">Loading…</p>
+              <p className="px-4 py-6 text-center text-sm text-[var(--color-muted)]">Loading…</p>
             ) : alerts.length === 0 ? (
-              <p className="px-4 py-6 text-center text-sm text-gray-400">
+              <p className="px-4 py-6 text-center text-sm text-[var(--color-muted)]">
                 No alerts — all systems normal.
               </p>
             ) : (
@@ -136,24 +136,24 @@ export default function NotificationCenter() {
                 <Link
                   key={a.id}
                   href={`/servers/${a.server_id}`}
-                  className="block border-b border-gray-100 px-4 py-3 transition-colors hover:bg-gray-50 dark:border-gray-800 dark:hover:bg-gray-800/60"
+                  className="block border-b border-[var(--color-border)] px-4 py-3 transition-colors hover:bg-[var(--color-paper-2)] border-[var(--color-border)] hover:bg-[var(--color-paper-2)]/60"
                 >
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0">
                       <p
                         className={`truncate text-sm font-medium ${
                           a.status === "resolved"
-                            ? "text-gray-500 line-through dark:text-gray-500"
+                            ? "text-[var(--color-muted)] line-through dark:text-[var(--color-muted)]"
                             : a.severity === "critical"
                             ? "text-red-600 dark:text-red-400"
                             : a.severity === "warning"
                             ? "text-amber-600 dark:text-amber-400"
-                            : "text-gray-600 dark:text-gray-300"
+                            : "text-[var(--color-muted)]"
                         }`}
                       >
                         {a.title || a.message}
                       </p>
-                      <p className="mt-0.5 truncate text-xs text-gray-400">
+                      <p className="mt-0.5 truncate text-xs text-[var(--color-muted)]">
                         {a.server_name || a.server_id}
                         {a.project ? ` · ${a.project}` : ""} ·{" "}
                         {new Date(a.fired_at || a.resolved_at || Date.now()).toLocaleString()}
@@ -163,7 +163,7 @@ export default function NotificationCenter() {
                       <button
                         onClick={(e) => acknowledge(e, a)}
                         title="Acknowledge"
-                        className="shrink-0 rounded-md border border-gray-200 px-1.5 py-0.5 text-xs text-gray-500 transition-colors hover:border-green-300 hover:text-green-600 dark:border-gray-600 dark:text-gray-400"
+                        className="shrink-0 rounded-md border border-[var(--color-border)] px-1.5 py-0.5 text-xs text-[var(--color-muted)] transition-colors hover:border-green-300 hover:text-green-600 dark:border-gray-600 dark:text-[var(--color-muted)]"
                       >
                         <CheckCheck className="h-3.5 w-3.5" />
                       </button>
@@ -174,12 +174,12 @@ export default function NotificationCenter() {
             )}
           </div>
 
-          <div className="flex items-center justify-between border-t border-gray-200 px-4 py-2 dark:border-gray-700">
-            <span className="text-xs text-gray-400">{active.length} active</span>
+          <div className="flex items-center justify-between border-t border-[var(--color-border)] px-4 py-2">
+            <span className="text-xs text-[var(--color-muted)]">{active.length} active</span>
             <button
               type="button"
               onClick={() => api.post("/alerts/read").then(() => setUnreadCount(0))}
-              className="text-xs font-medium text-blue-600 hover:text-blue-800 dark:text-blue-400"
+              className="text-xs font-medium text-[var(--color-accent)] hover:opacity-80"
             >
               Mark all read
             </button>

@@ -114,13 +114,13 @@ export function RestoreDialog({ job, isOpen, onClose, onRestore }: RestoreDialog
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/50" onClick={phase === "progress" ? undefined : onClose} />
-      <div className="relative w-full max-w-md rounded-lg bg-white p-6 shadow-xl dark:bg-gray-900">
+      <div className="relative w-full max-w-md rounded-lg bg-white p-6 shadow-xl ">
         {phase === "confirm" && (
           <>
-            <h2 className="mb-4 text-lg font-semibold text-gray-900 dark:text-white">
+            <h2 className="mb-4 text-lg font-semibold text-[var(--color-ink)]">
               Restore from Backup
             </h2>
-            <div className="mb-4 rounded-md bg-gray-50 p-3 text-sm dark:bg-gray-800">
+            <div className="mb-4 rounded-md bg-[var(--color-paper-2)] p-3 text-sm dark:bg-gray-800">
               <p>
                 <span className="font-medium">When:</span>{" "}
                 {new Date(job.started_at || job.created_at).toLocaleString()}
@@ -143,7 +143,7 @@ export function RestoreDialog({ job, isOpen, onClose, onRestore }: RestoreDialog
                 <select
                   value={selectedProject}
                   onChange={(e) => setSelectedProject(e.target.value)}
-                  className="w-full rounded-md border px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-950"
+                  className="w-full rounded-md border px-3 py-2 text-sm border-[var(--color-border)] "
                 >
                   <option value="">Choose a project…</option>
                   {projectNames.map((p) => (
@@ -193,7 +193,7 @@ export function RestoreDialog({ job, isOpen, onClose, onRestore }: RestoreDialog
                     i < stepIdx
                       ? "text-green-600"
                       : i === stepIdx
-                      ? "font-medium text-blue-600"
+                      ? "font-medium text-[var(--color-accent)]"
                       : "text-gray-400"
                   }`}
                 >

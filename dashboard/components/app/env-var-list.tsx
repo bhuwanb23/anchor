@@ -68,7 +68,7 @@ export function EnvVarList({ serverId, appId, keys, onChange, onRestart }: EnvVa
         )}
         {keys.map((ev) => (
           <div key={ev.key_name} className="flex items-center gap-3 px-4 py-2.5">
-            <code className="flex-1 text-sm font-medium text-gray-900 dark:text-white">
+            <code className="flex-1 text-sm font-medium text-[var(--color-ink)]">
               {ev.key_name}
               {ev.is_auto && (
                 <span className="ml-2 text-xs font-normal text-gray-400">(auto)</span>

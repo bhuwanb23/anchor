@@ -206,13 +206,13 @@ export function DeployDialog({
             )}
             <button
               type="button"
-              className="text-sm text-blue-600 hover:underline"
+              className="text-sm text-[var(--color-accent)] hover:underline"
               onClick={() => setAdvanced((v) => !v)}
             >
               Advanced settings {advanced ? "▲" : "▼"}
             </button>
             {advanced && (
-              <div className="space-y-3 rounded-lg border border-gray-200 p-3 dark:border-gray-700">
+              <div className="space-y-3 rounded-lg border border-gray-200 p-3 border-[var(--color-border)]">
                 <Input
                   label="Port override"
                   type="number"
@@ -250,11 +250,11 @@ export function DeployDialog({
                     {done ? (
                       <Check className="h-4 w-4 text-green-600" />
                     ) : current ? (
-                      <Loader2 className="h-4 w-4 animate-spin text-blue-600" />
+                      <Loader2 className="h-4 w-4 animate-spin text-[var(--color-accent)]" />
                     ) : (
                       <Circle className="h-4 w-4 text-gray-300" />
                     )}
-                    <span className={done ? "text-green-700 dark:text-green-400" : current ? "text-gray-900 dark:text-white" : "text-gray-400"}>
+                    <span className={done ? "text-green-700 dark:text-green-400" : current ? "text-[var(--color-ink)]" : "text-gray-400"}>
                       {s.label}
                     </span>
                   </li>
@@ -268,7 +268,7 @@ export function DeployDialog({
             <Link
               href={`/servers/${serverId}/apps/${appId}?tab=logs`}
               target="_blank"
-              className="text-sm text-blue-600 hover:underline"
+              className="text-sm text-[var(--color-accent)] hover:underline"
             >
               View Logs
             </Link>
@@ -284,7 +284,7 @@ export function DeployDialog({
                   href={resultUrl || liveUrl || "#"}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="mt-1 inline-flex items-center gap-1 font-medium text-blue-600 hover:underline"
+                  className="mt-1 inline-flex items-center gap-1 font-medium text-[var(--color-accent)] hover:underline"
                 >
                   {(resultUrl || liveUrl || "").replace(/^https?:\/\//, "")}
                   <ExternalLink className="h-3.5 w-3.5" />
@@ -316,7 +316,7 @@ export function DeployDialog({
                 {errorLogs}
               </pre>
             )}
-            <div className="rounded-lg border border-gray-200 p-3 text-sm text-gray-600 dark:border-gray-700 dark:text-gray-300">
+            <div className="rounded-lg border border-gray-200 p-3 text-sm text-gray-600 border-[var(--color-border)] dark:text-gray-300">
               <p className="font-medium text-gray-800 dark:text-gray-100">Common causes</p>
               <ul className="mt-1 list-disc pl-5 space-y-0.5">
                 <li>Incorrect environment variable</li>

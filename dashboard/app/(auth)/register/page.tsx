@@ -94,9 +94,9 @@ export default function RegisterPage() {
               {isLoading ? "Creating account..." : "Create account"}
             </Button>
           </form>
-          <p className="mt-4 text-center text-sm text-gray-500">
+          <p className="mt-4 text-center text-sm text-[var(--color-muted)]">
             Already have an account?{" "}
-            <a href="/login" className="text-blue-600 hover:underline">
+            <a href="/login" className="text-[var(--color-accent)] hover:underline">
               Sign in
             </a>
           </p>

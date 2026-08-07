@@ -90,12 +90,12 @@ export function TeamSection() {
   };
 
   if (loading) {
-    return <div className="h-24 animate-pulse rounded-xl bg-gray-200 dark:bg-gray-800" />;
+    return <div className="h-24 animate-pulse rounded-xl bg-[var(--color-paper-2)]" />;
   }
 
   if (teams.length === 0) {
     return (
-      <p className="text-sm text-gray-500">No teams yet — one is created when you sign up.</p>
+      <p className="text-sm text-[var(--color-muted)]">No teams yet — one is created when you sign up.</p>
     );
   }
 
@@ -109,7 +109,7 @@ export function TeamSection() {
           <select
             value={teamId}
             onChange={(e) => setTeamId(e.target.value)}
-            className="w-full rounded-md border px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-950"
+            className="w-full rounded-md border px-3 py-2 text-sm border-[var(--color-border)] "
           >
             {teams.map((t) => (
               <option key={t.id} value={t.id}>
@@ -120,15 +120,15 @@ export function TeamSection() {
         )}
 
         <div>
-          <p className="mb-2 text-xs font-medium text-gray-500">Members</p>
+          <p className="mb-2 text-xs font-medium text-[var(--color-muted)]">Members</p>
           {members.length === 0 ? (
-            <p className="text-sm text-gray-500">Only you so far.</p>
+            <p className="text-sm text-[var(--color-muted)]">Only you so far.</p>
           ) : (
             <ul className="space-y-1 text-sm">
               {members.map((m) => (
                 <li key={m.id} className="flex justify-between">
                   <span>{m.email || m.name || m.user_id.slice(0, 8)}</span>
-                  <span className="text-gray-400 capitalize">{m.role}</span>
+                  <span className="text-[var(--color-muted)] capitalize">{m.role}</span>
                 </li>
               ))}
             </ul>
@@ -136,7 +136,7 @@ export function TeamSection() {
         </div>
 
         <div className="space-y-2">
-          <p className="text-xs font-medium text-gray-500">Invite a teammate</p>
+          <p className="text-xs font-medium text-[var(--color-muted)]">Invite a teammate</p>
           <div className="flex gap-2">
             <Input
               type="email"
@@ -149,11 +149,11 @@ export function TeamSection() {
             </Button>
           </div>
           {inviteLink && (
-            <div className="rounded-md bg-gray-50 p-3 text-xs dark:bg-gray-900">
-              <p className="mb-1 text-gray-500">Share this accept link (email may not be configured locally):</p>
+            <div className="rounded-md bg-[var(--color-paper-2)] p-3 text-xs ">
+              <p className="mb-1 text-[var(--color-muted)]">Share this accept link (email may not be configured locally):</p>
               <button
                 type="button"
-                className="break-all text-left text-blue-600 hover:underline"
+                className="break-all text-left text-[var(--color-accent)] hover:underline"
                 onClick={() => {
                   navigator.clipboard.writeText(inviteLink);
                   toast.success("Invite link copied");

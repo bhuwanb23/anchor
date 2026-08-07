@@ -49,7 +49,7 @@ function ResetPasswordForm() {
         <CardContent>
           <p className="text-sm text-gray-600 dark:text-gray-400">
             Your password has been updated. You can now{" "}
-            <a href="/login" className="text-blue-600 hover:underline">log in</a>.
+            <a href="/login" className="text-[var(--color-accent)] hover:underline">log in</a>.
           </p>
         </CardContent>
       </Card>

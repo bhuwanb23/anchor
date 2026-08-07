@@ -60,13 +60,13 @@ export function BackupStatusLine({ serverId }: { serverId: string }) {
   const line = formatBackupLine(lastSuccess);
 
   return (
-    <div className="flex flex-wrap items-center justify-between gap-2 border-t border-gray-100 pt-4 text-sm dark:border-gray-800">
-      <span className={line.ok ? "text-gray-600 dark:text-gray-400" : "text-amber-700 dark:text-amber-400"}>
+    <div className="flex flex-wrap items-center justify-between gap-2 border-t border-[var(--color-border)] pt-4 text-sm border-[var(--color-border)]">
+      <span className={line.ok ? "text-[var(--color-muted)]" : "text-amber-700 dark:text-amber-400"}>
         {line.text}
       </span>
       <Link
         href={`/servers/${serverId}/backups`}
-        className="font-medium text-blue-600 hover:underline dark:text-blue-400"
+        className="font-medium text-[var(--color-accent)] hover:underline "
       >
         Backups →
       </Link>

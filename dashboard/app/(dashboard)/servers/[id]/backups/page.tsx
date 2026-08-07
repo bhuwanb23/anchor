@@ -113,7 +113,7 @@ export default function BackupsPage({
       <div className="mx-auto max-w-3xl space-y-6">
         <Link
           href={`/servers/${id}`}
-          className="inline-flex items-center gap-2 text-sm text-gray-500 hover:text-gray-700"
+          className="inline-flex items-center gap-2 text-sm text-[var(--color-muted)] hover:text-[var(--color-ink)]"
         >
           <ArrowLeft className="h-4 w-4" />
           Back to server
@@ -121,15 +121,14 @@ export default function BackupsPage({
 
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
-            <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Backups</h1>
-            <p className="mt-1 text-sm text-gray-500">
+            <p className="mt-1 text-sm text-[var(--color-muted)]">
               {formatBytes(used)} used in backup storage
             </p>
-            <p className="mt-1 text-sm text-gray-500">
+            <p className="mt-1 text-sm text-[var(--color-muted)]">
               Schedule: Daily at {hour}:00 UTC{" "}
               <button
                 type="button"
-                className="text-blue-600 hover:underline"
+                className="font-semibold text-[var(--color-accent)] hover:underline"
                 onClick={() => setEditSchedule((v) => !v)}
               >
                 Edit
@@ -168,13 +167,13 @@ export default function BackupsPage({
         )}
 
         {(activeCmdId || jobs.some((j) => j.status === "running")) && (
-          <Card className="border-blue-200 dark:border-blue-900">
+          <Card className="border-[var(--color-accent)]/30 bg-[var(--color-accent-soft)]">
             <CardContent className="py-4">
-              <div className="flex items-center gap-2 text-sm font-medium text-blue-700 dark:text-blue-300">
+              <div className="flex items-center gap-2 text-sm font-semibold text-[var(--color-accent)]">
                 <RefreshCw className="h-4 w-4 animate-spin" />
                 Backup in progress
               </div>
-              <p className="mt-1 text-sm text-gray-600 dark:text-gray-300">
+              <p className="mt-1 text-sm text-[var(--color-muted)]">
                 {progressMsg || "Working through your projects…"}
               </p>
             </CardContent>
@@ -182,7 +181,7 @@ export default function BackupsPage({
         )}
 
         <section>
-          <h2 className="mb-3 text-lg font-semibold">History</h2>
+          <h2 className="mb-3 text-lg font-bold tracking-tight text-[var(--color-ink)]">History</h2>
           <BackupHistory
             jobs={jobs}
             onRestore={setRestoreJob}
@@ -196,15 +195,15 @@ export default function BackupsPage({
           </CardHeader>
           <CardContent className="space-y-3">
             {usageLoading && !usage ? (
-              <div className="h-2 animate-pulse rounded bg-gray-200" />
+              <div className="h-2.5 animate-pulse rounded-full bg-[var(--color-paper-2)]" />
             ) : (
               <>
-                <p className="text-sm text-gray-600 dark:text-gray-300">
+                <p className="text-sm text-[var(--color-muted)]">
                   Using {formatBytes(used)} of your {formatBytes(limit)} included storage
                 </p>
                 <Progress value={Math.min(100, pct)} />
                 {pct >= 80 && (
-                  <Link href="/account" className="text-sm text-blue-600 hover:underline">
+                  <Link href="/account" className="text-sm font-semibold text-[var(--color-accent)] hover:underline">
                     Upgrade storage
                   </Link>
                 )}

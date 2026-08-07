@@ -160,8 +160,8 @@ export default function AppDetailClient({
 
   if (isLoading) {
     return (
-      <div className="flex items-center gap-2 text-gray-500">
-        <div className="h-4 w-4 animate-spin rounded-full border-2 border-blue-600 border-t-transparent" />
+      <div className="flex items-center gap-2 text-[var(--color-muted)]">
+        <div className="h-4 w-4 animate-spin rounded-full border-2 border-[var(--color-accent)] border-t-transparent" />
         Loading app…
       </div>
     );
@@ -170,7 +170,7 @@ export default function AppDetailClient({
   if (error || !app) {
     return (
       <div className="space-y-4">
-        <Link href={`/servers/${serverId}`} className="text-sm text-gray-500 hover:underline">
+        <Link href={`/servers/${serverId}`} className="text-sm text-[var(--color-muted)] hover:underline">
           ← Back to server
         </Link>
         <p className="text-red-600">{error || "App not found"}</p>
@@ -192,7 +192,7 @@ export default function AppDetailClient({
     <div className="mx-auto max-w-5xl space-y-6">
       <Link
         href={`/servers/${serverId}`}
-        className="inline-flex items-center gap-2 text-sm text-gray-500 hover:text-gray-700"
+        className="inline-flex items-center gap-2 text-sm text-[var(--color-muted)] hover:text-gray-700"
       >
         <ArrowLeft className="h-4 w-4" />
         Back to server
@@ -202,7 +202,7 @@ export default function AppDetailClient({
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <div className="flex flex-wrap items-center gap-3">
-            <h1 className="text-3xl font-bold text-gray-900 dark:text-white">
+            <h1 className="text-3xl font-bold text-[var(--color-ink)]">
               {app.project_name}
             </h1>
             <StatusBadge status={app.status} />
@@ -212,7 +212,7 @@ export default function AppDetailClient({
               href={url}
               target="_blank"
               rel="noopener noreferrer"
-              className="mt-2 inline-flex items-center gap-1 text-sm text-blue-600 hover:underline"
+              className="mt-2 inline-flex items-center gap-1 text-sm text-[var(--color-accent)] hover:underline"
             >
               {url.replace(/^https?:\/\//, "")}
               <ExternalLink className="h-3.5 w-3.5" />
@@ -233,10 +233,10 @@ export default function AppDetailClient({
               More <ChevronDown className="ml-1 h-4 w-4" />
             </Button>
             {moreOpen && (
-              <div className="absolute right-0 z-20 mt-1 w-40 rounded-lg border bg-white py-1 shadow-lg dark:border-gray-700 dark:bg-gray-900">
+              <div className="absolute right-0 z-20 mt-1 w-40 rounded-lg border bg-[var(--color-surface)] py-1 shadow-lg border-[var(--color-border)] ">
                 <button
                   type="button"
-                  className="flex w-full items-center gap-2 px-3 py-2 text-sm hover:bg-gray-50 dark:hover:bg-gray-800"
+                  className="flex w-full items-center gap-2 px-3 py-2 text-sm hover:bg-[var(--color-paper-2)] hover:bg-[var(--color-paper-2)]"
                   onClick={() => {
                     setMoreOpen(false);
                     lifecycle("restart");
@@ -246,7 +246,7 @@ export default function AppDetailClient({
                 </button>
                 <button
                   type="button"
-                  className="flex w-full items-center gap-2 px-3 py-2 text-sm hover:bg-gray-50 dark:hover:bg-gray-800"
+                  className="flex w-full items-center gap-2 px-3 py-2 text-sm hover:bg-[var(--color-paper-2)] hover:bg-[var(--color-paper-2)]"
                   onClick={() => {
                     setMoreOpen(false);
                     lifecycle("stop");
@@ -271,7 +271,7 @@ export default function AppDetailClient({
       </div>
 
       {/* Tabs */}
-      <div className="border-b border-gray-200 dark:border-gray-800">
+      <div className="border-b border-[var(--color-border)]">
         <nav className="-mb-px flex gap-6">
           {tabs.map((t) => (
             <button
@@ -280,8 +280,8 @@ export default function AppDetailClient({
               onClick={() => setTabNav(t.id)}
               className={`border-b-2 px-1 pb-3 text-sm font-medium transition ${
                 tab === t.id
-                  ? "border-blue-600 text-blue-600"
-                  : "border-transparent text-gray-500 hover:text-gray-800"
+                  ? "border-[var(--color-accent)] text-[var(--color-accent)]"
+                  : "border-transparent text-[var(--color-muted)] hover:text-gray-800"
               }`}
             >
               {t.label}
@@ -296,7 +296,7 @@ export default function AppDetailClient({
           <section>
             <h2 className="mb-3 text-lg font-semibold">Container Health</h2>
             {projectContainers.length === 0 ? (
-              <p className="text-sm text-gray-500">
+              <p className="text-sm text-[var(--color-muted)]">
                 Waiting for health reports… Containers appear here once the agent reports.
               </p>
             ) : (
@@ -309,14 +309,14 @@ export default function AppDetailClient({
                         <StatusBadge status={c.status === "exited" ? "failed" : c.status} />
                       </div>
                       <div>
-                        <div className="mb-1 flex justify-between text-xs text-gray-500">
+                        <div className="mb-1 flex justify-between text-xs text-[var(--color-muted)]">
                           <span>CPU</span>
                           <span>{(c.cpu_percent || 0).toFixed(1)}%</span>
                         </div>
                         <Progress value={Math.min(100, c.cpu_percent || 0)} />
                       </div>
                       <div>
-                        <div className="mb-1 flex justify-between text-xs text-gray-500">
+                        <div className="mb-1 flex justify-between text-xs text-[var(--color-muted)]">
                           <span>RAM</span>
                           <span>
                             {c.ram_used_mb || 0}
@@ -371,7 +371,7 @@ export default function AppDetailClient({
           <div className="flex justify-end">
             <Link
               href={`/servers/${serverId}/apps/${appId}/logs`}
-              className="text-xs text-blue-600 hover:underline"
+              className="text-xs text-[var(--color-accent)] hover:underline"
             >
               Open full-page viewer
             </Link>
@@ -391,7 +391,7 @@ export default function AppDetailClient({
       {tab === "deployments" && (
         <div className="space-y-3">
           {deployments.length === 0 ? (
-            <p className="text-sm text-gray-500">No deployments yet.</p>
+            <p className="text-sm text-[var(--color-muted)]">No deployments yet.</p>
           ) : (
             deployments.map((d, i) => {
               const isCurrent = i === 0 && (d.status === "running" || d.status === "success" || app.status === "running");
@@ -404,13 +404,13 @@ export default function AppDetailClient({
                         <code className="text-sm font-medium">{d.image}</code>
                         <StatusBadge status={failed ? "failed" : d.status} />
                         {isCurrent && (
-                          <span className="rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-700 dark:bg-blue-950 dark:text-blue-300">
+                          <span className="rounded-full bg-[var(--color-accent-soft)] px-2 py-0.5 text-xs font-medium text-[var(--color-accent)]">
                             Current
                           </span>
                         )}
                       </div>
                       <p
-                        className="mt-1 text-xs text-gray-500"
+                        className="mt-1 text-xs text-[var(--color-muted)]"
                         title={d.created_at ? new Date(d.created_at).toLocaleString() : ""}
                       >
                         {timeAgo(d.created_at)}
@@ -455,7 +455,7 @@ export default function AppDetailClient({
             </CardHeader>
             <CardContent className="space-y-4">
               <div>
-                <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                <label className="text-sm font-medium text-[var(--color-ink)]">
                   Memory limit: {mem} MB
                 </label>
                 <input
@@ -469,7 +469,7 @@ export default function AppDetailClient({
                 />
               </div>
               <div>
-                <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                <label className="text-sm font-medium text-[var(--color-ink)]">
                   CPU quota: {cpu}%
                 </label>
                 <input
@@ -488,7 +488,7 @@ export default function AppDetailClient({
                 value={port}
                 onChange={(e) => setPort(Number(e.target.value))}
               />
-              <p className="text-xs text-gray-500">
+              <p className="text-xs text-[var(--color-muted)]">
                 Changing resource limits does not require a redeploy — the agent updates limits in place.
               </p>
               <Button onClick={saveSettings} disabled={savingSettings}>
@@ -548,7 +548,7 @@ export default function AppDetailClient({
           <DialogHeader>
             <DialogTitle>Delete {app.project_name}?</DialogTitle>
           </DialogHeader>
-          <p className="text-sm text-gray-600 dark:text-gray-300">
+          <p className="text-sm text-[var(--color-muted)]">
             This cannot be undone. Type <strong>{app.project_name}</strong> to confirm.
           </p>
           <Input

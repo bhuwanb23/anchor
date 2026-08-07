@@ -132,7 +132,7 @@ export function LogViewer({
           <button
             type="button"
             onClick={jumpToLatest}
-            className="absolute bottom-4 right-4 flex items-center gap-1 rounded-full bg-blue-600 px-3 py-1.5 text-xs font-medium text-white shadow-lg hover:bg-blue-500"
+            className="absolute bottom-4 right-4 flex items-center gap-1 rounded-full bg-[var(--color-accent)] px-3 py-1.5 text-xs font-semibold text-[var(--color-accent-fg)] shadow-lg hover:bg-[var(--color-accent-hover)]"
           >
             <ChevronDown className="h-3.5 w-3.5" />
             Jump to latest

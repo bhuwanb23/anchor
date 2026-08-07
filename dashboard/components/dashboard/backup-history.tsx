@@ -49,9 +49,9 @@ interface BackupHistoryProps {
 export function BackupHistory({ jobs, onRestore, progressMessage }: BackupHistoryProps) {
   if (jobs.length === 0) {
     return (
-      <div className="rounded-xl border border-dashed border-gray-200 px-6 py-10 text-center dark:border-gray-800">
+      <div className="rounded-xl border border-dashed border-[var(--color-border)] px-6 py-10 text-center border-[var(--color-border)]">
         <p className="text-gray-700 dark:text-gray-200">Your first backup will run tonight at 2am</p>
-        <p className="mt-1 text-sm text-gray-500">You can also start one anytime with Back Up Now.</p>
+        <p className="mt-1 text-sm text-[var(--color-muted)]">You can also start one anytime with Back Up Now.</p>
       </div>
     );
   }
@@ -65,7 +65,7 @@ export function BackupHistory({ jobs, onRestore, progressMessage }: BackupHistor
         return (
           <div
             key={job.id}
-            className="rounded-lg border p-4 dark:border-gray-800"
+            className="rounded-lg border p-4 border-[var(--color-border)]"
           >
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div className="min-w-0 space-y-1.5">
@@ -87,7 +87,7 @@ export function BackupHistory({ jobs, onRestore, progressMessage }: BackupHistor
                     <span className="text-xs text-amber-600">⚠ Unverified</span>
                   ) : null}
                 </div>
-                <div className="text-xs text-gray-500">
+                <div className="text-xs text-[var(--color-muted)]">
                   {job.size_new_bytes != null && (
                     <span>{formatBytes(job.size_new_bytes)} added</span>
                   )}
@@ -99,14 +99,14 @@ export function BackupHistory({ jobs, onRestore, progressMessage }: BackupHistor
                   )}
                 </div>
                 {running && progressMessage && (
-                  <p className="text-xs text-blue-600">{progressMessage}</p>
+                  <p className="text-xs text-[var(--color-accent)]">{progressMessage}</p>
                 )}
                 {projects.length > 0 && (
                   <div className="flex flex-wrap gap-2">
                     {projects.map((p) => (
                       <span
                         key={p.name}
-                        className="text-xs text-gray-600 dark:text-gray-300"
+                        className="text-xs text-[var(--color-muted)]"
                         title={p.error || undefined}
                       >
                         {p.name}{" "}

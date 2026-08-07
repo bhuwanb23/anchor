@@ -181,7 +181,7 @@ export function DomainsSection({ serverId, appId, serverIp }: DomainsSectionProp
               <p className="text-sm text-gray-700 dark:text-gray-200">
                 Point <strong>{domain}</strong> to <strong>{dnsInfo.value}</strong> (your server IP)
               </p>
-              <div className="rounded-lg bg-gray-50 p-3 font-mono text-xs dark:bg-gray-800">
+              <div className="rounded-lg bg-[var(--color-paper-2)] p-3 font-mono text-xs dark:bg-gray-800">
                 <div>Type: {dnsInfo.type}</div>
                 <div>Name: {dnsInfo.name}</div>
                 <div>Value: {dnsInfo.value}</div>

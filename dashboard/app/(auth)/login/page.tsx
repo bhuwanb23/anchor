@@ -53,7 +53,7 @@ function LoginForm() {
     <div className="flex min-h-screen items-center justify-center px-4">
       <Card className="w-full max-w-md">
         <CardHeader>
-          <CardTitle className="text-center text-2xl">Sign in to YourPlatform</CardTitle>
+          <CardTitle className="text-center text-2xl font-extrabold tracking-tight">Sign in to Anchor</CardTitle>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
@@ -75,9 +75,9 @@ function LoginForm() {
               {isLoading ? "Signing in..." : "Sign in"}
             </Button>
           </form>
-          <p className="mt-4 text-center text-sm text-gray-500">
+          <p className="mt-4 text-center text-sm text-[var(--color-muted)]">
             Don&apos;t have an account?{" "}
-            <a href="/register" className="text-blue-600 hover:underline">
+            <a href="/register" className="text-[var(--color-accent)] hover:underline">
               Sign up
             </a>
           </p>

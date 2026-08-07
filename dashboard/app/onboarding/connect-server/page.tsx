@@ -220,31 +220,31 @@ export default function ConnectServerPage() {
               </svg>
             </div>
             <div>
-              <h2 className="text-xl font-semibold text-gray-900 dark:text-white">Server connected!</h2>
-              <p className="mt-1 text-sm text-gray-500">{serverName}</p>
+              <h2 className="text-xl font-semibold text-[var(--color-ink)]">Server connected!</h2>
+              <p className="mt-1 text-sm text-[var(--color-muted)]">{serverName}</p>
             </div>
-            <p className="text-sm text-gray-400">Moving to deploy step…</p>
+            <p className="text-sm text-[var(--color-muted)]">Moving to deploy step…</p>
           </div>
         ) : (
           <>
             <div>
-              <h2 className="text-xl font-semibold text-gray-900 dark:text-white">
+              <h2 className="text-xl font-semibold text-[var(--color-ink)]">
                 Connect your server
               </h2>
-              <p className="mt-1 text-sm text-gray-500">
+              <p className="mt-1 text-sm text-[var(--color-muted)]">
                 One-time setup. After this, you manage everything from the dashboard — no terminal needed.
               </p>
             </div>
 
             {/* Method tabs */}
-            <div className="flex gap-2 rounded-lg bg-gray-100 p-1 dark:bg-gray-800">
+            <div className="flex gap-2 rounded-lg bg-[var(--color-paper-2)] p-1">
               <button
                 type="button"
                 onClick={() => setMethod("console")}
                 className={`flex-1 rounded-md px-3 py-2 text-sm font-medium ${
                   method === "console"
-                    ? "bg-white text-gray-900 shadow dark:bg-gray-950 dark:text-white"
-                    : "text-gray-600 dark:text-gray-400"
+                    ? "bg-[var(--color-surface)] text-[var(--color-ink)] shadow"
+                    : "text-[var(--color-muted)]"
                 }`}
               >
                 Paste in console
@@ -254,8 +254,8 @@ export default function ConnectServerPage() {
                 onClick={() => setMethod("cloudinit")}
                 className={`flex-1 rounded-md px-3 py-2 text-sm font-medium ${
                   method === "cloudinit"
-                    ? "bg-white text-gray-900 shadow dark:bg-gray-950 dark:text-white"
-                    : "text-gray-600 dark:text-gray-400"
+                    ? "bg-[var(--color-surface)] text-[var(--color-ink)] shadow"
+                    : "text-[var(--color-muted)]"
                 }`}
               >
                 Cloud-init (auto-install)
@@ -264,7 +264,7 @@ export default function ConnectServerPage() {
 
             {/* Provider picker */}
             <div>
-              <p className="mb-2 text-xs font-medium text-gray-500">Where is your server?</p>
+              <p className="mb-2 text-xs font-medium text-[var(--color-muted)]">Where is your server?</p>
               <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
                 {PROVIDERS.map((p) => (
                   <button
@@ -273,8 +273,8 @@ export default function ConnectServerPage() {
                     onClick={() => setProvider(p.id)}
                     className={`rounded-lg border px-3 py-2 text-sm ${
                       provider === p.id
-                        ? "border-blue-600 bg-blue-50 font-medium text-blue-700 dark:border-blue-500 dark:bg-blue-950/40 dark:text-blue-300"
-                        : "border-gray-200 text-gray-700 hover:border-gray-300 dark:border-gray-700 dark:text-gray-300"
+                        ? "border-[var(--color-accent)] bg-[var(--color-accent-soft)] font-medium text-[var(--color-accent)]"
+                        : "border-[var(--color-border)] text-gray-700 hover:border-gray-300 border-[var(--color-border)] text-[var(--color-muted)]"
                     }`}
                   >
                     {p.name}
@@ -286,7 +286,7 @@ export default function ConnectServerPage() {
             {method === "console" ? (
               <>
                 {/* Visual step strip (screenshot substitute) */}
-                <div className="overflow-hidden rounded-xl border border-gray-200 dark:border-gray-800">
+                <div className="overflow-hidden rounded-xl border border-[var(--color-border)]">
                   <div className="bg-gradient-to-br from-slate-800 to-slate-900 px-4 py-3 text-xs text-slate-300">
                     {activeProvider.name} · web console
                   </div>
@@ -294,13 +294,13 @@ export default function ConnectServerPage() {
                     {["Open console", "Paste command", "Wait here"].map((label, i) => (
                       <div
                         key={label}
-                        className="border-t border-gray-200 bg-gray-50 p-4 dark:border-gray-800 dark:bg-gray-900/50 sm:border-t-0 sm:border-l first:sm:border-l-0"
+                        className="border-t border-[var(--color-border)] bg-[var(--color-paper-2)] p-4 border-[var(--color-border)] /50 sm:border-t-0 sm:border-l first:sm:border-l-0"
                       >
-                        <div className="mb-2 flex h-8 w-8 items-center justify-center rounded-full bg-blue-600 text-sm font-bold text-white">
+                        <div className="mb-2 flex h-8 w-8 items-center justify-center rounded-full bg-[var(--color-accent)] text-sm font-bold text-white">
                           {i + 1}
                         </div>
-                        <p className="text-sm font-medium text-gray-900 dark:text-white">{label}</p>
-                        <p className="mt-1 text-xs text-gray-500">
+                        <p className="text-sm font-medium text-[var(--color-ink)]">{label}</p>
+                        <p className="mt-1 text-xs text-[var(--color-muted)]">
                           {i === 0 && activeProvider.consoleLabel}
                           {i === 1 && "Use the Copy button below"}
                           {i === 2 && "We detect the connection"}
@@ -310,7 +310,7 @@ export default function ConnectServerPage() {
                   </div>
                 </div>
 
-                <ol className="list-decimal space-y-2 pl-5 text-sm text-gray-600 dark:text-gray-300">
+                <ol className="list-decimal space-y-2 pl-5 text-sm text-[var(--color-muted)]">
                   {activeProvider.steps.map((s) => (
                     <li key={s}>{s}</li>
                   ))}
@@ -321,7 +321,7 @@ export default function ConnectServerPage() {
                     href={activeProvider.createUrl}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="inline-block text-sm text-blue-600 hover:underline"
+                    className="inline-block text-sm text-[var(--color-accent)] hover:underline"
                   >
                     Open {activeProvider.name} →
                   </a>
@@ -337,7 +337,7 @@ export default function ConnectServerPage() {
                     (Hetzner), or equivalent. The agent installs on first boot.
                   </p>
                 </div>
-                <ol className="list-decimal space-y-2 pl-5 text-sm text-gray-600 dark:text-gray-300">
+                <ol className="list-decimal space-y-2 pl-5 text-sm text-[var(--color-muted)]">
                   <li>Create a new Ubuntu 22.04+ server at your provider.</li>
                   <li>Find “User data” / “Cloud-init” / “Initialization script”.</li>
                   <li>Paste the script below (Copy button).</li>
@@ -348,7 +348,7 @@ export default function ConnectServerPage() {
                     href={activeProvider.createUrl}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="inline-block text-sm text-blue-600 hover:underline"
+                    className="inline-block text-sm text-[var(--color-accent)] hover:underline"
                   >
                     Create on {activeProvider.name} →
                   </a>
@@ -387,29 +387,29 @@ export default function ConnectServerPage() {
             )}
 
             {!expired && !loading && (
-              <p className="text-xs text-gray-400">Expires in {countdown}</p>
+              <p className="text-xs text-[var(--color-muted)]">Expires in {countdown}</p>
             )}
 
             {!expired && !loading && (
               <div className="space-y-2 text-center">
-                <div className="flex items-center justify-center gap-2 text-sm text-gray-500">
+                <div className="flex items-center justify-center gap-2 text-sm text-[var(--color-muted)]">
                   <svg className="h-4 w-4 animate-spin" fill="none" viewBox="0 0 24 24">
                     <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                     <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
                   </svg>
                   Waiting for your server to connect…
                 </div>
-                <p className="text-xs text-gray-400">
+                <p className="text-xs text-[var(--color-muted)]">
                   This page updates automatically — no refresh needed.
                 </p>
               </div>
             )}
 
-            <div className="flex flex-col items-center gap-3 border-t border-gray-100 pt-4 dark:border-gray-800">
+            <div className="flex flex-col items-center gap-3 border-t border-[var(--color-border)] pt-4 border-[var(--color-border)]">
               <Button variant="secondary" onClick={skipForLater}>
                 I&apos;ll do this later — browse the dashboard
               </Button>
-              <p className="text-xs text-gray-400">
+              <p className="text-xs text-[var(--color-muted)]">
                 You can connect a server anytime from Servers → Add Server.
               </p>
             </div>

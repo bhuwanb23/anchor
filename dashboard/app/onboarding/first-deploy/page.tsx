@@ -230,14 +230,14 @@ export default function FirstDeployPage() {
             </svg>
           </div>
           <div>
-            <h2 className="text-2xl font-bold text-gray-900 dark:text-white">Your app is live!</h2>
+            <h2 className="text-2xl font-bold text-[var(--color-ink)]">Your app is live!</h2>
             <p className="mt-2 text-gray-500">{appName}</p>
             {deployUrl && (
               <a
                 href={deployUrl}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="mt-2 inline-block text-blue-600 hover:underline"
+                className="mt-2 inline-block text-[var(--color-accent)] hover:underline"
               >
                 {deployUrl} →
               </a>
@@ -280,7 +280,7 @@ export default function FirstDeployPage() {
       <Card>
         <CardContent className="space-y-6 py-8">
           <div className="text-center">
-            <h2 className="text-2xl font-bold text-gray-900 dark:text-white">Deploy failed</h2>
+            <h2 className="text-2xl font-bold text-[var(--color-ink)]">Deploy failed</h2>
             <p className="mt-2 text-sm text-gray-500">
               Your app did not start correctly. Your server is fine.
             </p>
@@ -329,7 +329,7 @@ export default function FirstDeployPage() {
     return (
       <Card>
         <CardContent className="space-y-6 py-8">
-          <h2 className="text-xl font-semibold text-gray-900 dark:text-white">
+          <h2 className="text-xl font-semibold text-[var(--color-ink)]">
             Deploying {appName}...
           </h2>
 
@@ -346,7 +346,7 @@ export default function FirstDeployPage() {
                       <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
                     </svg>
                   ) : state === "active" ? (
-                    <svg className="h-5 w-5 animate-spin text-blue-500" fill="none" viewBox="0 0 24 24">
+                    <svg className="h-5 w-5 animate-spin text-[var(--color-accent)]" fill="none" viewBox="0 0 24 24">
                       <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                       <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
                     </svg>
@@ -358,7 +358,7 @@ export default function FirstDeployPage() {
                       state === "done"
                         ? "text-gray-500 line-through"
                         : state === "active"
-                        ? "font-medium text-gray-900 dark:text-white"
+                        ? "font-medium text-[var(--color-ink)]"
                         : "text-gray-400"
                     }`}
                   >
@@ -370,9 +370,9 @@ export default function FirstDeployPage() {
           </div>
 
           {/* Progress bar */}
-          <div className="h-2 overflow-hidden rounded-full bg-gray-200 dark:bg-gray-700">
+          <div className="h-2 overflow-hidden rounded-full bg-[var(--color-paper-2)]">
             <div
-              className="h-full rounded-full bg-blue-600 transition-all duration-500"
+              className="h-full rounded-full bg-[var(--color-accent)] transition-all duration-500"
               style={{ width: `${(currentStep / deploySteps.length) * 100}%` }}
             />
           </div>
@@ -392,7 +392,7 @@ export default function FirstDeployPage() {
       <CardContent className="space-y-6 py-8">
         {/* Template picker */}
         <div>
-          <h2 className="text-xl font-semibold text-gray-900 dark:text-white">
+          <h2 className="text-xl font-semibold text-[var(--color-ink)]">
             Deploy your first app
           </h2>
           <p className="mt-1 text-sm text-gray-500">Pick a template or use your own Docker image.</p>
@@ -405,12 +405,12 @@ export default function FirstDeployPage() {
               type="button"
               className={`rounded-lg border p-4 text-left transition ${
                 selectedTemplate === i
-                  ? "border-blue-500 bg-blue-50 dark:border-blue-400 dark:bg-blue-950/30"
-                  : "border-gray-200 hover:border-gray-300 dark:border-gray-700 dark:hover:border-gray-600"
+                  ? "border-[var(--color-accent)] bg-[var(--color-accent-soft)]"
+                  : "border-gray-200 hover:border-gray-300 border-[var(--color-border)] dark:hover:border-gray-600"
               }`}
               onClick={() => selectTemplate(i)}
             >
-              <div className="font-medium text-gray-900 dark:text-white">{t.name}</div>
+              <div className="font-medium text-[var(--color-ink)]">{t.name}</div>
               <div className="mt-1 text-xs text-gray-500">{t.description}</div>
             </button>
           ))}
@@ -419,10 +419,10 @@ export default function FirstDeployPage() {
         {/* Divider */}
         <div className="relative">
           <div className="absolute inset-0 flex items-center">
-            <div className="w-full border-t border-gray-200 dark:border-gray-700" />
+            <div className="w-full border-t border-gray-200 border-[var(--color-border)]" />
           </div>
           <div className="relative flex justify-center text-xs">
-            <span className="bg-white px-2 text-gray-400 dark:bg-gray-900">or use your own Docker image</span>
+            <span className="bg-white px-2 text-gray-400 ">or use your own Docker image</span>
           </div>
         </div>
 
