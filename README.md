@@ -108,15 +108,17 @@ Configuration lives in `agent/.env.example` and `control-plane/.env.example` —
 make release        # linux/amd64 + linux/arm64 + SHA-256 checksums
 ```
 
-## Use the hosted version
+## Use the hosted version (Render)
 
-A managed control plane is planned so you can skip running the backend entirely — point your first-time setup at the hosted URL and you're done. Details will be announced on this repository when it opens.
+Deploy the control plane + dashboard to Render with the Blueprint in [`render.yaml`](render.yaml). Step-by-step: [`docs/deploy-render.md`](docs/deploy-render.md).
+
+Agents still run on **your** VPS; only the API and UI are hosted.
 
 ## Project status
 
-**Done:** install layer, server preflight, Docker management, Caddy management with auto-HTTPS, agent lifecycle + reconnection, command executor with offline queue, metrics collection (Layer 4C, fully tested), control-plane API with 14 migrations, dashboard scaffolding.
+**Done:** install layer, server preflight, Docker management, Caddy management with auto-HTTPS, agent lifecycle + reconnection, command executor with offline queue, metrics collection (Layer 4C, fully tested), control-plane API with migrations, emerald dashboard UX, Render Blueprint for cloud deploy.
 
-**In progress:** backup UI, billing, multi-server polish, hosted control plane.
+**In progress:** backup UI polish, billing, multi-server polish, publishing agent release binaries for `/releases`.
 
 **Explicitly not being built:** custom hypervisor, storage clustering (Ceph/Gluster), multi-region auto-scaling, Kubernetes-style orchestration, custom container runtime, custom TLS engine.
 
@@ -125,9 +127,11 @@ A managed control plane is planned so you can skip running the backend entirely 
 | Directory | Contents |
 |---|---|
 | `agent/` | Go agent — runs on user servers (`cmd/agent`, `internal/*`) |
-| `control-plane/` | Go API server (`cmd/server`, `internal/*`, SQL migrations) |
-| `dashboard/` | Next.js web UI |
+| `control-plane/` | Go API server (`cmd/server`, `internal/*`, SQL migrations, Dockerfile) |
+| `dashboard/` | Next.js web UI (Dockerfile) |
 | `docs/` | Architecture, per-layer plans, and project overview |
+| `docs/deploy-render.md` | Render Blueprint deploy guide |
+| `render.yaml` | Render Blueprint (API + dashboard) |
 | `docs/assets/readme/` | Diagrams used in this README (SVG sources + PNG renders) |
 
 ## Development

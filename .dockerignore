@@ -9,11 +9,8 @@
 **/*.db
 **/*.db-*
 bin
-agent
-docs
 videos
 graphify-out
-*.md
 .env
 .env.*
 control-plane/.air.toml
