@@ -1,0 +1,66 @@
+# Anchor — Render Blueprint
+# Docs: docs/deploy-render.md
+# Deploy: Render Dashboard → New → Blueprint → connect this repo
+#
+# Service public URLs (default Render hostnames):
+#   API:       https://anchor-api.onrender.com
+#   Dashboard: https://anchor-web.onrender.com
+# If those names are taken, rename services and update the env values below.
+
+services:
+  - type: web
+    name: anchor-api
+    runtime: docker
+    plan: starter
+    region: oregon
+    dockerfilePath: ./control-plane/Dockerfile
+    dockerContext: .
+    healthCheckPath: /health
+    numInstances: 1
+    disk:
+      name: anchor-sqlite
+      mountPath: /data
+      sizeGB: 1
+    envVars:
+      - key: ENV
+        value: production
+      - key: PORT
+        value: "8080"
+      - key: DATABASE_PATH
+        value: /data/yourplatform.db
+      - key: DB_BACKUP_DIR
+        value: /data/backups
+      - key: JWT_SECRET
+        generateValue: true
+      - key: JWT_EXPIRY_HOURS
+        value: "24"
+      - key: FRONTEND_URL
+        value: https://anchor-web.onrender.com
+      - key: PUBLIC_BASE_URL
+        value: https://anchor-api.onrender.com
+      - key: BASE_DOMAIN
+        value: anchor-api.onrender.com
+      - key: WS_PATH
+        value: /ws/agent
+      - key: EMAIL_ENABLED
+        value: "false"
+
+  - type: web
+    name: anchor-web
+    runtime: docker
+    plan: starter
+    region: oregon
+    dockerfilePath: ./dashboard/Dockerfile
+    dockerContext: .
+    healthCheckPath: /
+    numInstances: 1
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: "3000"
+      # Passed into Docker build as ARGs (must match ARG names in Dockerfile)
+      - key: NEXT_PUBLIC_API_URL
+        value: https://anchor-api.onrender.com
+      - key: NEXT_PUBLIC_WS_URL
+        value: wss://anchor-api.onrender.com/ws/browser
