@@ -11,7 +11,7 @@ services:
   - type: web
     name: anchor-api
     runtime: docker
-    plan: starter
+    plan: free
     region: oregon
     dockerfilePath: ./control-plane/Dockerfile
     dockerContext: .
