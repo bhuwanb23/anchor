@@ -11,7 +11,19 @@
 # Development
 # ─────────────────────────────────────────────
 
-dev: dev-backend dev-frontend
+# On Windows, backend must run in a separate window so the frontend can start.
+# Linux/mac: backend is backgrounded with &.
+ifeq ($(OS),Windows_NT)
+dev:
+	@echo Starting control plane in a new window...
+	start "anchor-control-plane" cmd /k "cd /d $(CURDIR)\control-plane && air"
+	@echo Starting dashboard on http://localhost:3000 ...
+	cd dashboard && pnpm dev
+else
+dev:
+	cd control-plane && air &
+	cd dashboard && pnpm dev
+endif
 
 dev-backend:
 	cd control-plane && air
@@ -21,6 +33,10 @@ dev-agent:
 
 dev-frontend:
 	cd dashboard && pnpm dev
+
+# Fallback if air is misconfigured: run API without hot-reload
+dev-backend-plain:
+	cd control-plane && go run ./cmd/server/...
 
 # ─────────────────────────────────────────────
 # Build

@@ -3,9 +3,11 @@ testdata_dir = "testdata"
 tmp_dir = "tmp"
 
 [build]
+  # Windows requires .exe; Air runs the binary via cmd.exe
   args_bin = []
-  bin = "./tmp/main"
-  cmd = "go build -o ./tmp/main ./cmd/server"
+  bin = "./tmp/main.exe"
+  entrypoint = "./tmp/main.exe"
+  cmd = "go build -o ./tmp/main.exe ./cmd/server"
   delay = 1000
   exclude_dir = ["assets", "tmp", "vendor", "testdata"]
   exclude_file = []
