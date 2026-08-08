@@ -20,11 +20,11 @@ COPY scripts/install.sh /app/scripts/install.sh
 COPY release/ /app/release/
 
 ENV ENV=production \
-    DATABASE_PATH=/data/yourplatform.db \
+    DATABASE_PATH=/tmp/anchor/yourplatform.db \
     PORT=8080
 
 EXPOSE 8080
-# Root required so Render's attached disk at /data is writable for SQLite.
-VOLUME ["/data"]
+# Free Render: no persistent disk — SQLite under /tmp (ephemeral).
+# Paid: mount a disk at /data and set DATABASE_PATH=/data/yourplatform.db.
 
 ENTRYPOINT ["/app/control-plane"]

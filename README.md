@@ -110,9 +110,9 @@ make release        # linux/amd64 + linux/arm64 + SHA-256 checksums
 
 ## Use the hosted version (Render)
 
-Deploy the control plane + dashboard to Render with the Blueprint in [`render.yaml`](render.yaml). Step-by-step: [`docs/deploy-render.md`](docs/deploy-render.md).
+Deploy control plane + dashboard with the free Blueprint in [`render.yaml`](render.yaml). Guide: [`docs/deploy-render.md`](docs/deploy-render.md).
 
-Agents still run on **your** VPS; only the API and UI are hosted.
+Free tier: both services sleep when idle; SQLite is ephemeral (no disks on free). Agents still run on **your** VPS.
 
 ## Project status
 

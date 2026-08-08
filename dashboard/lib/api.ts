@@ -29,6 +29,8 @@ function clearSessionCookie(): void {
 
 const api = axios.create({
   baseURL: process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080",
+  // Free Render cold starts can take ~60s; default axios timeout is too short.
+  timeout: 90_000,
   headers: {
     "Content-Type": "application/json",
   },

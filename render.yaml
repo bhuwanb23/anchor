@@ -1,11 +1,14 @@
-# Anchor — Render Blueprint
+# Anchor — Render Blueprint (free tier)
 # Docs: docs/deploy-render.md
-# Deploy: Render Dashboard → New → Blueprint → connect this repo
 #
-# Service public URLs (default Render hostnames):
+# Free limits (Render):
+# - No persistent disks → SQLite is ephemeral (lost on sleep / redeploy)
+# - Services sleep after ~15 min idle; cold start ~1 min
+# - WebSockets work while the instance is awake
+#
+# Default URLs (rename services + update env if names are taken):
 #   API:       https://anchor-api.onrender.com
 #   Dashboard: https://anchor-web.onrender.com
-# If those names are taken, rename services and update the env values below.
 
 services:
   - type: web
@@ -17,19 +20,16 @@ services:
     dockerContext: .
     healthCheckPath: /health
     numInstances: 1
-    disk:
-      name: anchor-sqlite
-      mountPath: /data
-      sizeGB: 1
     envVars:
       - key: ENV
         value: production
       - key: PORT
         value: "8080"
+      # Ephemeral path — free tier cannot attach a disk
       - key: DATABASE_PATH
-        value: /data/yourplatform.db
+        value: /tmp/anchor/yourplatform.db
       - key: DB_BACKUP_DIR
-        value: /data/backups
+        value: /tmp/anchor/backups
       - key: JWT_SECRET
         generateValue: true
       - key: JWT_EXPIRY_HOURS
@@ -48,7 +48,7 @@ services:
   - type: web
     name: anchor-web
     runtime: docker
-    plan: starter
+    plan: free
     region: oregon
     dockerfilePath: ./dashboard/Dockerfile
     dockerContext: .
@@ -59,7 +59,6 @@ services:
         value: production
       - key: PORT
         value: "3000"
-      # Passed into Docker build as ARGs (must match ARG names in Dockerfile)
       - key: NEXT_PUBLIC_API_URL
         value: https://anchor-api.onrender.com
       - key: NEXT_PUBLIC_WS_URL
