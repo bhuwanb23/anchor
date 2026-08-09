@@ -113,6 +113,10 @@ docker build -f dashboard/Dockerfile \
 docker run --rm -p 3000:3000 anchor-web
 ```
 
+### If `anchor-web` build looks “stuck” on npm
+
+Render’s builders often log `[WARN] Request took 10–30s: https://registry.npmjs.org/...` while resolving packages. That is **slowness**, not an immediate failure. The dashboard Dockerfile raises pnpm fetch timeouts/retries and uses `pnpm fetch` + offline install so the build survives slow registry RTTs. Clear the build cache and redeploy if a prior install timed out mid-way.
+
 ## Non-goals
 
 - Agent / Docker / Caddy on Render

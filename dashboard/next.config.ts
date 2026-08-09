@@ -1,6 +1,8 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  // Smaller Docker/runtime image — only the files Next needs to serve.
+  output: "standalone",
   // Dev-only: proxy API/install/releases to local control plane.
   // Production dashboard calls NEXT_PUBLIC_API_URL directly.
   async rewrites() {
