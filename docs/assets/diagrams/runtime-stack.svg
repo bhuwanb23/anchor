@@ -1,0 +1,126 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="1600" viewBox="0 0 720 1600" role="img" aria-labelledby="title desc">
+  <title id="title">Anchor - Runtime stack cut</title>
+  <desc id="desc">Vertical technical cut of Anchor from browser down through control plane, agent, Docker, and disk.</desc>
+  <defs>
+    <linearGradient id="paper" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#F4FBF7"/>
+      <stop offset="100%" stop-color="#E2EDE8"/>
+    </linearGradient>
+    <linearGradient id="core" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#0F6B4D"/>
+      <stop offset="100%" stop-color="#0A4D38"/>
+    </linearGradient>
+    <filter id="lift">
+      <feDropShadow dx="0" dy="4" stdDeviation="8" flood-color="#0E1F1A" flood-opacity="0.1"/>
+    </filter>
+  </defs>
+
+  <rect width="720" height="1600" fill="url(#paper)"/>
+
+  <!-- Header -->
+  <rect x="0" y="0" width="720" height="120" fill="#0F6B4D"/>
+  <text x="360" y="48" text-anchor="middle" font-family="Segoe UI,system-ui,sans-serif" font-size="13" font-weight="700" fill="#A8E0C8" letter-spacing="3">TECHNICAL CUT</text>
+  <text x="360" y="82" text-anchor="middle" font-family="Segoe UI,system-ui,sans-serif" font-size="28" font-weight="800" fill="#F4FBF7">Runtime stack</text>
+  <text x="360" y="108" text-anchor="middle" font-family="Segoe UI,system-ui,sans-serif" font-size="13" fill="#C5EBD8">Top = what you touch � Bottom = where data lives</text>
+
+  <!-- Vertical spine -->
+  <line x1="88" y1="160" x2="88" y2="1480" stroke="#0F6B4D" stroke-width="3" stroke-linecap="round"/>
+
+  <!-- L0 Browser -->
+  <circle cx="88" cy="190" r="12" fill="#0F6B4D"/>
+  <text x="112" y="176" font-family="Segoe UI,system-ui,sans-serif" font-size="11" font-weight="700" fill="#0F6B4D" letter-spacing="2">L0</text>
+  <g filter="url(#lift)">
+    <rect x="140" y="150" width="540" height="88" rx="16" fill="#FFFFFF" stroke="#C5D9CF" stroke-width="1.5"/>
+  </g>
+  <text x="168" y="186" font-family="Segoe UI,system-ui,sans-serif" font-size="18" font-weight="800" fill="#0E1F1A">Browser / Dashboard</text>
+  <text x="168" y="212" font-family="Consolas,ui-monospace,monospace" font-size="12" fill="#4A635A">Next.js � HTTPS � JWT in localStorage</text>
+
+  <!-- L1 Control plane -->
+  <circle cx="88" cy="320" r="12" fill="#0F6B4D"/>
+  <text x="112" y="306" font-family="Segoe UI,system-ui,sans-serif" font-size="11" font-weight="700" fill="#0F6B4D" letter-spacing="2">L1</text>
+  <g filter="url(#lift)">
+    <rect x="140" y="268" width="540" height="112" rx="16" fill="#FFFFFF" stroke="#0F6B4D" stroke-width="2"/>
+  </g>
+  <text x="168" y="304" font-family="Segoe UI,system-ui,sans-serif" font-size="18" font-weight="800" fill="#0E1F1A">Control plane (Go)</text>
+  <text x="168" y="330" font-family="Consolas,ui-monospace,monospace" font-size="12" fill="#4A635A">Chi API � /api/v1 � /health � /install.sh</text>
+  <text x="168" y="354" font-family="Segoe UI,system-ui,sans-serif" font-size="12" fill="#4A635A">Auth, commands, alerts, release metadata</text>
+
+  <!-- L2 Hub -->
+  <circle cx="88" cy="450" r="12" fill="#1A8F68"/>
+  <text x="112" y="436" font-family="Segoe UI,system-ui,sans-serif" font-size="11" font-weight="700" fill="#1A8F68" letter-spacing="2">L2</text>
+  <g filter="url(#lift)">
+    <rect x="140" y="410" width="540" height="100" rx="16" fill="#D8F0E6" stroke="#0F6B4D" stroke-width="1.5"/>
+  </g>
+  <text x="168" y="448" font-family="Segoe UI,system-ui,sans-serif" font-size="18" font-weight="800" fill="#0E1F1A">WebSocket hub</text>
+  <text x="168" y="474" font-family="Consolas,ui-monospace,monospace" font-size="12" fill="#0A4D38">/ws/browser  &lt;-&gt;  /ws/agent</text>
+  <text x="168" y="496" font-family="Segoe UI,system-ui,sans-serif" font-size="12" fill="#4A635A">Single in-memory router � progress + logs</text>
+
+  <!-- Boundary label -->
+  <rect x="140" y="530" width="540" height="36" rx="8" fill="#0F6B4D" opacity="0.12"/>
+  <text x="410" y="554" text-anchor="middle" font-family="Segoe UI,system-ui,sans-serif" font-size="12" font-weight="700" fill="#0F6B4D" letter-spacing="1">OWNERSHIP BOUNDARY - TRAFFIC CROSSES WSS ONLY</text>
+
+  <!-- L3 Agent -->
+  <circle cx="88" cy="640" r="12" fill="#0F6B4D"/>
+  <text x="112" y="626" font-family="Segoe UI,system-ui,sans-serif" font-size="11" font-weight="700" fill="#0F6B4D" letter-spacing="2">L3</text>
+  <g filter="url(#lift)">
+    <rect x="140" y="586" width="540" height="128" rx="16" fill="url(#core)"/>
+  </g>
+  <text x="168" y="624" font-family="Segoe UI,system-ui,sans-serif" font-size="18" font-weight="800" fill="#F4FBF7">Agent on your VPS</text>
+  <text x="168" y="650" font-family="Consolas,ui-monospace,monospace" font-size="12" fill="#A8E0C8">systemd unit � reconnect � offline queue</text>
+  <text x="168" y="674" font-family="Segoe UI,system-ui,sans-serif" font-size="12" fill="#C5EBD8">Receives commands � reports health � self-heals</text>
+  <text x="168" y="696" font-family="Segoe UI,system-ui,sans-serif" font-size="12" fill="#C5EBD8">Never ships app data to the control plane</text>
+
+  <!-- L4 Docker -->
+  <circle cx="88" cy="790" r="12" fill="#0F6B4D"/>
+  <text x="112" y="776" font-family="Segoe UI,system-ui,sans-serif" font-size="11" font-weight="700" fill="#0F6B4D" letter-spacing="2">L4</text>
+  <g filter="url(#lift)">
+    <rect x="140" y="744" width="540" height="100" rx="16" fill="#FFFFFF" stroke="#C5D9CF" stroke-width="1.5"/>
+  </g>
+  <text x="168" y="782" font-family="Segoe UI,system-ui,sans-serif" font-size="18" font-weight="800" fill="#0E1F1A">Docker runtime</text>
+  <text x="168" y="808" font-family="Consolas,ui-monospace,monospace" font-size="12" fill="#4A635A">unix:///var/run/docker.sock</text>
+  <text x="168" y="830" font-family="Segoe UI,system-ui,sans-serif" font-size="12" fill="#4A635A">App + Postgres/Redis containers you deploy</text>
+
+  <!-- L5 Caddy -->
+  <circle cx="88" cy="920" r="12" fill="#0F6B4D"/>
+  <text x="112" y="906" font-family="Segoe UI,system-ui,sans-serif" font-size="11" font-weight="700" fill="#0F6B4D" letter-spacing="2">L5</text>
+  <g filter="url(#lift)">
+    <rect x="140" y="874" width="540" height="100" rx="16" fill="#FFFFFF" stroke="#C5D9CF" stroke-width="1.5"/>
+  </g>
+  <text x="168" y="912" font-family="Segoe UI,system-ui,sans-serif" font-size="18" font-weight="800" fill="#0E1F1A">Caddy (embedded)</text>
+  <text x="168" y="938" font-family="Consolas,ui-monospace,monospace" font-size="12" fill="#4A635A">Admin API � auto TLS � reverse proxy</text>
+  <text x="168" y="960" font-family="Segoe UI,system-ui,sans-serif" font-size="12" fill="#4A635A">Public HTTPS terminates on your machine</text>
+
+  <!-- L6 Backups -->
+  <circle cx="88" cy="1050" r="12" fill="#0F6B4D"/>
+  <text x="112" y="1036" font-family="Segoe UI,system-ui,sans-serif" font-size="11" font-weight="700" fill="#0F6B4D" letter-spacing="2">L6</text>
+  <g filter="url(#lift)">
+    <rect x="140" y="1004" width="540" height="100" rx="16" fill="#FFFFFF" stroke="#C5D9CF" stroke-width="1.5"/>
+  </g>
+  <text x="168" y="1042" font-family="Segoe UI,system-ui,sans-serif" font-size="18" font-weight="800" fill="#0E1F1A">restic backups</text>
+  <text x="168" y="1068" font-family="Consolas,ui-monospace,monospace" font-size="12" fill="#4A635A">S3 / B2 compatible � encrypted snapshots</text>
+  <text x="168" y="1090" font-family="Segoe UI,system-ui,sans-serif" font-size="12" fill="#4A635A">Scheduled from agent � restore from dashboard</text>
+
+  <!-- L7 Disk -->
+  <circle cx="88" cy="1180" r="12" fill="#0A4D38"/>
+  <text x="112" y="1166" font-family="Segoe UI,system-ui,sans-serif" font-size="11" font-weight="700" fill="#0A4D38" letter-spacing="2">L7</text>
+  <g filter="url(#lift)">
+    <rect x="140" y="1134" width="540" height="100" rx="16" fill="#0A4D38"/>
+  </g>
+  <text x="168" y="1172" font-family="Segoe UI,system-ui,sans-serif" font-size="18" font-weight="800" fill="#F4FBF7">Local disk / volumes</text>
+  <text x="168" y="1198" font-family="Consolas,ui-monospace,monospace" font-size="12" fill="#A8E0C8">container FS � bind mounts � DB files</text>
+  <text x="168" y="1220" font-family="Segoe UI,system-ui,sans-serif" font-size="12" fill="#C5EBD8">This is where your data actually lives</text>
+
+  <!-- Callouts -->
+  <g filter="url(#lift)">
+    <rect x="40" y="1280" width="640" height="180" rx="18" fill="#FFFFFF" stroke="#C5D9CF" stroke-width="1.5"/>
+  </g>
+  <text x="72" y="1320" font-family="Segoe UI,system-ui,sans-serif" font-size="14" font-weight="700" fill="#0F6B4D" letter-spacing="1">READ THE STACK</text>
+  <text x="72" y="1352" font-family="Segoe UI,system-ui,sans-serif" font-size="14" fill="#0E1F1A">L0-L2 run in the cloud (or on Render).</text>
+  <text x="72" y="1380" font-family="Segoe UI,system-ui,sans-serif" font-size="14" fill="#0E1F1A">L3-L7 run on hardware you own.</text>
+  <text x="72" y="1408" font-family="Segoe UI,system-ui,sans-serif" font-size="14" fill="#0E1F1A">Commands go down the spine. Metrics and logs</text>
+  <text x="72" y="1432" font-family="Segoe UI,system-ui,sans-serif" font-size="14" fill="#0E1F1A">come back up the same WebSocket wire.</text>
+
+  <rect x="0" y="1548" width="720" height="52" fill="#0F6B4D"/>
+  <text x="360" y="1580" text-anchor="middle" font-family="Segoe UI,system-ui,sans-serif" font-size="13" font-weight="600" fill="#F4FBF7">Narrow cut � 720 x 1600 � emerald stack</text>
+</svg>

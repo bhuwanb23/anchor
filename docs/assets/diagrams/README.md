@@ -4,9 +4,10 @@ Canonical SVG sources for project storytelling. Emerald workbench DNA (matches t
 
 | File | Story | Shape |
 |------|-------|-------|
-| [`ownership-map.svg`](ownership-map.svg) | What you own vs what only orchestrates | Split territory |
-| [`calm-ops-loop.svg`](calm-ops-loop.svg) | Connect → deploy → watch → heal → backup | Radial loop |
-| [`deploy-signal.svg`](deploy-signal.svg) | One deploy as a WebSocket signal path | Dark wire / stations |
+| [`ownership-map.svg`](ownership-map.svg) | What you own vs what only orchestrates | Split territory (wide) |
+| [`calm-ops-loop.svg`](calm-ops-loop.svg) | Connect → deploy → watch → heal → backup | Radial loop (square) |
+| [`deploy-signal.svg`](deploy-signal.svg) | One deploy as a WebSocket signal path | Dark wire / stations (wide) |
+| [`runtime-stack.svg`](runtime-stack.svg) | L0–L7 cut from browser down to disk | Vertical stack (tall / narrow) |
 
 ## Regenerate PNGs
 
@@ -19,7 +20,8 @@ $html = (Join-Path $base '_render.html').Replace('\','/')
 @(
   @{ svg = 'ownership-map.svg'; w = 1400; h = 820 },
   @{ svg = 'calm-ops-loop.svg';  w = 1200; h = 1200 },
-  @{ svg = 'deploy-signal.svg';  w = 1500; h = 720 }
+  @{ svg = 'deploy-signal.svg';  w = 1500; h = 720 },
+  @{ svg = 'runtime-stack.svg';  w = 720;  h = 1600 }
 ) | ForEach-Object {
   $out = Join-Path $base ($_.svg -replace '\.svg$','.png')
   $url = "file:///$html`?src=$($_.svg)"
