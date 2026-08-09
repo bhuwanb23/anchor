@@ -82,9 +82,7 @@
       window.__timelines = window.__timelines || {};
       const tl = gsap.timeline({ paused: true });
       tl.to({}, { duration: 60 }, 0);
-      // BGM soft fade in / fade out (baseline data-volume=0.28)
-      tl.fromTo("#bgm", { volume: 0 }, { volume: 0.28, duration: 1.2, ease: "power1.out" }, 0);
-      tl.to("#bgm", { volume: 0, duration: 2.5, ease: "power1.in" }, 57.5);
+      // BGM fades are baked into assets/bgm/track.mp3 (avoids scripted-volume browser probe)
       window.__timelines["main"] = tl;
 
       document.addEventListener("hf-seek", (event) => {
