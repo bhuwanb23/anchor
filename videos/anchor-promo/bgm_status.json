@@ -1,0 +1,11 @@
+{
+  "generated_at": "2026-08-09T09:35:00.000Z",
+  "enabled": true,
+  "provider": "ffmpeg-lavfi",
+  "mode": "ffmpeg-pad",
+  "path": "assets/bgm/track.mp3",
+  "target_duration_s": 60,
+  "status": "ready",
+  "ready": true,
+  "message": "60s calm pad bed (~92 BPM tremolo) synthesized after MusicGen timeout; no HeyGen credential available."
+}
