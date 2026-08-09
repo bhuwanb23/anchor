@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { getWSClient, type WSMessage } from "@/lib/ws";
 import { Alert } from "@/types";
 import api from "@/lib/api";
@@ -20,13 +20,8 @@ const MAX_ALERTS = 100;
  */
 export function useAlerts(serverId: string, enabled = true) {
   const [alerts, setAlerts] = useState<AlertItem[]>([]);
-  const unsubRef = (() => {
-    let fns: (() => void)[] = [];
-    return {
-      add: (fn: () => void) => { fns.push(fn); },
-      runAll: () => { fns.forEach((f) => f()); fns = []; },
-    };
-  })();
+  // Use useRef so unsubscribe functions persist across renders
+  const unsubRef = useRef<(() => void)[]>([]);
 
   // Load persisted alert history from the control plane.
   useEffect(() => {
@@ -70,34 +65,6 @@ export function useAlerts(serverId: string, enabled = true) {
     [serverId]
   );
 
-  // Register WebSocket handler on mount, deregister on unmount.
-  useEffect(() => {
-    if (!enabled || !serverId) return;
-
-    const client = getWSClient();
-
-    // Subscribe to this server's updates
-    client.subscribeServer(serverId);
-    unsubRef.add(() => client.unsubscribeServer());
-
-    const unsub = client.on("anomaly_alert", (msg: WSMessage) => {
-      handleAlert(msg);
-    });
-    unsubRef.add(unsub);
-
-    const unsub2 = client.on("error_alert", (msg: WSMessage) => {
-      handleAlert(msg);
-    });
-    unsubRef.add(unsub2);
-
-    // Ensure the singleton is connected
-    client.connect();
-
-    return () => {
-      unsubRef.runAll();
-    };
-  }, [enabled, serverId]);
-
   function handleAlert(msg: WSMessage) {
     const a = msg.payload as Partial<Alert>;
     if (!a?.message && !a?.title) return;
@@ -136,6 +103,35 @@ export function useAlerts(serverId: string, enabled = true) {
     // Keep global store in sync for overview app cards
     useServerStore.getState().addAlert(item);
   }
+
+  // Register WebSocket handler on mount, deregister on unmount.
+  useEffect(() => {
+    if (!enabled || !serverId) return;
+
+    // Clean up any previous subscriptions
+    unsubRef.current.forEach((fn) => fn());
+    unsubRef.current = [];
+
+    const client = getWSClient();
+
+    // Subscribe to this server's updates
+    client.subscribeServer(serverId);
+    unsubRef.current.push(() => client.unsubscribeServer());
+
+    const unsub = client.on("anomaly_alert", handleAlert);
+    unsubRef.current.push(unsub);
+
+    const unsub2 = client.on("error_alert", handleAlert);
+    unsubRef.current.push(unsub2);
+
+    // Ensure the singleton is connected
+    client.connect();
+
+    return () => {
+      unsubRef.current.forEach((fn) => fn());
+      unsubRef.current = [];
+    };
+  }, [enabled, serverId]);
 
   return { alerts, acknowledge };
 }
