@@ -48,16 +48,25 @@ interface AuthState {
   loadUser: () => Promise<void>;
 }
 
+// Initialize once at module load
+const initialUser = loadPersistedUser();
+
 export const useAuthStore = create<AuthState>((set) => ({
   // Initialize from localStorage to avoid flash on page refresh
-  user: loadPersistedUser(),
+  user: initialUser,
   isLoading: true,
-  isAuthenticated: !!loadPersistedUser(),
+  isAuthenticated: !!initialUser,
 
   login: async (email, password) => {
-    const res = await authLib.login({ email, password });
-    persistUser(res.user);
-    set({ user: res.user, isAuthenticated: true, isLoading: false });
+    try {
+      const res = await authLib.login({ email, password });
+      persistUser(res.user);
+      set({ user: res.user, isAuthenticated: true, isLoading: false });
+    } catch (error) {
+      // Reset loading state on error so components don't show infinite spinner
+      set({ isLoading: false });
+      throw error;
+    }
   },
 
   register: async (name, email, password) => {
