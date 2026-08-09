@@ -64,7 +64,7 @@ func (s *Server) ListServers(w http.ResponseWriter, r *http.Request) {
 			"last_seen":    lastSeen,
 		}
 		if osInfo != nil {
-			server["os_info"] = *osInfo
+			server["os"] = *osInfo
 		}
 		if osVersion != nil {
 			server["os_version"] = *osVersion
@@ -76,7 +76,7 @@ func (s *Server) ListServers(w http.ResponseWriter, r *http.Request) {
 			server["arch"] = *arch
 		}
 		if ramMB != nil {
-			server["ram_mb"] = *ramMB
+			server["ram_total_mb"] = *ramMB
 		}
 		if ramAvailableMB != nil {
 			server["ram_available_mb"] = *ramAvailableMB
@@ -97,7 +97,7 @@ func (s *Server) ListServers(w http.ResponseWriter, r *http.Request) {
 			server["docker_version"] = *dockerVersion
 		}
 		if ipAddress != nil {
-			server["ip_address"] = *ipAddress
+			server["public_ip"] = *ipAddress
 		}
 
 		servers = append(servers, server)
