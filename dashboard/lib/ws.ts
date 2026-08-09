@@ -21,6 +21,7 @@ const WS_URL = process.env.NEXT_PUBLIC_WS_URL || "ws://localhost:8080/ws/browser
 const PING_INTERVAL_MS = 30_000;
 const PONG_TIMEOUT_MS = 10_000;
 const MAX_BACKOFF_SEC = 60;
+const MAX_RECONNECT_ATTEMPTS = 50;
 
 // ---------------------------------------------------------------------------
 // BrowserWSClient — singleton WebSocket client for the dashboard
@@ -38,6 +39,7 @@ class BrowserWSClient {
   private handlers = new Map<string, Set<MessageHandler>>();
   private connectHandlers = new Set<ConnectionHandler>();
   private disconnectHandlers = new Set<ConnectionHandler>();
+  private reconnectingHandlers = new Set<ConnectionHandler>();
   private subscribedServerId: string | null = null;
 
   // Reconnection state
@@ -45,7 +47,6 @@ class BrowserWSClient {
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private intentionalClose = false;
   private autoReconnectPending = false;
-  private reconnectingHandlers = new Set<ConnectionHandler>();
 
   // Heartbeat state
   private pingTimer: ReturnType<typeof setInterval> | null = null;
@@ -57,7 +58,13 @@ class BrowserWSClient {
   // ---------------------------------------------------------------------------
 
   connect(): void {
+    // Don't allow duplicate connections
     if (this.ws?.readyState === WebSocket.OPEN || this.ws?.readyState === WebSocket.CONNECTING) {
+      return;
+    }
+
+    // If CLOSING, wait for it to finish before reconnecting
+    if (this.ws?.readyState === WebSocket.CLOSING) {
       return;
     }
 
@@ -146,7 +153,14 @@ class BrowserWSClient {
     }
     this.handlers.get(type)!.add(handler);
     return () => {
-      this.handlers.get(type)?.delete(handler);
+      const set = this.handlers.get(type);
+      if (set) {
+        set.delete(handler);
+        // Clean up empty Sets to prevent memory leak
+        if (set.size === 0) {
+          this.handlers.delete(type);
+        }
+      }
     };
   }
 
@@ -197,6 +211,16 @@ class BrowserWSClient {
   // ---------------------------------------------------------------------------
 
   private routeMessage(msg: WSMessage): void {
+    // Handle pong — reset alive flag to keep connection open
+    if (msg.type === "pong") {
+      this.alive = true;
+      if (this.pongTimer) {
+        clearTimeout(this.pongTimer);
+        this.pongTimer = null;
+      }
+      return;
+    }
+
     // Fire type-specific handlers
     const typeHandlers = this.handlers.get(msg.type);
     if (typeHandlers) {
@@ -223,8 +247,12 @@ class BrowserWSClient {
       }
       this.alive = false;
       this.send({ type: "ping" });
+      // Start pong timeout — if no pong arrives within PONG_TIMEOUT_MS, close
       this.pongTimer = setTimeout(() => {
-        // Pong timeout — will be caught on next ping cycle
+        if (!this.alive) {
+          console.warn("[ws] pong timeout, closing dead connection");
+          this.ws?.close();
+        }
       }, PONG_TIMEOUT_MS);
     }, PING_INTERVAL_MS);
   }
@@ -244,6 +272,14 @@ class BrowserWSClient {
 
   private scheduleReconnect(): void {
     this.reconnectAttempt++;
+
+    // Give up after max attempts
+    if (this.reconnectAttempt > MAX_RECONNECT_ATTEMPTS) {
+      console.error("[ws] max reconnect attempts reached, giving up");
+      this.autoReconnectPending = false;
+      return;
+    }
+
     const base = Math.min(MAX_BACKOFF_SEC, Math.pow(2, this.reconnectAttempt - 1));
     // Random jitter: ±25% of the base delay
     const jitter = base * 0.25 * (Math.random() * 2 - 1);
