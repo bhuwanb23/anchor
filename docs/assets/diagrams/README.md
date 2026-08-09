@@ -10,19 +10,21 @@ Canonical SVG sources for project storytelling. Emerald workbench DNA (matches t
 
 ## Regenerate PNGs
 
-From the repo root (Chrome or Edge headless):
+Use `_render.html` so the diagram fills the entire screenshot (raw SVG open in Chrome leaves empty margins).
 
 ```powershell
 $chrome = 'C:\Program Files\Google\Chrome\Application\chrome.exe'
 $base = (Resolve-Path 'docs\assets\diagrams').Path
+$html = (Join-Path $base '_render.html').Replace('\','/')
 @(
-  @{ svg = 'ownership-map.svg';   w = 2800; h = 1640 },
-  @{ svg = 'calm-ops-loop.svg';    w = 2400; h = 2400 },
-  @{ svg = 'deploy-signal.svg';    w = 3000; h = 1440 }
+  @{ svg = 'ownership-map.svg'; w = 1400; h = 820 },
+  @{ svg = 'calm-ops-loop.svg';  w = 1200; h = 1200 },
+  @{ svg = 'deploy-signal.svg';  w = 1500; h = 720 }
 ) | ForEach-Object {
-  $in  = "file:///$($base.Replace('\','/'))/$($_.svg)"
   $out = Join-Path $base ($_.svg -replace '\.svg$','.png')
-  & $chrome --headless --disable-gpu --hide-scrollbars --window-size="$($_.w),$($_.h)" --screenshot="$out" $in
+  $url = "file:///$html`?src=$($_.svg)"
+  & $chrome --headless=new --disable-gpu --hide-scrollbars --force-device-scale-factor=1 `
+    --window-size="$($_.w),$($_.h)" "--screenshot=$out" $url
 }
 ```
 

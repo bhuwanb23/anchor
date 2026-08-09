@@ -13,67 +13,71 @@
       <stop offset="100%" stop-color="#0A4D38"/>
     </linearGradient>
     <filter id="lift">
-      <feDropShadow dx="0" dy="6" stdDeviation="12" flood-color="#0E1F1A" flood-opacity="0.1"/>
+      <feDropShadow dx="0" dy="5" stdDeviation="10" flood-color="#0E1F1A" flood-opacity="0.12"/>
     </filter>
   </defs>
 
-  <rect width="1200" height="1200" fill="url(#paper)" rx="24"/>
+  <rect width="1200" height="1200" fill="url(#paper)"/>
 
-  <text x="600" y="72" text-anchor="middle" font-family="Segoe UI,system-ui,sans-serif" font-size="34" font-weight="800" fill="#0E1F1A">The calm ops loop</text>
-  <text x="600" y="108" text-anchor="middle" font-family="Segoe UI,system-ui,sans-serif" font-size="16" fill="#4A635A">One continuous cycle. No terminal. No babysitting.</text>
+  <rect x="0" y="0" width="1200" height="100" fill="#FFFFFF" opacity="0.5"/>
+  <text x="600" y="48" text-anchor="middle" font-family="Segoe UI,system-ui,sans-serif" font-size="34" font-weight="800" fill="#0E1F1A">The calm ops loop</text>
+  <text x="600" y="80" text-anchor="middle" font-family="Segoe UI,system-ui,sans-serif" font-size="16" fill="#4A635A">One continuous cycle. No terminal. No babysitting.</text>
 
-  <circle cx="600" cy="640" r="390" fill="none" stroke="#C5D9CF" stroke-width="1" stroke-dasharray="2 10"/>
-  <circle cx="600" cy="640" r="300" fill="none" stroke="url(#ring)" stroke-width="18" stroke-linecap="round" opacity="0.92"/>
+  <!-- Larger ring, lower center to use space -->
+  <circle cx="600" cy="620" r="430" fill="none" stroke="#C5D9CF" stroke-width="1" stroke-dasharray="2 10"/>
+  <circle cx="600" cy="620" r="340" fill="none" stroke="url(#ring)" stroke-width="22" stroke-linecap="round"/>
 
-  <g stroke="#F4FBF7" stroke-width="3" stroke-linecap="round">
-    <line x1="600" y1="332" x2="600" y2="348"/>
-    <line x1="880" y1="520" x2="868" y2="532"/>
-    <line x1="820" y1="860" x2="806" y2="848"/>
-    <line x1="380" y1="860" x2="394" y2="848"/>
-    <line x1="320" y1="520" x2="332" y2="532"/>
+  <g stroke="#F4FBF7" stroke-width="3.5" stroke-linecap="round">
+    <line x1="600" y1="268" x2="600" y2="288"/>
+    <line x1="920" y1="480" x2="905" y2="495"/>
+    <line x1="860" y1="880" x2="844" y2="866"/>
+    <line x1="340" y1="880" x2="356" y2="866"/>
+    <line x1="280" y1="480" x2="295" y2="495"/>
   </g>
 
   <g filter="url(#lift)">
-    <circle cx="600" cy="640" r="118" fill="#FFFFFF" stroke="#0F6B4D" stroke-width="2"/>
+    <circle cx="600" cy="620" r="140" fill="#FFFFFF" stroke="#0F6B4D" stroke-width="3"/>
   </g>
-  <text x="600" y="620" text-anchor="middle" font-family="Segoe UI,system-ui,sans-serif" font-size="15" font-weight="700" fill="#0F6B4D" letter-spacing="2">NO SSH</text>
-  <text x="600" y="652" text-anchor="middle" font-family="Segoe UI,system-ui,sans-serif" font-size="22" font-weight="800" fill="#0E1F1A">Dashboard</text>
-  <text x="600" y="678" text-anchor="middle" font-family="Segoe UI,system-ui,sans-serif" font-size="13" fill="#4A635A">is the only control</text>
+  <text x="600" y="592" text-anchor="middle" font-family="Segoe UI,system-ui,sans-serif" font-size="16" font-weight="700" fill="#0F6B4D" letter-spacing="2">NO SSH</text>
+  <text x="600" y="630" text-anchor="middle" font-family="Segoe UI,system-ui,sans-serif" font-size="26" font-weight="800" fill="#0E1F1A">Dashboard</text>
+  <text x="600" y="660" text-anchor="middle" font-family="Segoe UI,system-ui,sans-serif" font-size="14" fill="#4A635A">is the only control</text>
 
-  <g filter="url(#lift)" transform="translate(600,340)">
-    <rect x="-110" y="-48" width="220" height="96" rx="20" fill="#0F6B4D"/>
-    <text x="0" y="-8" text-anchor="middle" font-family="Segoe UI,system-ui,sans-serif" font-size="12" font-weight="700" fill="#A8E0C8" letter-spacing="2">01</text>
-    <text x="0" y="18" text-anchor="middle" font-family="Segoe UI,system-ui,sans-serif" font-size="20" font-weight="800" fill="#F4FBF7">Connect</text>
-    <text x="0" y="40" text-anchor="middle" font-family="Segoe UI,system-ui,sans-serif" font-size="12" fill="#C5EBD8">Paste install - agent joins</text>
-  </g>
-
-  <g filter="url(#lift)" transform="translate(900,500)">
-    <rect x="-110" y="-48" width="220" height="96" rx="20" fill="#FFFFFF" stroke="#0F6B4D" stroke-width="2"/>
-    <text x="0" y="-8" text-anchor="middle" font-family="Segoe UI,system-ui,sans-serif" font-size="12" font-weight="700" fill="#0F6B4D" letter-spacing="2">02</text>
-    <text x="0" y="18" text-anchor="middle" font-family="Segoe UI,system-ui,sans-serif" font-size="20" font-weight="800" fill="#0E1F1A">Deploy</text>
-    <text x="0" y="40" text-anchor="middle" font-family="Segoe UI,system-ui,sans-serif" font-size="12" fill="#4A635A">Image or template - one click</text>
+  <!-- Nodes closer to edges -->
+  <g filter="url(#lift)" transform="translate(600,250)">
+    <rect x="-130" y="-56" width="260" height="112" rx="22" fill="#0F6B4D"/>
+    <text x="0" y="-12" text-anchor="middle" font-family="Segoe UI,system-ui,sans-serif" font-size="13" font-weight="700" fill="#A8E0C8" letter-spacing="2">01</text>
+    <text x="0" y="18" text-anchor="middle" font-family="Segoe UI,system-ui,sans-serif" font-size="24" font-weight="800" fill="#F4FBF7">Connect</text>
+    <text x="0" y="44" text-anchor="middle" font-family="Segoe UI,system-ui,sans-serif" font-size="13" fill="#C5EBD8">Paste install - agent joins</text>
   </g>
 
-  <g filter="url(#lift)" transform="translate(860,860)">
-    <rect x="-110" y="-48" width="220" height="96" rx="20" fill="#FFFFFF" stroke="#0F6B4D" stroke-width="2"/>
-    <text x="0" y="-8" text-anchor="middle" font-family="Segoe UI,system-ui,sans-serif" font-size="12" font-weight="700" fill="#0F6B4D" letter-spacing="2">03</text>
-    <text x="0" y="18" text-anchor="middle" font-family="Segoe UI,system-ui,sans-serif" font-size="20" font-weight="800" fill="#0E1F1A">Watch</text>
-    <text x="0" y="40" text-anchor="middle" font-family="Segoe UI,system-ui,sans-serif" font-size="12" fill="#4A635A">CPU - RAM - disk - live logs</text>
+  <g filter="url(#lift)" transform="translate(980,470)">
+    <rect x="-130" y="-56" width="260" height="112" rx="22" fill="#FFFFFF" stroke="#0F6B4D" stroke-width="2.5"/>
+    <text x="0" y="-12" text-anchor="middle" font-family="Segoe UI,system-ui,sans-serif" font-size="13" font-weight="700" fill="#0F6B4D" letter-spacing="2">02</text>
+    <text x="0" y="18" text-anchor="middle" font-family="Segoe UI,system-ui,sans-serif" font-size="24" font-weight="800" fill="#0E1F1A">Deploy</text>
+    <text x="0" y="44" text-anchor="middle" font-family="Segoe UI,system-ui,sans-serif" font-size="13" fill="#4A635A">Image or template - one click</text>
   </g>
 
-  <g filter="url(#lift)" transform="translate(340,860)">
-    <rect x="-110" y="-48" width="220" height="96" rx="20" fill="#FFFFFF" stroke="#0F6B4D" stroke-width="2"/>
-    <text x="0" y="-8" text-anchor="middle" font-family="Segoe UI,system-ui,sans-serif" font-size="12" font-weight="700" fill="#0F6B4D" letter-spacing="2">04</text>
-    <text x="0" y="18" text-anchor="middle" font-family="Segoe UI,system-ui,sans-serif" font-size="20" font-weight="800" fill="#0E1F1A">Heal</text>
-    <text x="0" y="40" text-anchor="middle" font-family="Segoe UI,system-ui,sans-serif" font-size="12" fill="#4A635A">Plain-English alerts - auto-fix</text>
+  <g filter="url(#lift)" transform="translate(900,920)">
+    <rect x="-130" y="-56" width="260" height="112" rx="22" fill="#FFFFFF" stroke="#0F6B4D" stroke-width="2.5"/>
+    <text x="0" y="-12" text-anchor="middle" font-family="Segoe UI,system-ui,sans-serif" font-size="13" font-weight="700" fill="#0F6B4D" letter-spacing="2">03</text>
+    <text x="0" y="18" text-anchor="middle" font-family="Segoe UI,system-ui,sans-serif" font-size="24" font-weight="800" fill="#0E1F1A">Watch</text>
+    <text x="0" y="44" text-anchor="middle" font-family="Segoe UI,system-ui,sans-serif" font-size="13" fill="#4A635A">CPU - RAM - disk - live logs</text>
   </g>
 
-  <g filter="url(#lift)" transform="translate(300,500)">
-    <rect x="-110" y="-48" width="220" height="96" rx="20" fill="#FFFFFF" stroke="#0F6B4D" stroke-width="2"/>
-    <text x="0" y="-8" text-anchor="middle" font-family="Segoe UI,system-ui,sans-serif" font-size="12" font-weight="700" fill="#0F6B4D" letter-spacing="2">05</text>
-    <text x="0" y="18" text-anchor="middle" font-family="Segoe UI,system-ui,sans-serif" font-size="20" font-weight="800" fill="#0E1F1A">Backup</text>
-    <text x="0" y="40" text-anchor="middle" font-family="Segoe UI,system-ui,sans-serif" font-size="12" fill="#4A635A">Daily restic - restore calmly</text>
+  <g filter="url(#lift)" transform="translate(300,920)">
+    <rect x="-130" y="-56" width="260" height="112" rx="22" fill="#FFFFFF" stroke="#0F6B4D" stroke-width="2.5"/>
+    <text x="0" y="-12" text-anchor="middle" font-family="Segoe UI,system-ui,sans-serif" font-size="13" font-weight="700" fill="#0F6B4D" letter-spacing="2">04</text>
+    <text x="0" y="18" text-anchor="middle" font-family="Segoe UI,system-ui,sans-serif" font-size="24" font-weight="800" fill="#0E1F1A">Heal</text>
+    <text x="0" y="44" text-anchor="middle" font-family="Segoe UI,system-ui,sans-serif" font-size="13" fill="#4A635A">Plain-English alerts - auto-fix</text>
   </g>
 
-  <text x="600" y="1145" text-anchor="middle" font-family="Segoe UI,system-ui,sans-serif" font-size="14" fill="#4A635A">The loop never asks you to open SSH - the agent closes it for you.</text>
+  <g filter="url(#lift)" transform="translate(220,470)">
+    <rect x="-130" y="-56" width="260" height="112" rx="22" fill="#FFFFFF" stroke="#0F6B4D" stroke-width="2.5"/>
+    <text x="0" y="-12" text-anchor="middle" font-family="Segoe UI,system-ui,sans-serif" font-size="13" font-weight="700" fill="#0F6B4D" letter-spacing="2">05</text>
+    <text x="0" y="18" text-anchor="middle" font-family="Segoe UI,system-ui,sans-serif" font-size="24" font-weight="800" fill="#0E1F1A">Backup</text>
+    <text x="0" y="44" text-anchor="middle" font-family="Segoe UI,system-ui,sans-serif" font-size="13" fill="#4A635A">Daily restic - restore calmly</text>
+  </g>
+
+  <rect x="0" y="1148" width="1200" height="52" fill="#0F6B4D"/>
+  <text x="600" y="1180" text-anchor="middle" font-family="Segoe UI,system-ui,sans-serif" font-size="14" font-weight="600" fill="#F4FBF7">The loop never asks you to open SSH - the agent closes it for you.</text>
 </svg>

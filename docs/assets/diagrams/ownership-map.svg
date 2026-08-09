@@ -11,80 +11,86 @@
       <stop offset="0%" stop-color="#0F6B4D"/>
       <stop offset="100%" stop-color="#0A4D38"/>
     </linearGradient>
-    <filter id="soft" x="-20%" y="-20%" width="140%" height="140%">
-      <feDropShadow dx="0" dy="8" stdDeviation="16" flood-color="#0E1F1A" flood-opacity="0.08"/>
+    <filter id="soft" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="6" stdDeviation="10" flood-color="#0E1F1A" flood-opacity="0.1"/>
     </filter>
-    <pattern id="gridDots" width="24" height="24" patternUnits="userSpaceOnUse">
-      <circle cx="1" cy="1" r="1" fill="#0F6B4D" opacity="0.12"/>
+    <pattern id="gridDots" width="20" height="20" patternUnits="userSpaceOnUse">
+      <circle cx="1" cy="1" r="1" fill="#0F6B4D" opacity="0.14"/>
     </pattern>
   </defs>
 
-  <rect width="1400" height="820" fill="url(#paper)" rx="20"/>
-  <rect width="1400" height="820" fill="url(#gridDots)" rx="20"/>
+  <rect width="1400" height="820" fill="url(#paper)"/>
+  <rect width="1400" height="820" fill="url(#gridDots)"/>
 
-  <g transform="translate(56,48)">
+  <!-- Header bar -->
+  <rect x="0" y="0" width="1400" height="96" fill="#FFFFFF" opacity="0.55"/>
+  <g transform="translate(28,28)">
     <rect width="40" height="40" rx="10" fill="#0F6B4D"/>
     <text x="20" y="27" text-anchor="middle" font-family="Segoe UI,system-ui,sans-serif" font-size="18" font-weight="800" fill="#F4FBF7">A</text>
     <text x="56" y="28" font-family="Segoe UI,system-ui,sans-serif" font-size="22" font-weight="800" fill="#0E1F1A">Anchor</text>
   </g>
+  <text x="700" y="42" text-anchor="middle" font-family="Segoe UI,system-ui,sans-serif" font-size="32" font-weight="800" fill="#0E1F1A">The ownership line</text>
+  <text x="700" y="72" text-anchor="middle" font-family="Segoe UI,system-ui,sans-serif" font-size="15" fill="#4A635A">Workloads and data stay on hardware you control. We only orchestrate.</text>
 
-  <text x="700" y="78" text-anchor="middle" font-family="Segoe UI,system-ui,sans-serif" font-size="36" font-weight="800" fill="#0E1F1A">The ownership line</text>
-  <text x="700" y="112" text-anchor="middle" font-family="Segoe UI,system-ui,sans-serif" font-size="16" fill="#4A635A">Workloads and data stay on hardware you control. We only orchestrate.</text>
-
+  <!-- LEFT full-height panel -->
   <g filter="url(#soft)">
-    <rect x="64" y="160" width="600" height="560" rx="28" fill="url(#yoursFill)"/>
+    <rect x="20" y="112" width="660" height="640" rx="24" fill="url(#yoursFill)"/>
   </g>
-  <text x="364" y="210" text-anchor="middle" font-family="Segoe UI,system-ui,sans-serif" font-size="13" font-weight="700" fill="#A8E0C8" letter-spacing="3">YOUR TERRITORY</text>
-  <text x="364" y="250" text-anchor="middle" font-family="Segoe UI,system-ui,sans-serif" font-size="28" font-weight="800" fill="#F4FBF7">The server you own</text>
-  <text x="364" y="280" text-anchor="middle" font-family="Segoe UI,system-ui,sans-serif" font-size="14" fill="#C5EBD8">Any Linux VPS - stays yours</text>
+  <text x="350" y="158" text-anchor="middle" font-family="Segoe UI,system-ui,sans-serif" font-size="13" font-weight="700" fill="#A8E0C8" letter-spacing="3">YOUR TERRITORY</text>
+  <text x="350" y="198" text-anchor="middle" font-family="Segoe UI,system-ui,sans-serif" font-size="30" font-weight="800" fill="#F4FBF7">The server you own</text>
+  <text x="350" y="228" text-anchor="middle" font-family="Segoe UI,system-ui,sans-serif" font-size="14" fill="#C5EBD8">Any Linux VPS - stays yours</text>
 
-  <rect x="110" y="320" width="508" height="72" rx="16" fill="#FFFFFF" fill-opacity="0.12" stroke="#A8E0C8" stroke-width="1.5"/>
-  <text x="140" y="350" font-family="Segoe UI,system-ui,sans-serif" font-size="16" font-weight="700" fill="#F4FBF7">Anchor Agent</text>
-  <text x="140" y="372" font-family="Consolas,ui-monospace,monospace" font-size="12" fill="#A8E0C8">systemd - Go binary - watches and repairs</text>
+  <rect x="56" y="260" width="588" height="84" rx="16" fill="#FFFFFF" fill-opacity="0.12" stroke="#A8E0C8" stroke-width="1.5"/>
+  <text x="88" y="298" font-family="Segoe UI,system-ui,sans-serif" font-size="18" font-weight="700" fill="#F4FBF7">Anchor Agent</text>
+  <text x="88" y="324" font-family="Consolas,ui-monospace,monospace" font-size="13" fill="#A8E0C8">systemd - Go binary - watches and repairs</text>
 
-  <rect x="110" y="410" width="240" height="100" rx="16" fill="#FFFFFF" fill-opacity="0.1" stroke="#A8E0C8" stroke-width="1"/>
-  <text x="230" y="455" text-anchor="middle" font-family="Segoe UI,system-ui,sans-serif" font-size="16" font-weight="700" fill="#F4FBF7">Docker</text>
-  <text x="230" y="480" text-anchor="middle" font-family="Segoe UI,system-ui,sans-serif" font-size="12" fill="#C5EBD8">Your apps and databases</text>
+  <rect x="56" y="364" width="280" height="120" rx="16" fill="#FFFFFF" fill-opacity="0.1" stroke="#A8E0C8" stroke-width="1"/>
+  <text x="196" y="420" text-anchor="middle" font-family="Segoe UI,system-ui,sans-serif" font-size="18" font-weight="700" fill="#F4FBF7">Docker</text>
+  <text x="196" y="448" text-anchor="middle" font-family="Segoe UI,system-ui,sans-serif" font-size="13" fill="#C5EBD8">Your apps and databases</text>
 
-  <rect x="378" y="410" width="240" height="100" rx="16" fill="#FFFFFF" fill-opacity="0.1" stroke="#A8E0C8" stroke-width="1"/>
-  <text x="498" y="455" text-anchor="middle" font-family="Segoe UI,system-ui,sans-serif" font-size="16" font-weight="700" fill="#F4FBF7">Caddy</text>
-  <text x="498" y="480" text-anchor="middle" font-family="Segoe UI,system-ui,sans-serif" font-size="12" fill="#C5EBD8">Auto HTTPS on your box</text>
+  <rect x="364" y="364" width="280" height="120" rx="16" fill="#FFFFFF" fill-opacity="0.1" stroke="#A8E0C8" stroke-width="1"/>
+  <text x="504" y="420" text-anchor="middle" font-family="Segoe UI,system-ui,sans-serif" font-size="18" font-weight="700" fill="#F4FBF7">Caddy</text>
+  <text x="504" y="448" text-anchor="middle" font-family="Segoe UI,system-ui,sans-serif" font-size="13" fill="#C5EBD8">Auto HTTPS on your box</text>
 
-  <rect x="110" y="530" width="508" height="72" rx="16" fill="#FFFFFF" fill-opacity="0.1" stroke="#A8E0C8" stroke-width="1"/>
-  <text x="140" y="560" font-family="Segoe UI,system-ui,sans-serif" font-size="16" font-weight="700" fill="#F4FBF7">restic backups</text>
-  <text x="140" y="582" font-family="Segoe UI,system-ui,sans-serif" font-size="12" fill="#C5EBD8">Encrypted snapshots leave the box - on your schedule</text>
+  <rect x="56" y="504" width="588" height="84" rx="16" fill="#FFFFFF" fill-opacity="0.1" stroke="#A8E0C8" stroke-width="1"/>
+  <text x="88" y="542" font-family="Segoe UI,system-ui,sans-serif" font-size="18" font-weight="700" fill="#F4FBF7">restic backups</text>
+  <text x="88" y="568" font-family="Segoe UI,system-ui,sans-serif" font-size="13" fill="#C5EBD8">Encrypted snapshots leave the box - on your schedule</text>
 
-  <text x="364" y="680" text-anchor="middle" font-family="Segoe UI,system-ui,sans-serif" font-size="13" font-weight="600" fill="#A8E0C8">Data gravity lives here</text>
+  <text x="350" y="700" text-anchor="middle" font-family="Segoe UI,system-ui,sans-serif" font-size="14" font-weight="600" fill="#A8E0C8">Data gravity lives here</text>
 
-  <line x1="700" y1="180" x2="700" y2="700" stroke="#0F6B4D" stroke-width="2" stroke-dasharray="6 8" opacity="0.35"/>
-  <circle cx="700" cy="440" r="36" fill="#EEF4F1" stroke="#0F6B4D" stroke-width="2"/>
-  <path d="M700 422 L700 450 M688 438 L700 450 L712 438" fill="none" stroke="#0F6B4D" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
-  <text x="700" y="490" text-anchor="middle" font-family="Segoe UI,system-ui,sans-serif" font-size="11" font-weight="700" fill="#0F6B4D" letter-spacing="1">WSS</text>
+  <!-- Seam -->
+  <line x1="700" y1="120" x2="700" y2="740" stroke="#0F6B4D" stroke-width="2" stroke-dasharray="6 8" opacity="0.4"/>
+  <circle cx="700" cy="430" r="34" fill="#EEF4F1" stroke="#0F6B4D" stroke-width="2"/>
+  <path d="M700 414 L700 440 M689 429 L700 440 L711 429" fill="none" stroke="#0F6B4D" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+  <text x="700" y="478" text-anchor="middle" font-family="Segoe UI,system-ui,sans-serif" font-size="11" font-weight="700" fill="#0F6B4D" letter-spacing="1">WSS</text>
 
+  <!-- RIGHT full-height panel -->
   <g filter="url(#soft)">
-    <rect x="736" y="160" width="600" height="560" rx="28" fill="#FFFFFF" stroke="#C5D9CF" stroke-width="1.5"/>
+    <rect x="720" y="112" width="660" height="640" rx="24" fill="#FFFFFF" stroke="#C5D9CF" stroke-width="1.5"/>
   </g>
-  <text x="1036" y="210" text-anchor="middle" font-family="Segoe UI,system-ui,sans-serif" font-size="13" font-weight="700" fill="#0F6B4D" letter-spacing="3">ORCHESTRATION ONLY</text>
-  <text x="1036" y="250" text-anchor="middle" font-family="Segoe UI,system-ui,sans-serif" font-size="28" font-weight="800" fill="#0E1F1A">Control plane + UI</text>
-  <text x="1036" y="280" text-anchor="middle" font-family="Segoe UI,system-ui,sans-serif" font-size="14" fill="#4A635A">Hosted - never holds your app data</text>
+  <text x="1050" y="158" text-anchor="middle" font-family="Segoe UI,system-ui,sans-serif" font-size="13" font-weight="700" fill="#0F6B4D" letter-spacing="3">ORCHESTRATION ONLY</text>
+  <text x="1050" y="198" text-anchor="middle" font-family="Segoe UI,system-ui,sans-serif" font-size="30" font-weight="800" fill="#0E1F1A">Control plane + UI</text>
+  <text x="1050" y="228" text-anchor="middle" font-family="Segoe UI,system-ui,sans-serif" font-size="14" fill="#4A635A">Hosted - never holds your app data</text>
 
-  <rect x="782" y="320" width="508" height="88" rx="16" fill="#D8F0E6" stroke="#0F6B4D" stroke-width="1.5"/>
-  <text x="812" y="355" font-family="Segoe UI,system-ui,sans-serif" font-size="16" font-weight="700" fill="#0E1F1A">Dashboard</text>
-  <text x="812" y="378" font-family="Segoe UI,system-ui,sans-serif" font-size="12" fill="#4A635A">Next.js - the only surface you touch</text>
+  <rect x="756" y="260" width="588" height="100" rx="16" fill="#D8F0E6" stroke="#0F6B4D" stroke-width="1.5"/>
+  <text x="788" y="304" font-family="Segoe UI,system-ui,sans-serif" font-size="18" font-weight="700" fill="#0E1F1A">Dashboard</text>
+  <text x="788" y="332" font-family="Segoe UI,system-ui,sans-serif" font-size="13" fill="#4A635A">Next.js - the only surface you touch</text>
 
-  <rect x="782" y="428" width="508" height="88" rx="16" fill="#F0F7F4" stroke="#B7D4C6" stroke-width="1.5"/>
-  <text x="812" y="463" font-family="Segoe UI,system-ui,sans-serif" font-size="16" font-weight="700" fill="#0E1F1A">Control plane API</text>
-  <text x="812" y="486" font-family="Segoe UI,system-ui,sans-serif" font-size="12" fill="#4A635A">Auth - commands - alerts - WebSocket hub</text>
+  <rect x="756" y="380" width="588" height="100" rx="16" fill="#F0F7F4" stroke="#B7D4C6" stroke-width="1.5"/>
+  <text x="788" y="424" font-family="Segoe UI,system-ui,sans-serif" font-size="18" font-weight="700" fill="#0E1F1A">Control plane API</text>
+  <text x="788" y="452" font-family="Segoe UI,system-ui,sans-serif" font-size="13" fill="#4A635A">Auth - commands - alerts - WebSocket hub</text>
 
-  <rect x="782" y="536" width="240" height="80" rx="16" fill="#F7FBF0" stroke="#B7D4C6" stroke-width="1"/>
-  <text x="902" y="572" text-anchor="middle" font-family="Segoe UI,system-ui,sans-serif" font-size="14" font-weight="700" fill="#0E1F1A">SQLite / state</text>
-  <text x="902" y="594" text-anchor="middle" font-family="Segoe UI,system-ui,sans-serif" font-size="11" fill="#4A635A">Users - servers - jobs</text>
+  <rect x="756" y="500" width="280" height="100" rx="16" fill="#F7FBF0" stroke="#B7D4C6" stroke-width="1"/>
+  <text x="896" y="546" text-anchor="middle" font-family="Segoe UI,system-ui,sans-serif" font-size="16" font-weight="700" fill="#0E1F1A">SQLite / state</text>
+  <text x="896" y="572" text-anchor="middle" font-family="Segoe UI,system-ui,sans-serif" font-size="12" fill="#4A635A">Users - servers - jobs</text>
 
-  <rect x="1050" y="536" width="240" height="80" rx="16" fill="#F7FBF0" stroke="#B7D4C6" stroke-width="1"/>
-  <text x="1170" y="572" text-anchor="middle" font-family="Segoe UI,system-ui,sans-serif" font-size="14" font-weight="700" fill="#0E1F1A">Install and releases</text>
-  <text x="1170" y="594" text-anchor="middle" font-family="Segoe UI,system-ui,sans-serif" font-size="11" fill="#4A635A">Agent bootstrap</text>
+  <rect x="1064" y="500" width="280" height="100" rx="16" fill="#F7FBF0" stroke="#B7D4C6" stroke-width="1"/>
+  <text x="1204" y="546" text-anchor="middle" font-family="Segoe UI,system-ui,sans-serif" font-size="16" font-weight="700" fill="#0E1F1A">Install and releases</text>
+  <text x="1204" y="572" text-anchor="middle" font-family="Segoe UI,system-ui,sans-serif" font-size="12" fill="#4A635A">Agent bootstrap</text>
 
-  <text x="1036" y="680" text-anchor="middle" font-family="Segoe UI,system-ui,sans-serif" font-size="13" font-weight="600" fill="#0F6B4D">No app containers here</text>
+  <text x="1050" y="700" text-anchor="middle" font-family="Segoe UI,system-ui,sans-serif" font-size="14" font-weight="600" fill="#0F6B4D">No app containers here</text>
 
-  <text x="700" y="770" text-anchor="middle" font-family="Segoe UI,system-ui,sans-serif" font-size="13" fill="#4A635A">If the control plane disappeared tomorrow, your apps would keep running on your server.</text>
+  <!-- Footer -->
+  <rect x="0" y="768" width="1400" height="52" fill="#0F6B4D"/>
+  <text x="700" y="800" text-anchor="middle" font-family="Segoe UI,system-ui,sans-serif" font-size="14" font-weight="600" fill="#F4FBF7">If the control plane disappeared tomorrow, your apps would keep running on your server.</text>
 </svg>
