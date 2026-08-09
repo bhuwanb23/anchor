@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="1600" viewBox="0 0 720 1600" role="img" aria-labelledby="t d">
+  <title id="t">Anchor - Alert to heal pipeline</title>
+  <desc id="d">Vertical pipeline from metric anomaly to plain-English alert and remediation.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#F4FBF7"/><stop offset="100%" stop-color="#E2EDE8"/>
+    </linearGradient>
+    <linearGradient id="hot" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#0F6B4D"/><stop offset="100%" stop-color="#0A4D38"/>
+    </linearGradient>
+  </defs>
+  <rect width="720" height="1600" fill="url(#bg)"/>
+  <rect width="720" height="110" fill="#0F6B4D"/>
+  <text x="360" y="42" text-anchor="middle" font-family="Segoe UI,system-ui,sans-serif" font-size="12" font-weight="700" fill="#A8E0C8" letter-spacing="3">PIPELINE (PORTRAIT)</text>
+  <text x="360" y="76" text-anchor="middle" font-family="Segoe UI,system-ui,sans-serif" font-size="26" font-weight="800" fill="#F4FBF7">Alert to heal</text>
+  <text x="360" y="100" text-anchor="middle" font-family="Segoe UI,system-ui,sans-serif" font-size="13" fill="#C5EBD8">How a bad metric becomes a fix</text>
+
+  <line x1="360" y1="150" x2="360" y2="1480" stroke="#0F6B4D" stroke-width="3"/>
+
+  <!-- Stages -->
+  <g font-family="Segoe UI,system-ui,sans-serif" text-anchor="middle">
+    <circle cx="360" cy="200" r="18" fill="#0F6B4D"/>
+    <rect x="80" y="240" width="560" height="110" rx="16" fill="#FFFFFF" stroke="#C5D9CF" stroke-width="1.5"/>
+    <text x="360" y="280" font-size="12" font-weight="700" fill="#0F6B4D" letter-spacing="2">01 SAMPLE</text>
+    <text x="360" y="310" font-size="18" font-weight="800" fill="#0E1F1A">Agent metrics tick</text>
+    <text x="360" y="336" font-size="13" fill="#4A635A">CPU / RAM / disk every ~30s</text>
+
+    <circle cx="360" cy="400" r="18" fill="#0F6B4D"/>
+    <rect x="80" y="440" width="560" height="110" rx="16" fill="#FFFFFF" stroke="#C5D9CF" stroke-width="1.5"/>
+    <text x="360" y="480" font-size="12" font-weight="700" fill="#0F6B4D" letter-spacing="2">02 DETECT</text>
+    <text x="360" y="510" font-size="18" font-weight="800" fill="#0E1F1A">Threshold / crash rule</text>
+    <text x="360" y="536" font-size="13" fill="#4A635A">Local checks before network chatter</text>
+
+    <circle cx="360" cy="600" r="18" fill="#0F6B4D"/>
+    <rect x="80" y="640" width="560" height="110" rx="16" fill="#D8F0E6" stroke="#0F6B4D" stroke-width="2"/>
+    <text x="360" y="680" font-size="12" font-weight="700" fill="#0F6B4D" letter-spacing="2">03 EMIT</text>
+    <text x="360" y="710" font-size="18" font-weight="800" fill="#0E1F1A">anomaly_alert over WSS</text>
+    <text x="360" y="736" font-size="13" fill="#4A635A">Hub fans out to browser + store</text>
+
+    <circle cx="360" cy="800" r="18" fill="#0F6B4D"/>
+    <rect x="80" y="840" width="560" height="110" rx="16" fill="#FFFFFF" stroke="#C5D9CF" stroke-width="1.5"/>
+    <text x="360" y="880" font-size="12" font-weight="700" fill="#0F6B4D" letter-spacing="2">04 EXPLAIN</text>
+    <text x="360" y="910" font-size="18" font-weight="800" fill="#0E1F1A">Plain-English card</text>
+    <text x="360" y="936" font-size="13" fill="#4A635A">Title, action, severity - not a stack dump</text>
+
+    <circle cx="360" cy="1000" r="18" fill="#0F6B4D"/>
+    <rect x="80" y="1040" width="560" height="110" rx="16" fill="url(#hot)"/>
+    <text x="360" y="1080" font-size="12" font-weight="700" fill="#A8E0C8" letter-spacing="2">05 REMEDIATE</text>
+    <text x="360" y="1110" font-size="18" font-weight="800" fill="#F4FBF7">Auto-fix when safe</text>
+    <text x="360" y="1136" font-size="13" fill="#C5EBD8">prune / restart / recover - then report</text>
+
+    <circle cx="360" cy="1200" r="18" fill="#0F6B4D"/>
+    <rect x="80" y="1240" width="560" height="110" rx="16" fill="#FFFFFF" stroke="#C5D9CF" stroke-width="1.5"/>
+    <text x="360" y="1280" font-size="12" font-weight="700" fill="#0F6B4D" letter-spacing="2">06 CLOSE</text>
+    <text x="360" y="1310" font-size="18" font-weight="800" fill="#0E1F1A">Ack or resolve</text>
+    <text x="360" y="1336" font-size="13" fill="#4A635A">User ack in UI or auto-resolve on health</text>
+  </g>
+
+  <rect x="80" y="1400" width="560" height="100" rx="14" fill="#FFFFFF" stroke="#C5D9CF"/>
+  <text x="360" y="1440" text-anchor="middle" font-family="Segoe UI,system-ui,sans-serif" font-size="14" font-weight="700" fill="#0E1F1A">Critical alerts also raise the banner</text>
+  <text x="360" y="1468" text-anchor="middle" font-family="Segoe UI,system-ui,sans-serif" font-size="13" fill="#4A635A">Optional SMTP when EMAIL_ENABLED=true</text>
+
+  <rect x="0" y="1548" width="720" height="52" fill="#0F6B4D"/>
+  <text x="360" y="1580" text-anchor="middle" font-family="Segoe UI,system-ui,sans-serif" font-size="13" font-weight="600" fill="#F4FBF7">Tall 720x1600 - alert pipeline</text>
+</svg>

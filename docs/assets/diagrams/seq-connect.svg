@@ -1,0 +1,96 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="1600" viewBox="0 0 720 1600" role="img" aria-labelledby="t d">
+  <title id="t">Anchor - Connect server sequence</title>
+  <desc id="d">Vertical sequence for first-time agent registration.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#F4FBF7"/><stop offset="100%" stop-color="#E2EDE8"/>
+    </linearGradient>
+  </defs>
+  <rect width="720" height="1600" fill="url(#bg)"/>
+  <rect width="720" height="110" fill="#0F6B4D"/>
+  <text x="360" y="42" text-anchor="middle" font-family="Segoe UI,system-ui,sans-serif" font-size="12" font-weight="700" fill="#A8E0C8" letter-spacing="3">SEQUENCE (PORTRAIT)</text>
+  <text x="360" y="76" text-anchor="middle" font-family="Segoe UI,system-ui,sans-serif" font-size="26" font-weight="800" fill="#F4FBF7">Connect a server</text>
+  <text x="360" y="100" text-anchor="middle" font-family="Segoe UI,system-ui,sans-serif" font-size="13" fill="#C5EBD8">First-time registration path</text>
+
+  <!-- Actors top -->
+  <g font-family="Segoe UI,system-ui,sans-serif" font-size="13" font-weight="700" text-anchor="middle">
+    <rect x="40" y="140" width="120" height="40" rx="8" fill="#FFFFFF" stroke="#0F6B4D" stroke-width="2"/>
+    <text x="100" y="166">You</text>
+    <line x1="100" y1="180" x2="100" y2="1480" stroke="#0F6B4D" stroke-width="2" stroke-dasharray="3 6"/>
+
+    <rect x="200" y="140" width="120" height="40" rx="8" fill="#FFFFFF" stroke="#0F6B4D" stroke-width="2"/>
+    <text x="260" y="166">API</text>
+    <line x1="260" y1="180" x2="260" y2="1480" stroke="#0F6B4D" stroke-width="2" stroke-dasharray="3 6"/>
+
+    <rect x="360" y="140" width="140" height="40" rx="8" fill="#D8F0E6" stroke="#0F6B4D" stroke-width="2"/>
+    <text x="430" y="166">VPS shell</text>
+    <line x1="430" y1="180" x2="430" y2="1480" stroke="#0F6B4D" stroke-width="2" stroke-dasharray="3 6"/>
+
+    <rect x="540" y="140" width="140" height="40" rx="8" fill="#0F6B4D"/>
+    <text x="610" y="166" fill="#F4FBF7">Agent</text>
+    <line x1="610" y1="180" x2="610" y2="1480" stroke="#0F6B4D" stroke-width="2" stroke-dasharray="3 6"/>
+  </g>
+
+  <g font-family="Consolas,ui-monospace,monospace" font-size="12" fill="#0E1F1A">
+    <!-- steps with y spacing -->
+    <text x="40" y="250" font-family="Segoe UI,system-ui,sans-serif" font-size="11" font-weight="700" fill="#0F6B4D">01</text>
+    <line x1="100" y1="270" x2="250" y2="270" stroke="#0F6B4D" stroke-width="2.5"/>
+    <polygon points="250,270 238,264 238,276" fill="#0F6B4D"/>
+    <text x="175" y="258" text-anchor="middle">create token</text>
+
+    <text x="40" y="350" font-family="Segoe UI,system-ui,sans-serif" font-size="11" font-weight="700" fill="#0F6B4D">02</text>
+    <line x1="260" y1="370" x2="110" y2="370" stroke="#1A8F68" stroke-width="2" stroke-dasharray="5 4"/>
+    <polygon points="110,370 122,364 122,376" fill="#1A8F68"/>
+    <text x="185" y="358" text-anchor="middle" fill="#0A4D38">install command</text>
+
+    <text x="40" y="450" font-family="Segoe UI,system-ui,sans-serif" font-size="11" font-weight="700" fill="#0F6B4D">03</text>
+    <line x1="100" y1="470" x2="420" y2="470" stroke="#0F6B4D" stroke-width="2.5"/>
+    <polygon points="420,470 408,464 408,476" fill="#0F6B4D"/>
+    <text x="260" y="458" text-anchor="middle">paste curl | sh</text>
+
+    <text x="40" y="550" font-family="Segoe UI,system-ui,sans-serif" font-size="11" font-weight="700" fill="#0F6B4D">04</text>
+    <line x1="430" y1="570" x2="250" y2="570" stroke="#0F6B4D" stroke-width="2.5"/>
+    <polygon points="250,570 262,564 262,576" fill="#0F6B4D"/>
+    <text x="340" y="558" text-anchor="middle">GET /install.sh</text>
+
+    <text x="40" y="650" font-family="Segoe UI,system-ui,sans-serif" font-size="11" font-weight="700" fill="#0F6B4D">05</text>
+    <line x1="430" y1="670" x2="600" y2="670" stroke="#0F6B4D" stroke-width="2.5"/>
+    <polygon points="600,670 588,664 588,676" fill="#0F6B4D"/>
+    <text x="515" y="658" text-anchor="middle">start binary</text>
+
+    <text x="40" y="750" font-family="Segoe UI,system-ui,sans-serif" font-size="11" font-weight="700" fill="#0F6B4D">06</text>
+    <line x1="610" y1="770" x2="270" y2="770" stroke="#0F6B4D" stroke-width="2.5"/>
+    <polygon points="270,770 282,764 282,776" fill="#0F6B4D"/>
+    <text x="440" y="758" text-anchor="middle">POST /agent/register</text>
+
+    <text x="40" y="850" font-family="Segoe UI,system-ui,sans-serif" font-size="11" font-weight="700" fill="#0F6B4D">07</text>
+    <line x1="260" y1="870" x2="600" y2="870" stroke="#1A8F68" stroke-width="2" stroke-dasharray="5 4"/>
+    <polygon points="600,870 588,864 588,876" fill="#1A8F68"/>
+    <text x="430" y="858" text-anchor="middle" fill="#0A4D38">secret + wss URL</text>
+
+    <text x="40" y="950" font-family="Segoe UI,system-ui,sans-serif" font-size="11" font-weight="700" fill="#0F6B4D">08</text>
+    <line x1="610" y1="970" x2="270" y2="970" stroke="#0F6B4D" stroke-width="2.5"/>
+    <polygon points="270,970 282,964 282,976" fill="#0F6B4D"/>
+    <text x="440" y="958" text-anchor="middle">WSS /ws/agent</text>
+
+    <text x="40" y="1050" font-family="Segoe UI,system-ui,sans-serif" font-size="11" font-weight="700" fill="#0F6B4D">09</text>
+    <line x1="260" y1="1070" x2="110" y2="1070" stroke="#1A8F68" stroke-width="2" stroke-dasharray="5 4"/>
+    <polygon points="110,1070 122,1064 122,1076" fill="#1A8F68"/>
+    <text x="185" y="1058" text-anchor="middle" fill="#0A4D38">UI: connected</text>
+
+    <text x="40" y="1150" font-family="Segoe UI,system-ui,sans-serif" font-size="11" font-weight="700" fill="#0F6B4D">10</text>
+    <line x1="610" y1="1170" x2="270" y2="1170" stroke="#0F6B4D" stroke-width="2.5"/>
+    <polygon points="270,1170 282,1164 282,1176" fill="#0F6B4D"/>
+    <text x="440" y="1158" text-anchor="middle">health_report</text>
+  </g>
+
+  <rect x="40" y="1260" width="640" height="160" rx="16" fill="#FFFFFF" stroke="#C5D9CF"/>
+  <text x="72" y="1300" font-family="Segoe UI,system-ui,sans-serif" font-size="14" font-weight="700" fill="#0F6B4D">NOTES</text>
+  <text x="72" y="1332" font-family="Segoe UI,system-ui,sans-serif" font-size="13" fill="#0E1F1A">Token TTL is short (about 1 hour).</text>
+  <text x="72" y="1360" font-family="Segoe UI,system-ui,sans-serif" font-size="13" fill="#0E1F1A">Agent secret is hashed at rest on the API.</text>
+  <text x="72" y="1388" font-family="Segoe UI,system-ui,sans-serif" font-size="13" fill="#0E1F1A">After step 08 the dashboard advances onboarding.</text>
+
+  <rect x="0" y="1548" width="720" height="52" fill="#0F6B4D"/>
+  <text x="360" y="1580" text-anchor="middle" font-family="Segoe UI,system-ui,sans-serif" font-size="13" font-weight="600" fill="#F4FBF7">Tall 720x1600 - connect sequence</text>
+</svg>

@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="1200" viewBox="0 0 1200 1200" role="img" aria-labelledby="t d">
+  <title id="t">Anchor - Agent connection states</title>
+  <desc id="d">State machine for agent: pending, connected, reconnecting, disconnected, error.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#F4FBF7"/><stop offset="100%" stop-color="#E4EFE9"/>
+    </linearGradient>
+    <marker id="arr" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
+      <path d="M0,0 L9,3 L0,6 Z" fill="#0F6B4D"/>
+    </marker>
+  </defs>
+  <rect width="1200" height="1200" fill="url(#bg)"/>
+  <rect width="1200" height="100" fill="#0F6B4D"/>
+  <text x="600" y="44" text-anchor="middle" font-family="Segoe UI,system-ui,sans-serif" font-size="13" font-weight="700" fill="#A8E0C8" letter-spacing="3">STATE MACHINE</text>
+  <text x="600" y="78" text-anchor="middle" font-family="Segoe UI,system-ui,sans-serif" font-size="28" font-weight="800" fill="#F4FBF7">Agent connection states</text>
+
+  <!-- States -->
+  <g font-family="Segoe UI,system-ui,sans-serif" text-anchor="middle">
+    <rect x="460" y="160" width="280" height="90" rx="45" fill="#FFFFFF" stroke="#0F6B4D" stroke-width="2.5"/>
+    <text x="600" y="200" font-size="20" font-weight="800" fill="#0E1F1A">pending</text>
+    <text x="600" y="226" font-size="13" fill="#4A635A">token issued, waiting</text>
+
+    <rect x="460" y="380" width="280" height="90" rx="45" fill="#0F6B4D"/>
+    <text x="600" y="420" font-size="20" font-weight="800" fill="#F4FBF7">connected</text>
+    <text x="600" y="446" font-size="13" fill="#A8E0C8">WSS open, heartbeats</text>
+
+    <rect x="80" y="600" width="280" height="90" rx="45" fill="#FFFFFF" stroke="#C9A227" stroke-width="2.5"/>
+    <text x="220" y="640" font-size="20" font-weight="800" fill="#0E1F1A">reconnecting</text>
+    <text x="220" y="666" font-size="13" fill="#4A635A">backoff + retry</text>
+
+    <rect x="460" y="820" width="280" height="90" rx="45" fill="#FFFFFF" stroke="#8A8A8A" stroke-width="2.5"/>
+    <text x="600" y="860" font-size="20" font-weight="800" fill="#0E1F1A">disconnected</text>
+    <text x="600" y="886" font-size="13" fill="#4A635A">apps still run on VPS</text>
+
+    <rect x="840" y="600" width="280" height="90" rx="45" fill="#FFFFFF" stroke="#C44536" stroke-width="2.5"/>
+    <text x="980" y="640" font-size="20" font-weight="800" fill="#0E1F1A">error</text>
+    <text x="980" y="666" font-size="13" fill="#4A635A">auth / protocol fail</text>
+  </g>
+
+  <!-- Transitions -->
+  <g stroke="#0F6B4D" stroke-width="2.5" fill="none" marker-end="url(#arr)">
+    <path d="M600 250 L600 375"/>
+    <path d="M460 440 Q220 440 220 595"/>
+    <path d="M220 690 Q220 860 460 860"/>
+    <path d="M740 440 Q980 440 980 595"/>
+    <path d="M980 690 Q980 860 740 860"/>
+    <path d="M740 425 Q980 360 980 600"/>
+  </g>
+  <!-- reconnect back to connected -->
+  <path d="M220 600 Q220 500 460 425" fill="none" stroke="#0F6B4D" stroke-width="2.5" marker-end="url(#arr)"/>
+
+  <g font-family="Consolas,ui-monospace,monospace" font-size="12" fill="#0A4D38">
+    <text x="620" y="320">register OK</text>
+    <text x="250" y="500">WSS drop</text>
+    <text x="250" y="760">give up / sleep</text>
+    <text x="300" y="560">resume</text>
+    <text x="900" y="500">bad secret</text>
+    <text x="900" y="760">manual clear</text>
+  </g>
+
+  <rect x="80" y="980" width="1040" height="100" rx="16" fill="#FFFFFF" stroke="#C5D9CF"/>
+  <text x="600" y="1020" text-anchor="middle" font-family="Segoe UI,system-ui,sans-serif" font-size="15" font-weight="700" fill="#0E1F1A">Disconnected does not stop containers</text>
+  <text x="600" y="1050" text-anchor="middle" font-family="Segoe UI,system-ui,sans-serif" font-size="14" fill="#4A635A">The agent reconnects; the control plane only loses the wire.</text>
+
+  <rect x="0" y="1148" width="1200" height="52" fill="#0F6B4D"/>
+  <text x="600" y="1180" text-anchor="middle" font-family="Segoe UI,system-ui,sans-serif" font-size="13" font-weight="600" fill="#F4FBF7">Square 1200x1200 - state machine</text>
+</svg>

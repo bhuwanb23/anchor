@@ -1,0 +1,80 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1500" height="720" viewBox="0 0 1500 720" role="img" aria-labelledby="t d">
+  <title id="t">Anchor - Backup and restore swimlane</title>
+  <desc id="d">Wide short swimlane for backup job vs restore job across actor lanes.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#F4FBF7"/><stop offset="100%" stop-color="#E4EFE9"/>
+    </linearGradient>
+  </defs>
+  <rect width="1500" height="720" fill="url(#bg)"/>
+  <rect width="1500" height="88" fill="#0F6B4D"/>
+  <text x="750" y="38" text-anchor="middle" font-family="Segoe UI,system-ui,sans-serif" font-size="12" font-weight="700" fill="#A8E0C8" letter-spacing="3">SWIMLANE (WIDE)</text>
+  <text x="750" y="70" text-anchor="middle" font-family="Segoe UI,system-ui,sans-serif" font-size="28" font-weight="800" fill="#F4FBF7">Backup vs restore</text>
+
+  <!-- Lane labels -->
+  <g font-family="Segoe UI,system-ui,sans-serif" font-size="14" font-weight="700" fill="#0E1F1A">
+    <rect x="0" y="110" width="160" height="140" fill="#D8F0E6"/>
+    <text x="80" y="190" text-anchor="middle">Dashboard</text>
+    <rect x="0" y="250" width="160" height="140" fill="#EAF5F0"/>
+    <text x="80" y="330" text-anchor="middle">Control plane</text>
+    <rect x="0" y="390" width="160" height="140" fill="#D8F0E6"/>
+    <text x="80" y="470" text-anchor="middle">Agent</text>
+    <rect x="0" y="530" width="160" height="110" fill="#EAF5F0"/>
+    <text x="80" y="595" text-anchor="middle">Object store</text>
+  </g>
+
+  <!-- Lane lines -->
+  <g stroke="#C5D9CF" stroke-width="1">
+    <line x1="160" y1="250" x2="1500" y2="250"/>
+    <line x1="160" y1="390" x2="1500" y2="390"/>
+    <line x1="160" y1="530" x2="1500" y2="530"/>
+    <line x1="160" y1="640" x2="1500" y2="640"/>
+  </g>
+
+  <!-- Backup flow bars -->
+  <g font-family="Segoe UI,system-ui,sans-serif" font-size="12" font-weight="600" fill="#F4FBF7" text-anchor="middle">
+    <text x="280" y="140" fill="#0F6B4D" font-size="13" font-weight="800">BACKUP</text>
+    <rect x="200" y="160" width="140" height="44" rx="10" fill="#0F6B4D"/>
+    <text x="270" y="188">Back Up Now</text>
+
+    <rect x="360" y="300" width="160" height="44" rx="10" fill="#0F6B4D"/>
+    <text x="440" y="328">create job</text>
+
+    <rect x="540" y="440" width="180" height="44" rx="10" fill="#0F6B4D"/>
+    <text x="630" y="468">restic snapshot</text>
+
+    <rect x="740" y="560" width="160" height="44" rx="10" fill="#12382C" stroke="#7DDBB0"/>
+    <text x="820" y="588">store blobs</text>
+
+    <rect x="920" y="300" width="160" height="44" rx="10" fill="#1A8F68"/>
+    <text x="1000" y="328">job success</text>
+
+    <rect x="1100" y="160" width="160" height="44" rx="10" fill="#1A8F68"/>
+    <text x="1180" y="188">history row</text>
+  </g>
+
+  <!-- Restore flow (lighter / outlined) -->
+  <g font-family="Segoe UI,system-ui,sans-serif" font-size="12" font-weight="600" text-anchor="middle">
+    <text x="280" y="660" fill="#0A4D38" font-size="12" font-weight="700">RESTORE uses the same lanes in reverse for object fetch, then agent applies snapshot.</text>
+  </g>
+
+  <!-- Arrows between backup steps -->
+  <g stroke="#0F6B4D" stroke-width="2" fill="none">
+    <path d="M340 182 L360 322"/>
+    <path d="M520 322 L540 462"/>
+    <path d="M720 462 L740 582"/>
+    <path d="M900 582 L920 322"/>
+    <path d="M1080 322 L1100 182"/>
+  </g>
+
+  <rect x="1300" y="150" width="180" height="220" rx="14" fill="#FFFFFF" stroke="#0F6B4D" stroke-width="2"/>
+  <text x="1390" y="190" text-anchor="middle" font-family="Segoe UI,system-ui,sans-serif" font-size="13" font-weight="800" fill="#0F6B4D">RESTORE</text>
+  <text x="1390" y="230" text-anchor="middle" font-family="Segoe UI,system-ui,sans-serif" font-size="12" fill="#0E1F1A">pick snapshot</text>
+  <text x="1390" y="258" text-anchor="middle" font-family="Segoe UI,system-ui,sans-serif" font-size="12" fill="#0E1F1A">confirm</text>
+  <text x="1390" y="286" text-anchor="middle" font-family="Segoe UI,system-ui,sans-serif" font-size="12" fill="#0E1F1A">agent pulls</text>
+  <text x="1390" y="314" text-anchor="middle" font-family="Segoe UI,system-ui,sans-serif" font-size="12" fill="#0E1F1A">apply + report</text>
+
+  <rect x="0" y="668" width="1500" height="52" fill="#0F6B4D"/>
+  <text x="750" y="700" text-anchor="middle" font-family="Segoe UI,system-ui,sans-serif" font-size="13" font-weight="600" fill="#F4FBF7">Wide 1500x720 - backup swimlane</text>
+</svg>

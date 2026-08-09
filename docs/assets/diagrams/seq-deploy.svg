@@ -1,0 +1,97 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="1200" viewBox="0 0 1200 1200" role="img" aria-labelledby="t d">
+  <title id="t">Anchor - Deploy sequence</title>
+  <desc id="d">UML-style sequence: Dashboard, API, Hub, Agent, Docker for one deploy.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#F4FBF7"/><stop offset="100%" stop-color="#E4EFE9"/>
+    </linearGradient>
+  </defs>
+  <rect width="1200" height="1200" fill="url(#bg)"/>
+  <rect width="1200" height="100" fill="#0F6B4D"/>
+  <text x="600" y="44" text-anchor="middle" font-family="Segoe UI,system-ui,sans-serif" font-size="13" font-weight="700" fill="#A8E0C8" letter-spacing="3">SEQUENCE</text>
+  <text x="600" y="78" text-anchor="middle" font-family="Segoe UI,system-ui,sans-serif" font-size="28" font-weight="800" fill="#F4FBF7">Deploy one app</text>
+
+  <!-- Lifelines -->
+  <g font-family="Segoe UI,system-ui,sans-serif" font-size="14" font-weight="700" fill="#0E1F1A" text-anchor="middle">
+    <rect x="70" y="130" width="140" height="44" rx="10" fill="#FFFFFF" stroke="#0F6B4D" stroke-width="2"/>
+    <text x="140" y="158">Dashboard</text>
+    <line x1="140" y1="174" x2="140" y2="1080" stroke="#0F6B4D" stroke-width="2" stroke-dasharray="4 8"/>
+
+    <rect x="280" y="130" width="140" height="44" rx="10" fill="#FFFFFF" stroke="#0F6B4D" stroke-width="2"/>
+    <text x="350" y="158">API</text>
+    <line x1="350" y1="174" x2="350" y2="1080" stroke="#0F6B4D" stroke-width="2" stroke-dasharray="4 8"/>
+
+    <rect x="490" y="130" width="140" height="44" rx="10" fill="#D8F0E6" stroke="#0F6B4D" stroke-width="2"/>
+    <text x="560" y="158">WS Hub</text>
+    <line x1="560" y1="174" x2="560" y2="1080" stroke="#0F6B4D" stroke-width="2" stroke-dasharray="4 8"/>
+
+    <rect x="700" y="130" width="140" height="44" rx="10" fill="#0F6B4D"/>
+    <text x="770" y="158" fill="#F4FBF7">Agent</text>
+    <line x1="770" y1="174" x2="770" y2="1080" stroke="#0F6B4D" stroke-width="2" stroke-dasharray="4 8"/>
+
+    <rect x="910" y="130" width="160" height="44" rx="10" fill="#FFFFFF" stroke="#C5D9CF" stroke-width="2"/>
+    <text x="990" y="158">Docker</text>
+    <line x1="990" y1="174" x2="990" y2="1080" stroke="#0F6B4D" stroke-width="2" stroke-dasharray="4 8"/>
+  </g>
+
+  <!-- Messages -->
+  <g font-family="Consolas,ui-monospace,monospace" font-size="12" fill="#0E1F1A">
+    <!-- 1 -->
+    <line x1="140" y1="240" x2="340" y2="240" stroke="#0F6B4D" stroke-width="2.5" marker-end="url(#a)"/>
+    <polygon points="340,240 328,234 328,246" fill="#0F6B4D"/>
+    <text x="240" y="228" text-anchor="middle">POST /apps deploy</text>
+
+    <!-- 2 -->
+    <line x1="350" y1="310" x2="550" y2="310" stroke="#0F6B4D" stroke-width="2.5"/>
+    <polygon points="550,310 538,304 538,316" fill="#0F6B4D"/>
+    <text x="450" y="298" text-anchor="middle">enqueue command</text>
+
+    <!-- 3 -->
+    <line x1="560" y1="380" x2="760" y2="380" stroke="#0F6B4D" stroke-width="2.5"/>
+    <polygon points="760,380 748,374 748,386" fill="#0F6B4D"/>
+    <text x="660" y="368" text-anchor="middle">wss: deploy</text>
+
+    <!-- 4 -->
+    <line x1="770" y1="450" x2="980" y2="450" stroke="#0F6B4D" stroke-width="2.5"/>
+    <polygon points="980,450 968,444 968,456" fill="#0F6B4D"/>
+    <text x="875" y="438" text-anchor="middle">docker pull/run</text>
+
+    <!-- 5 return -->
+    <line x1="990" y1="530" x2="780" y2="530" stroke="#1A8F68" stroke-width="2" stroke-dasharray="6 4"/>
+    <polygon points="780,530 792,524 792,536" fill="#1A8F68"/>
+    <text x="885" y="518" text-anchor="middle" fill="#0A4D38">container id</text>
+
+    <!-- 6 -->
+    <line x1="770" y1="610" x2="570" y2="610" stroke="#1A8F68" stroke-width="2" stroke-dasharray="6 4"/>
+    <polygon points="570,610 582,604 582,616" fill="#1A8F68"/>
+    <text x="670" y="598" text-anchor="middle" fill="#0A4D38">progress events</text>
+
+    <!-- 7 -->
+    <line x1="560" y1="690" x2="360" y2="690" stroke="#1A8F68" stroke-width="2" stroke-dasharray="6 4"/>
+    <polygon points="360,690 372,684 372,696" fill="#1A8F68"/>
+    <text x="460" y="678" text-anchor="middle" fill="#0A4D38">persist status</text>
+
+    <!-- 8 -->
+    <line x1="350" y1="770" x2="150" y2="770" stroke="#1A8F68" stroke-width="2" stroke-dasharray="6 4"/>
+    <polygon points="150,770 162,764 162,776" fill="#1A8F68"/>
+    <text x="250" y="758" text-anchor="middle" fill="#0A4D38">wss: browser update</text>
+
+    <!-- 9 caddy -->
+    <line x1="770" y1="860" x2="980" y2="860" stroke="#0F6B4D" stroke-width="2.5"/>
+    <polygon points="980,860 968,854 968,866" fill="#0F6B4D"/>
+    <text x="875" y="848" text-anchor="middle">Caddy route + TLS</text>
+
+    <!-- 10 done -->
+    <line x1="770" y1="950" x2="150" y2="950" stroke="#0F6B4D" stroke-width="2.5"/>
+    <polygon points="150,950 162,944 162,956" fill="#0F6B4D"/>
+    <text x="460" y="938" text-anchor="middle">done - app URL live</text>
+  </g>
+
+  <rect x="80" y="1020" width="1040" height="100" rx="16" fill="#FFFFFF" stroke="#C5D9CF"/>
+  <text x="600" y="1060" text-anchor="middle" font-family="Segoe UI,system-ui,sans-serif" font-size="15" font-weight="700" fill="#0F6B4D">Solid = request down the stack</text>
+  <text x="600" y="1090" text-anchor="middle" font-family="Segoe UI,system-ui,sans-serif" font-size="15" fill="#4A635A">Dashed = progress / result back to the browser</text>
+
+  <rect x="0" y="1148" width="1200" height="52" fill="#0F6B4D"/>
+  <text x="600" y="1180" text-anchor="middle" font-family="Segoe UI,system-ui,sans-serif" font-size="13" font-weight="600" fill="#F4FBF7">Square 1200x1200 - sequence diagram</text>
+</svg>
