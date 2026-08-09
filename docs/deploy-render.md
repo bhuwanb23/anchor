@@ -9,10 +9,12 @@ Anchor’s **cloud half** (control plane + dashboard) runs on Render’s **free*
 | `anchor-api` | Free Web Service (Docker) | Go control plane, SQLite, WebSockets, `/install.sh` |
 | `anchor-web` | Free Web Service (Docker) | Next.js dashboard |
 
-Default URLs ([`render.yaml`](../render.yaml)):
+Default / live URLs in this repo’s blueprint ([`render.yaml`](../render.yaml)):
 
-- API: `https://anchor-api.onrender.com`
-- Dashboard: `https://anchor-web.onrender.com`
+- API: `https://anchor-api-o1ba.onrender.com`
+- Dashboard: `https://anchor-web-tvir.onrender.com`
+
+If Render appended a suffix (`-o1ba`, `-tvir`, …), update **every** `FRONTEND_URL` / `PUBLIC_BASE_URL` / `BASE_DOMAIN` / `NEXT_PUBLIC_*` value to those hosts, then **clear the web build cache and redeploy**.
 
 ## Free-tier realities
 
@@ -52,8 +54,8 @@ If service names are taken, rename them in `render.yaml` and update every `*.onr
 |----------|--------------|---------|
 | `JWT_SECRET` | auto-generated | Auth signing (persists in Render) |
 | `DATABASE_PATH` | `/tmp/anchor/yourplatform.db` | Ephemeral SQLite |
-| `FRONTEND_URL` | `https://anchor-web.onrender.com` | CORS |
-| `PUBLIC_BASE_URL` | `https://anchor-api.onrender.com` | Install + agent WS URLs |
+| `FRONTEND_URL` | `https://anchor-web-tvir.onrender.com` | CORS (browser Origin must match exactly) |
+| `PUBLIC_BASE_URL` | `https://anchor-api-o1ba.onrender.com` | Install + agent WS URLs |
 
 ### `anchor-web` (build-time)
 
@@ -66,11 +68,27 @@ After changing `NEXT_PUBLIC_*`, **clear build cache and redeploy** `anchor-web`.
 
 ## Smoke checklist
 
-- [ ] Hit `https://anchor-api.onrender.com/health` (may cold-start once)
-- [ ] Dashboard loads; sign up / login works
+- [ ] Hit `https://anchor-api-o1ba.onrender.com/health` (may cold-start once)
+- [ ] Dashboard at `https://anchor-web-tvir.onrender.com` loads; sign up / login works (no CORS errors in DevTools)
 - [ ] Header shows **Live** after API is awake
-- [ ] Registration install command uses `https://` + your API host
+- [ ] Registration install command uses `https://anchor-api-o1ba.onrender.com`
 - [ ] Expect: after ~15 min idle, reopen the app → cold start; **re-register** if the DB was wiped
+
+## How the two services talk
+
+```text
+Browser  →  anchor-web (Next.js UI)
+                │  REST:  NEXT_PUBLIC_API_URL  → https://anchor-api-o1ba.onrender.com
+                │  WS:    NEXT_PUBLIC_WS_URL    → wss://anchor-api-o1ba.onrender.com/ws/browser
+                ▼
+           anchor-api (Go control plane)
+                │  CORS only allows FRONTEND_URL origin
+                │  Agents connect separately: wss://…/ws/agent
+                ▼
+           Customer VPS (agent) — not on Render
+```
+
+`NEXT_PUBLIC_*` are **baked at Docker build time**. Changing them in the Render dashboard without a **clear-cache rebuild** leaves the old API host inside the JS bundle.
 
 ## Upgrade path (paid)
 
