@@ -6,69 +6,68 @@ import (
 )
 
 type BackupConfig struct {
-	ID                   string
-	ServerID             string
-	Enabled              bool
-	Schedule             string
-	RetentionDaily       int
-	RetentionWeekly      int
-	RetentionMonthly     int
-	S3Endpoint           sql.NullString
-	S3AccessKey          sql.NullString
-	S3SecretKey          sql.NullString
-	S3Bucket             sql.NullString
-	S3Region             sql.NullString
-	HourUTC              sql.NullInt64
-	LastBackupAt         sql.NullString
-	NextBackupAt         sql.NullString
-	StorageLimitBytes    int64
-	RepositorySizeBytes  sql.NullInt64
-	StorageAlertLevel    sql.NullString
-	CreatedAt            string
-	UpdatedAt            string
+	ID                   string           `json:"id"`
+	ServerID             string           `json:"server_id"`
+	Enabled              bool             `json:"enabled"`
+	Schedule             string           `json:"schedule"`
+	RetentionDaily       int              `json:"retention_daily"`
+	RetentionWeekly      int              `json:"retention_weekly"`
+	RetentionMonthly     int              `json:"retention_monthly"`
+	S3Endpoint           sql.NullString   `json:"s3_endpoint"`
+	S3AccessKey          sql.NullString   `json:"s3_access_key"`
+	S3SecretKey          sql.NullString   `json:"s3_secret_key"`
+	S3Bucket             sql.NullString   `json:"s3_bucket"`
+	S3Region             sql.NullString   `json:"s3_region"`
+	HourUTC              sql.NullInt64    `json:"hour_utc"`
+	LastBackupAt         sql.NullString   `json:"last_backup_at"`
+	NextBackupAt         sql.NullString   `json:"next_backup_at"`
+	StorageLimitBytes    int64            `json:"storage_limit_bytes"`
+	RepositorySizeBytes  sql.NullInt64    `json:"repository_size_bytes"`
+	StorageAlertLevel    sql.NullString   `json:"storage_alert_level"`
+	CreatedAt            string           `json:"created_at"`
+	UpdatedAt            string           `json:"updated_at"`
 }
 
 type BackupSnapshot struct {
-	ID        string
-	ServerID  string
-	SnapshotID string
-	Paths     string
-	SizeBytes int64
-	CreatedAt string
+	ID         string `json:"id"`
+	ServerID   string `json:"server_id"`
+	SnapshotID string `json:"snapshot_id"`
+	Paths      string `json:"paths"`
+	SizeBytes  int64  `json:"size_bytes"`
+	CreatedAt  string `json:"created_at"`
 }
 
 type BackupJob struct {
-	ID                string
-	ServerID          string
-	Status            string
-	StartedAt         sql.NullString
-	CompletedAt       sql.NullString
-	ErrorMessage      sql.NullString
-	SnapshotID        sql.NullString
-	DurationSeconds   sql.NullInt64
-	SizeNewBytes      sql.NullInt64
-	SizeTotalBytes    sql.NullInt64
-	ProjectResults    sql.NullString
-	RetentionApplied  sql.NullInt64
-	SnapshotsPruned   sql.NullInt64
-	CreatedAt         string
-	// Verification fields
-	VerificationStatus sql.NullString
-	VerificationError  sql.NullString
+	ID                 string         `json:"id"`
+	ServerID           string         `json:"server_id"`
+	Status             string         `json:"status"`
+	StartedAt          sql.NullString `json:"started_at"`
+	CompletedAt        sql.NullString `json:"completed_at"`
+	ErrorMessage       sql.NullString `json:"error_message"`
+	SnapshotID         sql.NullString `json:"snapshot_id"`
+	DurationSeconds    sql.NullInt64  `json:"duration_seconds"`
+	SizeNewBytes       sql.NullInt64  `json:"size_new_bytes"`
+	SizeTotalBytes     sql.NullInt64  `json:"size_total_bytes"`
+	ProjectResults     sql.NullString `json:"project_results"`
+	RetentionApplied   sql.NullInt64  `json:"retention_applied"`
+	SnapshotsPruned    sql.NullInt64  `json:"snapshots_pruned"`
+	CreatedAt          string         `json:"created_at"`
+	VerificationStatus sql.NullString `json:"verification_status"`
+	VerificationError  sql.NullString `json:"verification_error"`
 }
 
 // BackupVerificationConfig holds per-server verification scheduling configuration.
 type BackupVerificationConfig struct {
-	ID                     string
-	ServerID               string
-	LastVerificationAt     sql.NullString
-	NextVerificationAt     sql.NullString
-	LastFullVerificationAt sql.NullString
-	NextFullVerificationAt sql.NullString
-	VerifyIntervalHours    int
-	FullVerifyIntervalHours int
-	CreatedAt              string
-	UpdatedAt              string
+	ID                      string         `json:"id"`
+	ServerID                string         `json:"server_id"`
+	LastVerificationAt      sql.NullString `json:"last_verification_at"`
+	NextVerificationAt      sql.NullString `json:"next_verification_at"`
+	LastFullVerificationAt  sql.NullString `json:"last_full_verification_at"`
+	NextFullVerificationAt  sql.NullString `json:"next_full_verification_at"`
+	VerifyIntervalHours     int            `json:"verify_interval_hours"`
+	FullVerifyIntervalHours int            `json:"full_verify_interval_hours"`
+	CreatedAt               string         `json:"created_at"`
+	UpdatedAt               string         `json:"updated_at"`
 }
 
 func InsertBackupConfig(db *sql.DB, id, serverID string) error {
@@ -279,17 +278,17 @@ func GetBackupUsage(db *sql.DB, serverID string) (totalSizeBytes int64, snapshot
 
 // BackupStorageHistoryEntry is one point of repository size over time.
 type BackupStorageHistoryEntry struct {
-	SizeBytes  int64
-	RecordedAt string
+	SizeBytes  int64  `json:"size_bytes"`
+	RecordedAt string `json:"recorded_at"`
 }
 
 // BackupUsageInfo is the full storage usage payload for the API.
 type BackupUsageInfo struct {
-	TotalBytes    int64
-	SnapshotCount int
-	LimitBytes    int64
-	PercentUsed   float64
-	History       []BackupStorageHistoryEntry
+	TotalBytes    int64                      `json:"total_bytes"`
+	SnapshotCount int                        `json:"snapshot_count"`
+	LimitBytes    int64                      `json:"limit_bytes"`
+	PercentUsed   float64                    `json:"percent_used"`
+	History       []BackupStorageHistoryEntry `json:"history"`
 }
 
 const DefaultStorageLimitBytes int64 = 1073741824 // 1 GiB
