@@ -14,9 +14,9 @@ import type {
 interface ServerState {
   servers: Server[];
   loading: boolean;
+  error: string | null;
   fetchServers: () => Promise<void>;
   updateServerStatus: (id: string, status: ServerStatus) => void;
-  setAgentVersion: (id: string, version: string) => void;
 
   selectedServerId: string | null;
   selectServer: (id: string | null) => void;
@@ -43,35 +43,21 @@ interface ServerState {
 export const useServerStore = create<ServerState>((set, get) => ({
   servers: [],
   loading: true,
+  error: null,
 
   fetchServers: async () => {
     try {
       const res = await api.get<Server[]>("/api/v1/servers");
-      const list = (res.data || []).map((s) => ({
-        ...s,
-        // Normalize CP field names
-        public_ip: s.public_ip || (s as { ip_address?: string }).ip_address,
-        os: s.os || (s as { os_info?: string }).os_info,
-        ram_total_mb: s.ram_total_mb || (s as { ram_mb?: number }).ram_mb,
-        disk_total_gb: s.disk_total_gb || (s as { disk_gb?: number }).disk_gb,
-      }));
-      set({ servers: list, loading: false });
-    } catch {
-      set({ loading: false });
+      set({ servers: res.data || [], loading: false, error: null });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Failed to fetch servers";
+      set({ loading: false, error: msg });
     }
   },
 
   updateServerStatus: (id, status) => {
     set((state) => ({
       servers: state.servers.map((s) => (s.id === id ? { ...s, status } : s)),
-    }));
-  },
-
-  setAgentVersion: (id, version) => {
-    set((state) => ({
-      servers: state.servers.map((s) =>
-        s.id === id ? { ...s, agent_version: version } : s
-      ),
     }));
   },
 
