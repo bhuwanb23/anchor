@@ -15,8 +15,13 @@ const SESSION_COOKIE = "has_session";
 // unavailable in server/edge contexts).
 // ---------------------------------------------------------------------------
 
+function isSecure(): boolean {
+  return typeof window !== "undefined" && window.location.protocol === "https:";
+}
+
 function setSessionCookie(): void {
-  document.cookie = `${SESSION_COOKIE}=1; path=/; SameSite=Lax; Max-Age=${60 * 60 * 24 * 30}`;
+  const secure = isSecure() ? "; Secure" : "";
+  document.cookie = `${SESSION_COOKIE}=1; path=/; SameSite=Lax; Max-Age=${60 * 60 * 24 * 30}${secure}`;
 }
 
 function clearSessionCookie(): void {
@@ -29,7 +34,6 @@ function clearSessionCookie(): void {
 
 const api = axios.create({
   baseURL: process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080",
-  // Free Render cold starts can take ~60s; default axios timeout is too short.
   timeout: 90_000,
   headers: {
     "Content-Type": "application/json",
@@ -113,12 +117,15 @@ api.interceptors.response.use(
         return api.request(config as AxiosRequestConfig);
       } catch {
         // Refresh failed — session is over, clean up and redirect.
+        // Return a resolved promise so the caller's catch doesn't fire
+        // during the redirect (prevents double-action like toast + redirect).
         if (typeof window !== "undefined") {
           localStorage.removeItem(ACCESS_TOKEN_KEY);
           localStorage.removeItem(REFRESH_TOKEN_KEY);
           clearSessionCookie();
           window.location.href = "/login";
         }
+        return Promise.reject(error);
       }
     }
     return Promise.reject(error);
@@ -130,12 +137,14 @@ api.interceptors.response.use(
 // ---------------------------------------------------------------------------
 
 export function saveTokens(accessToken: string, refreshToken: string): void {
+  if (typeof window === "undefined") return;
   localStorage.setItem(ACCESS_TOKEN_KEY, accessToken);
   localStorage.setItem(REFRESH_TOKEN_KEY, refreshToken);
   setSessionCookie();
 }
 
 export function clearTokens(): void {
+  if (typeof window === "undefined") return;
   localStorage.removeItem(ACCESS_TOKEN_KEY);
   localStorage.removeItem(REFRESH_TOKEN_KEY);
   clearSessionCookie();
