@@ -22,6 +22,7 @@ export interface CommandProgress {
 //
 // Tracks connection status and all in-progress commands. Commands are added
 // when sent and removed when a result (success/failure/timeout) arrives.
+// Uses plain objects instead of Map to avoid Zustand re-render issues.
 // ---------------------------------------------------------------------------
 
 interface WSState {
@@ -31,12 +32,15 @@ interface WSState {
   connect: () => void;
   disconnect: () => void;
 
-  // In-progress commands
-  commands: Map<string, CommandProgress>;
+  // In-progress commands — stored as a plain object for proper Zustand equality
+  commands: Record<string, CommandProgress>;
   addCommand: (commandId: string) => void;
   updateCommand: (commandId: string, update: Partial<Omit<CommandProgress, "command_id">>) => void;
   removeCommand: (commandId: string) => void;
 }
+
+// Track unsubscribe functions for cleanup
+let unsubFns: (() => void)[] = [];
 
 export const useWSStore = create<WSState>((set, get) => ({
   // ---------------------------------------------------------------------------
@@ -47,55 +51,61 @@ export const useWSStore = create<WSState>((set, get) => ({
   client: getWSClient(),
 
   connect: () => {
+    // Clean up previous handlers to prevent accumulation
+    unsubFns.forEach((fn) => fn());
+    unsubFns = [];
+
     const { client } = get();
-    client.onConnect(() => set({ status: "connected" }));
-    client.onDisconnect(() => {
-      // During auto-reconnect backoff, keep yellow "connecting" (Reconnecting)
-      set({ status: client.isReconnecting() ? "connecting" : "disconnected" });
-    });
-    client.onReconnecting(() => set({ status: "connecting" }));
+    unsubFns.push(client.onConnect(() => set({ status: "connected" })));
+    unsubFns.push(client.onDisconnect(() => set({ status: "disconnected" })));
+    unsubFns.push(client.onReconnecting(() => set({ status: "connecting" })));
     set({ status: "connecting" });
     client.connect();
   },
 
   disconnect: () => {
+    unsubFns.forEach((fn) => fn());
+    unsubFns = [];
     get().client.disconnect();
     set({ status: "disconnected" });
   },
 
   // ---------------------------------------------------------------------------
-  // Command tracking
+  // Command tracking — plain object for proper Zustand equality checks
   // ---------------------------------------------------------------------------
 
-  commands: new Map(),
+  commands: {},
 
   addCommand: (commandId) => {
-    set((state) => {
-      const next = new Map(state.commands);
-      next.set(commandId, {
-        command_id: commandId,
-        status: "queued",
-        started_at: new Date().toISOString(),
-      });
-      return { commands: next };
-    });
+    set((state) => ({
+      commands: {
+        ...state.commands,
+        [commandId]: {
+          command_id: commandId,
+          status: "queued",
+          started_at: new Date().toISOString(),
+        },
+      },
+    }));
   },
 
   updateCommand: (commandId, update) => {
     set((state) => {
-      const existing = state.commands.get(commandId);
+      const existing = state.commands[commandId];
       if (!existing) return state;
-      const next = new Map(state.commands);
-      next.set(commandId, { ...existing, ...update });
-      return { commands: next };
+      return {
+        commands: {
+          ...state.commands,
+          [commandId]: { ...existing, ...update },
+        },
+      };
     });
   },
 
   removeCommand: (commandId) => {
     set((state) => {
-      const next = new Map(state.commands);
-      next.delete(commandId);
-      return { commands: next };
+      const { [commandId]: _, ...rest } = state.commands;
+      return { commands: rest };
     });
   },
 }));
