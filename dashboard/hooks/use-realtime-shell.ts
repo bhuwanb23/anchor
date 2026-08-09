@@ -43,7 +43,6 @@ export function useRealtimeShell(selectedServerId: string | null) {
         : ((msg.payload as Record<string, unknown>) || {});
       const serverBlock = (raw.server || {}) as Record<string, number>;
       const containers = (raw.containers || []) as ContainerState[];
-      const platform = (raw.platform || {}) as Record<string, unknown>;
 
       if (sid) {
         updateServerStatus(sid, "connected");
@@ -66,9 +65,6 @@ export function useRealtimeShell(selectedServerId: string | null) {
         updateMetrics(metrics);
         if (Array.isArray(containers)) {
           updateContainers(containers);
-        }
-        if (typeof platform.agent_version === "string") {
-          useServerStore.getState().setAgentVersion(selectedServerId, platform.agent_version);
         }
       }
     };
