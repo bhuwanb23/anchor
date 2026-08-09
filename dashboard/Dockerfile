@@ -41,4 +41,6 @@ COPY --from=build --chown=node:node /app/next.config.ts ./next.config.ts
 
 EXPOSE 3000
 USER node
-CMD ["pnpm", "start"]
+# Bind all interfaces — required for Render health checks (not just localhost).
+# PORT comes from env (Render sets it; default 3000 above).
+CMD ["pnpm", "exec", "next", "start", "-H", "0.0.0.0"]

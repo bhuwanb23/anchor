@@ -15,3 +15,7 @@ graphify-out
 .env.*
 control-plane/.air.toml
 dashboard/.env*
+# Agent binaries are large CI artifacts — not in git; keep image lean (stubs stay)
+release/*
+!release/.gitkeep
+!release/latest.json

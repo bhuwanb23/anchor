@@ -45,8 +45,10 @@ Thumbs.db
 
 # Build outputs
 /bin/
-/release/
-/release/
+# Agent binaries are local/CI artifacts; keep stubs tracked for Docker COPY on Render
+/release/*
+!/release/.gitkeep
+!/release/latest.json
 
 node_modules/
 .serena/
