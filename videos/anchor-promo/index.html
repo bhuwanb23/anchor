@@ -48,26 +48,43 @@
       <!-- Captions track -->
       <div data-hf-id="hf-jcjo" id="captions" class="clip" data-composition-id="captions" data-composition-src="compositions/captions.html" data-start="0" data-duration="60" data-track-index="100"></div>
 
-      <!-- Audio tracks -->
-      <audio data-hf-id="hf-536g" id="sfx-whoosh-1" src="C:/Users/bhuwan.bhawarlal/.agents/skills/hyperframes-media/assets/sfx/whoosh.mp3" data-start="7.9" data-track-index="200"></audio>
-      <audio data-hf-id="hf-1mzf" id="sfx-impact-1" src="C:/Users/bhuwan.bhawarlal/.agents/skills/hyperframes-media/assets/sfx/impact-bass-1.mp3" data-start="9.05" data-track-index="201"></audio>
-      <audio data-hf-id="hf-955t" id="sfx-notification" src="C:/Users/bhuwan.bhawarlal/.agents/skills/hyperframes-media/assets/sfx/notification.mp3" data-start="10.6" data-track-index="202"></audio>
-      <audio data-hf-id="hf-jx9i" id="sfx-whoosh-2" src="C:/Users/bhuwan.bhawarlal/.agents/skills/hyperframes-media/assets/sfx/whoosh.mp3" data-start="16.9" data-track-index="203"></audio>
-      <audio data-hf-id="hf-j0ki" id="sfx-chime" src="C:/Users/bhuwan.bhawarlal/.agents/skills/hyperframes-media/assets/sfx/chime.mp3" data-start="18.5" data-track-index="204"></audio>
-      <audio data-hf-id="hf-e408" id="sfx-whoosh-3" src="C:/Users/bhuwan.bhawarlal/.agents/skills/hyperframes-media/assets/sfx/whoosh.mp3" data-start="24.9" data-track-index="205"></audio>
-      <audio data-hf-id="hf-g04j" id="sfx-click-1" src="C:/Users/bhuwan.bhawarlal/.agents/skills/hyperframes-media/assets/sfx/click.mp3" data-start="27.35" data-track-index="206"></audio>
-      <audio data-hf-id="hf-npjx" id="sfx-click-2" src="C:/Users/bhuwan.bhawarlal/.agents/skills/hyperframes-media/assets/sfx/click.mp3" data-start="30.0" data-track-index="207"></audio>
-      <audio data-hf-id="hf-f4dn" id="sfx-whoosh-4" src="C:/Users/bhuwan.bhawarlal/.agents/skills/hyperframes-media/assets/sfx/whoosh.mp3" data-start="36.9" data-track-index="208"></audio>
-      <audio data-hf-id="hf-hjws" id="sfx-pop-1" src="C:/Users/bhuwan.bhawarlal/.agents/skills/hyperframes-media/assets/sfx/pop.mp3" data-start="38.0" data-track-index="209"></audio>
-      <audio data-hf-id="hf-wx9h" id="sfx-pop-2" src="C:/Users/bhuwan.bhawarlal/.agents/skills/hyperframes-media/assets/sfx/pop.mp3" data-start="38.42" data-track-index="210"></audio>
-      <audio data-hf-id="hf-obh1" id="sfx-pop-3" src="C:/Users/bhuwan.bhawarlal/.agents/skills/hyperframes-media/assets/sfx/pop.mp3" data-start="38.84" data-track-index="211"></audio>
-      <audio data-hf-id="hf-ewy0" id="sfx-whoosh-5" src="C:/Users/bhuwan.bhawarlal/.agents/skills/hyperframes-media/assets/sfx/whoosh.mp3" data-start="48.9" data-track-index="212"></audio>
+      <!-- BGM bed (captions-only piece — soft under SFX) -->
+      <audio data-hf-id="hf-bgm0" id="bgm" src="assets/bgm/track.mp3" data-start="0" data-duration="60" data-track-index="190" data-volume="0.28"></audio>
+
+      <!-- SFX — relative paths, storyboard-synced to GSAP beats -->
+      <!-- F1: critical terminal line -->
+      <audio data-hf-id="hf-err1" id="sfx-error" src="assets/sfx/error.mp3" data-start="2.15" data-track-index="200" data-volume="0.32"></audio>
+      <!-- Cuts -->
+      <audio data-hf-id="hf-who1" id="sfx-whoosh-1" src="assets/sfx/whoosh.mp3" data-start="7.9" data-track-index="201" data-volume="0.34"></audio>
+      <!-- F2: first pain card / pager / disk meter -->
+      <audio data-hf-id="hf-imp1" id="sfx-impact-1" src="assets/sfx/impact-bass-1.mp3" data-start="9.05" data-track-index="202" data-volume="0.36"></audio>
+      <audio data-hf-id="hf-ntf1" id="sfx-notification" src="assets/sfx/notification.mp3" data-start="10.6" data-track-index="203" data-volume="0.34"></audio>
+      <audio data-hf-id="hf-clk1" id="sfx-click-1" src="assets/sfx/click.mp3" data-start="11.4" data-track-index="204" data-volume="0.28"></audio>
+      <audio data-hf-id="hf-who2" id="sfx-whoosh-2" src="assets/sfx/whoosh.mp3" data-start="16.9" data-track-index="205" data-volume="0.34"></audio>
+      <!-- F3: relief chime -->
+      <audio data-hf-id="hf-chm1" id="sfx-chime" src="assets/sfx/chime.mp3" data-start="18.5" data-track-index="206" data-volume="0.36"></audio>
+      <audio data-hf-id="hf-who3" id="sfx-whoosh-3" src="assets/sfx/whoosh.mp3" data-start="24.9" data-track-index="207" data-volume="0.34"></audio>
+      <!-- F4: three architecture columns -->
+      <audio data-hf-id="hf-png1" id="sfx-ping-1" src="assets/sfx/ping.mp3" data-start="25.9" data-track-index="208" data-volume="0.32"></audio>
+      <audio data-hf-id="hf-png2" id="sfx-ping-2" src="assets/sfx/ping.mp3" data-start="27.55" data-track-index="209" data-volume="0.32"></audio>
+      <audio data-hf-id="hf-png3" id="sfx-ping-3" src="assets/sfx/ping.mp3" data-start="29.1" data-track-index="210" data-volume="0.32"></audio>
+      <audio data-hf-id="hf-who4" id="sfx-whoosh-4" src="assets/sfx/whoosh.mp3" data-start="36.9" data-track-index="211" data-volume="0.34"></audio>
+      <!-- F5: benefit chips -->
+      <audio data-hf-id="hf-pop1" id="sfx-pop-1" src="assets/sfx/pop.mp3" data-start="38.0" data-track-index="212" data-volume="0.36"></audio>
+      <audio data-hf-id="hf-pop2" id="sfx-pop-2" src="assets/sfx/pop.mp3" data-start="38.42" data-track-index="213" data-volume="0.36"></audio>
+      <audio data-hf-id="hf-pop3" id="sfx-pop-3" src="assets/sfx/pop.mp3" data-start="38.84" data-track-index="214" data-volume="0.36"></audio>
+      <audio data-hf-id="hf-who5" id="sfx-whoosh-5" src="assets/sfx/whoosh.mp3" data-start="48.9" data-track-index="215" data-volume="0.34"></audio>
+      <!-- F6: CTA pill land -->
+      <audio data-hf-id="hf-imp2" id="sfx-impact-2" src="assets/sfx/impact-bass-1.mp3" data-start="53.0" data-track-index="216" data-volume="0.38"></audio>
     </div>
 
     <script>
       window.__timelines = window.__timelines || {};
       const tl = gsap.timeline({ paused: true });
       tl.to({}, { duration: 60 }, 0);
+      // BGM soft fade in / fade out (baseline data-volume=0.28)
+      tl.fromTo("#bgm", { volume: 0 }, { volume: 0.28, duration: 1.2, ease: "power1.out" }, 0);
+      tl.to("#bgm", { volume: 0, duration: 2.5, ease: "power1.in" }, 57.5);
       window.__timelines["main"] = tl;
 
       document.addEventListener("hf-seek", (event) => {
