@@ -1,0 +1,95 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1500" height="720" viewBox="0 0 1500 720" role="img" aria-labelledby="title desc">
+  <title id="title">Anchor - How a deploy travels</title>
+  <desc id="desc">Signal path from dashboard through control plane WebSocket to the agent running Docker.</desc>
+  <defs>
+    <linearGradient id="paper" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#0A4D38"/>
+      <stop offset="45%" stop-color="#0F6B4D"/>
+      <stop offset="100%" stop-color="#12382C"/>
+    </linearGradient>
+    <linearGradient id="wire" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#7DDBB0"/>
+      <stop offset="50%" stop-color="#F4FBF7"/>
+      <stop offset="100%" stop-color="#7DDBB0"/>
+    </linearGradient>
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="4" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <marker id="tip" markerWidth="12" markerHeight="12" refX="10" refY="4" orient="auto">
+      <path d="M0,0 L10,4 L0,8 Z" fill="#7DDBB0"/>
+    </marker>
+  </defs>
+
+  <rect width="1500" height="720" fill="url(#paper)" rx="24"/>
+
+  <g opacity="0.12" stroke="#A8E0C8" stroke-width="1" fill="none">
+    <path d="M80 80 H420 V160"/>
+    <path d="M1420 80 H1080 V160"/>
+    <path d="M80 640 H360"/>
+    <path d="M1420 640 H1140"/>
+  </g>
+
+  <text x="750" y="72" text-anchor="middle" font-family="Segoe UI,system-ui,sans-serif" font-size="32" font-weight="800" fill="#F4FBF7">How a deploy travels</text>
+  <text x="750" y="106" text-anchor="middle" font-family="Segoe UI,system-ui,sans-serif" font-size="15" fill="#A8E0C8">One click to one command to one container. The wire is WebSocket.</text>
+
+  <line x1="160" y1="360" x2="1340" y2="360" stroke="url(#wire)" stroke-width="4" stroke-linecap="round" opacity="0.9"/>
+  <g filter="url(#glow)" fill="#F4FBF7">
+    <circle cx="320" cy="360" r="5"/>
+    <circle cx="560" cy="360" r="5"/>
+    <circle cx="800" cy="360" r="5"/>
+    <circle cx="1040" cy="360" r="5"/>
+    <circle cx="1240" cy="360" r="5"/>
+  </g>
+
+  <g transform="translate(160,360)">
+    <circle r="14" fill="#7DDBB0"/>
+    <rect x="-100" y="-150" width="200" height="110" rx="18" fill="#F4FBF7"/>
+    <text x="0" y="-105" text-anchor="middle" font-family="Segoe UI,system-ui,sans-serif" font-size="11" font-weight="700" fill="#0F6B4D" letter-spacing="2">YOU</text>
+    <text x="0" y="-78" text-anchor="middle" font-family="Segoe UI,system-ui,sans-serif" font-size="18" font-weight="800" fill="#0E1F1A">Dashboard</text>
+    <text x="0" y="-54" text-anchor="middle" font-family="Segoe UI,system-ui,sans-serif" font-size="12" fill="#4A635A">Click Deploy</text>
+    <line x1="0" y1="-40" x2="0" y2="-14" stroke="#7DDBB0" stroke-width="2"/>
+  </g>
+
+  <g transform="translate(480,360)">
+    <circle r="14" fill="#7DDBB0"/>
+    <rect x="-110" y="40" width="220" height="110" rx="18" fill="#12382C" stroke="#7DDBB0" stroke-width="1.5"/>
+    <text x="0" y="75" text-anchor="middle" font-family="Segoe UI,system-ui,sans-serif" font-size="11" font-weight="700" fill="#7DDBB0" letter-spacing="2">CONTROL PLANE</text>
+    <text x="0" y="102" text-anchor="middle" font-family="Segoe UI,system-ui,sans-serif" font-size="18" font-weight="800" fill="#F4FBF7">Queue command</text>
+    <text x="0" y="126" text-anchor="middle" font-family="Segoe UI,system-ui,sans-serif" font-size="12" fill="#A8E0C8">Auth - persist - route</text>
+    <line x1="0" y1="14" x2="0" y2="40" stroke="#7DDBB0" stroke-width="2"/>
+  </g>
+
+  <g transform="translate(800,360)">
+    <circle r="14" fill="#F4FBF7"/>
+    <rect x="-110" y="-150" width="220" height="110" rx="18" fill="#F4FBF7"/>
+    <text x="0" y="-105" text-anchor="middle" font-family="Segoe UI,system-ui,sans-serif" font-size="11" font-weight="700" fill="#0F6B4D" letter-spacing="2">REALTIME</text>
+    <text x="0" y="-78" text-anchor="middle" font-family="Segoe UI,system-ui,sans-serif" font-size="18" font-weight="800" fill="#0E1F1A">WebSocket hub</text>
+    <text x="0" y="-54" text-anchor="middle" font-family="Consolas,ui-monospace,monospace" font-size="12" fill="#4A635A">wss - /ws/agent</text>
+    <line x1="0" y1="-40" x2="0" y2="-14" stroke="#7DDBB0" stroke-width="2"/>
+  </g>
+
+  <g transform="translate(1120,360)">
+    <circle r="14" fill="#7DDBB0"/>
+    <rect x="-110" y="40" width="220" height="110" rx="18" fill="#12382C" stroke="#7DDBB0" stroke-width="1.5"/>
+    <text x="0" y="75" text-anchor="middle" font-family="Segoe UI,system-ui,sans-serif" font-size="11" font-weight="700" fill="#7DDBB0" letter-spacing="2">YOUR VPS</text>
+    <text x="0" y="102" text-anchor="middle" font-family="Segoe UI,system-ui,sans-serif" font-size="18" font-weight="800" fill="#F4FBF7">Agent receives</text>
+    <text x="0" y="126" text-anchor="middle" font-family="Segoe UI,system-ui,sans-serif" font-size="12" fill="#A8E0C8">Offline queue if needed</text>
+    <line x1="0" y1="14" x2="0" y2="40" stroke="#7DDBB0" stroke-width="2"/>
+  </g>
+
+  <g transform="translate(1340,360)">
+    <circle r="14" fill="#F4FBF7"/>
+    <rect x="-100" y="-150" width="200" height="110" rx="18" fill="#F4FBF7"/>
+    <text x="0" y="-105" text-anchor="middle" font-family="Segoe UI,system-ui,sans-serif" font-size="11" font-weight="700" fill="#0F6B4D" letter-spacing="2">RUNTIME</text>
+    <text x="0" y="-78" text-anchor="middle" font-family="Segoe UI,system-ui,sans-serif" font-size="18" font-weight="800" fill="#0E1F1A">Docker runs it</text>
+    <text x="0" y="-54" text-anchor="middle" font-family="Segoe UI,system-ui,sans-serif" font-size="12" fill="#4A635A">Caddy publishes HTTPS</text>
+    <line x1="0" y1="-40" x2="0" y2="-14" stroke="#7DDBB0" stroke-width="2"/>
+  </g>
+
+  <path d="M1340 520 C1100 600, 400 600, 160 520" fill="none" stroke="#7DDBB0" stroke-width="2" stroke-dasharray="8 8" opacity="0.55" marker-end="url(#tip)"/>
+  <text x="750" y="610" text-anchor="middle" font-family="Segoe UI,system-ui,sans-serif" font-size="14" font-weight="600" fill="#A8E0C8">Progress and logs stream back on the same wire</text>
+
+  <text x="750" y="680" text-anchor="middle" font-family="Segoe UI,system-ui,sans-serif" font-size="13" fill="#7DDBB0">Nothing about this path requires you to SSH into the machine.</text>
+</svg>
