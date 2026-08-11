@@ -1,7 +1,7 @@
 package platform
 
-// Base Docker image tag for the Infer server.
-const inferImageBase = "ghcr.io/yourname/infer"
+// InferImageBase is the base Docker image tag for the Infer server.
+const InferImageBase = "ghcr.io/yourname/infer"
 
 // Model file size estimates (GB).
 const (

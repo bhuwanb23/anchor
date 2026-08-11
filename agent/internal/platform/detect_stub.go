@@ -26,13 +26,13 @@ func detectPlatform() *PlatformInfo {
 
 	if isArm {
 		info.Build = BuildSelection{
-			ImageTag:         inferImageBase + ":arm64",
+			ImageTag:         InferImageBase + ":arm64",
 			OptimizationLabel: "Generic (Arm64)",
 			ExpectedHardware: "Arm64 server",
 		}
 	} else {
 		info.Build = BuildSelection{
-			ImageTag:         inferImageBase + ":x86_64",
+			ImageTag:         InferImageBase + ":x86_64",
 			OptimizationLabel: "No Arm optimization",
 			ExpectedHardware: "x86_64 server",
 		}

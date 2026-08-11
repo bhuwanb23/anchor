@@ -271,7 +271,7 @@ func detectDisk(info *PlatformInfo) {
 func selectBuild(info *PlatformInfo) {
 	if !info.IsArm64 {
 		info.Build = BuildSelection{
-			ImageTag:         inferImageBase + ":x86_64",
+			ImageTag:         InferImageBase + ":x86_64",
 			OptimizationLabel: "No Arm optimization",
 			ExpectedHardware: "x86_64 server",
 		}
@@ -283,31 +283,31 @@ func selectBuild(info *PlatformInfo) {
 	switch {
 	case f.Sve2 && f.I8mm:
 		info.Build = BuildSelection{
-			ImageTag:         inferImageBase + ":arm64-sve2-i8mm",
+			ImageTag:         InferImageBase + ":arm64-sve2-i8mm",
 			OptimizationLabel: "Maximum (SVE2 + I8MM)",
 			ExpectedHardware: "Graviton 4, GCP Axion",
 		}
 	case f.Sve && f.I8mm:
 		info.Build = BuildSelection{
-			ImageTag:         inferImageBase + ":arm64-i8mm-sve",
+			ImageTag:         InferImageBase + ":arm64-i8mm-sve",
 			OptimizationLabel: "Full (SVE + I8MM)",
 			ExpectedHardware: "Graviton 3",
 		}
 	case f.I8mm:
 		info.Build = BuildSelection{
-			ImageTag:         inferImageBase + ":arm64-i8mm",
+			ImageTag:         InferImageBase + ":arm64-i8mm",
 			OptimizationLabel: "High (I8MM)",
 			ExpectedHardware: "Azure Cobalt, Ampere Altra",
 		}
 	case f.Dotprod:
 		info.Build = BuildSelection{
-			ImageTag:         inferImageBase + ":arm64-dotprod",
+			ImageTag:         InferImageBase + ":arm64-dotprod",
 			OptimizationLabel: "Basic (DOTPROD)",
 			ExpectedHardware: "older Arm64 servers",
 		}
 	default:
 		info.Build = BuildSelection{
-			ImageTag:         inferImageBase + ":arm64",
+			ImageTag:         InferImageBase + ":arm64",
 			OptimizationLabel: "Generic (Arm64)",
 			ExpectedHardware: "Arm64 server",
 		}
