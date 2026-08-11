@@ -101,6 +101,36 @@ export interface MetricsSnapshot {
 }
 
 // ---------------------------------------------------------------------------
+// Platform Detection (Anchor Infer — Phase 1)
+// ---------------------------------------------------------------------------
+
+export interface PlatformInfo {
+  server_id: string;
+  is_arm64: boolean;
+  cpu_model_name: string;
+  cpu_vendor_id?: string;
+  cpu_microarchitecture?: string;
+  cpu_part_code?: string;
+  cpu_cloud_provider_hint?: string;
+  cpu_detection_confidence: string;
+  cpu_cores: number;
+  cpu_mhz?: number;
+  feature_dotprod: boolean;
+  feature_i8mm: boolean;
+  feature_sve: boolean;
+  feature_sve2: boolean;
+  feature_bf16: boolean;
+  memory_total_mb: number;
+  memory_available_mb: number;
+  memory_recommended_model: string;
+  disk_total_gb: number;
+  disk_available_gb: number;
+  recommended_build: string;
+  recommended_quantization: string;
+  detected_at: string;
+}
+
+// ---------------------------------------------------------------------------
 // Server Events
 // ---------------------------------------------------------------------------
 

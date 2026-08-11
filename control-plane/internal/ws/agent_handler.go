@@ -467,6 +467,84 @@ func handleHealthReportBatch(db *sql.DB, serverID string, payload json.RawMessag
 	slog.Info("health_report_batch processed", "server_id", serverID, "count", len(batch.Reports))
 }
 
+// platformReportPayload mirrors the agent's platform.PlatformInfo struct.
+type platformReportPayload struct {
+	IsArm64 bool `json:"is_arm64"`
+	CPU     struct {
+		ModelName           string  `json:"model_name"`
+		VendorID            string  `json:"vendor_id,omitempty"`
+		Microarchitecture   string  `json:"microarchitecture,omitempty"`
+		CPUPartCode         string  `json:"cpu_part_code,omitempty"`
+		CloudProviderHint   string  `json:"cloud_provider_hint,omitempty"`
+		DetectionConfidence string  `json:"detection_confidence"`
+		Cores               int     `json:"cores"`
+		Mhz                 float64 `json:"mhz,omitempty"`
+	} `json:"cpu"`
+	Features struct {
+		Dotprod bool `json:"dotprod"`
+		I8mm    bool `json:"i8mm"`
+		Sve     bool `json:"sve"`
+		Sve2    bool `json:"sve2"`
+		Bf16    bool `json:"bf16"`
+	} `json:"features"`
+	Memory struct {
+		TotalMB          int64  `json:"total_mb"`
+		AvailableMB      int64  `json:"available_mb"`
+		RecommendedModel string `json:"recommended_max_model_size"`
+	} `json:"memory"`
+	Disk struct {
+		TotalGB     float64 `json:"total_gb"`
+		AvailableGB float64 `json:"available_gb"`
+	} `json:"disk"`
+	RecommendedBuild  string `json:"recommended_build"`
+	RecommendedQuant  string `json:"recommended_quantization"`
+}
+
+func handlePlatformReport(db *sql.DB, serverID string, payload json.RawMessage) {
+	var p platformReportPayload
+	if err := json.Unmarshal(payload, &p); err != nil {
+		slog.Warn("failed to parse platform_report", "server_id", serverID, "error", err)
+		return
+	}
+
+	platform := &queries.ServerPlatform{
+		ServerID:               serverID,
+		IsArm64:                p.IsArm64,
+		CPUModelName:           p.CPU.ModelName,
+		CPUVendorID:            p.CPU.VendorID,
+		CPUMicroarchitecture:   p.CPU.Microarchitecture,
+		CPUPartCode:            p.CPU.CPUPartCode,
+		CPUCloudProviderHint:   p.CPU.CloudProviderHint,
+		CPUDetectionConfidence: p.CPU.DetectionConfidence,
+		CPUCores:               p.CPU.Cores,
+		CPUMhz:                 p.CPU.Mhz,
+		FeatureDotprod:         p.Features.Dotprod,
+		FeatureI8mm:            p.Features.I8mm,
+		FeatureSve:             p.Features.Sve,
+		FeatureSve2:            p.Features.Sve2,
+		FeatureBf16:            p.Features.Bf16,
+		MemoryTotalMB:          p.Memory.TotalMB,
+		MemoryAvailableMB:      p.Memory.AvailableMB,
+		MemoryRecommendedModel: p.Memory.RecommendedModel,
+		DiskTotalGB:            p.Disk.TotalGB,
+		DiskAvailableGB:        p.Disk.AvailableGB,
+		RecommendedBuild:       p.RecommendedBuild,
+		RecommendedQuantization: p.RecommendedQuant,
+	}
+
+	if err := queries.UpsertServerPlatform(db, platform); err != nil {
+		slog.Error("failed to upsert server_platform", "server_id", serverID, "error", err)
+		return
+	}
+
+	slog.Info("platform_report stored",
+		"server_id", serverID,
+		"is_arm64", p.IsArm64,
+		"microarchitecture", p.CPU.Microarchitecture,
+		"recommended_build", p.RecommendedBuild,
+	)
+}
+
 func HandleAgentWS(hub *Hub, db *sql.DB, baseDomain string, delivery *alerts.Delivery) http.HandlerFunc {
 	upgrader := websocket.Upgrader{
 		ReadBufferSize:  1024,
@@ -632,6 +710,9 @@ func HandleAgentWS(hub *Hub, db *sql.DB, baseDomain string, delivery *alerts.Del
 					hub.ForwardToBrowsers(serverID, data)
 				case "health_report_batch":
 					handleHealthReportBatch(db, serverID, msg.Payload)
+					hub.ForwardToBrowsers(serverID, data)
+				case "platform_report":
+					handlePlatformReport(db, serverID, msg.Payload)
 					hub.ForwardToBrowsers(serverID, data)
 				default:
 					slog.Debug("agent message", "type", msg.Type, "server_id", serverID)

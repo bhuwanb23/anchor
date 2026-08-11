@@ -88,6 +88,7 @@ func NewRouter(database *sql.DB, cfg *config.Config, hub *ws.Hub, delivery *aler
 	customDomainHandler := &handlers.CustomDomain{DB: database, Hub: hub}
 	backupHandler := &handlers.Backup{DB: database, Hub: hub}
 	teamHandler := &handlers.Teams{DB: database, Mailer: sender, Logger: slog.Default()}
+	platformHandler := &handlers.Platform{DB: database}
 	step5 := &handlers.Step5{DB: database, Cfg: cfg}
 
 	r.Route("/api/v1", func(r chi.Router) {
@@ -144,6 +145,9 @@ func NewRouter(database *sql.DB, cfg *config.Config, hub *ws.Hub, delivery *aler
 			r.Post("/servers/registration-token", tokenHandler.CreateRegistrationToken)   // legacy alias
 			r.Post("/servers/{serverID}/registration-token", step5.CreateServerRegistrationToken)
 			r.Get("/servers/{serverID}/events", server.ListEvents)
+
+			// --- Platform (Anchor Infer) ---
+			r.Get("/servers/{serverID}/platform", platformHandler.GetServerPlatform)
 
 			// --- Apps (Layer 6 Step 5 handlers) ---
 			r.Get("/servers/{serverID}/apps", step5.ListApps)

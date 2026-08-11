@@ -341,6 +341,8 @@ func (e *Executor) Execute(ctx context.Context, cmd Command) Result {
 		err = e.executeRunPreflight(ctx, cmd, &result)
 	case "get_state":
 		err = e.executeGetState(ctx, cmd, &result)
+	case "detect_platform":
+		err = e.executeDetectPlatform(ctx, cmd, &result)
 	default:
 		result.Status = "error"
 		result.Error = fmt.Sprintf("unknown command type: %s", cmd.Type)

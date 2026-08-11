@@ -102,7 +102,7 @@ func ProjectKeyFromCommand(cmd Command) string {
 
 func projectKeyForType(cmdType string) string {
 	switch cmdType {
-	case "run_preflight", "get_state", "update_agent", "preflight":
+	case "run_preflight", "get_state", "update_agent", "preflight", "detect_platform":
 		return "global"
 	case "start_log_stream", "stop_log_stream":
 		return "" // run outside slots (caller handles)

@@ -11,6 +11,7 @@ import (
 
 	"github.com/yourname/yourplatform/agent/internal/docker"
 	"github.com/yourname/yourplatform/agent/internal/env"
+	"github.com/yourname/yourplatform/agent/internal/platform"
 )
 
 func (e *Executor) executeStart(ctx context.Context, cmd Command, result *Result) error {
@@ -345,5 +346,21 @@ func (e *Executor) executeGetState(ctx context.Context, cmd Command, result *Res
 	}
 	result.Status = "success"
 	result.Output = string(data)
+	return nil
+}
+
+func (e *Executor) executeDetectPlatform(ctx context.Context, cmd Command, result *Result) error {
+	info := platform.Detect()
+	data, err := json.Marshal(info)
+	if err != nil {
+		return fmt.Errorf("failed to marshal platform info: %w", err)
+	}
+	result.Status = "success"
+	result.Output = string(data)
+	slog.Info("platform detection complete",
+		"is_arm64", info.IsArm64,
+		"microarchitecture", info.CPU.Microarchitecture,
+		"recommended_build", info.RecommendedBuild,
+	)
 	return nil
 }

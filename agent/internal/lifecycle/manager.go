@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/yourname/yourplatform/agent/internal/executor"
+	"github.com/yourname/yourplatform/agent/internal/platform"
 	"github.com/yourname/yourplatform/agent/internal/preflight"
 	"github.com/yourname/yourplatform/agent/internal/state"
 	"github.com/yourname/yourplatform/agent/internal/ws"
@@ -99,6 +100,7 @@ func (m *Manager) Run(ctx context.Context) {
 		}
 		m.sendPreflight()
 		m.sendHello()
+		m.sendPlatformInfo()
 		if m.OnConnect != nil {
 			m.OnConnect()
 		}
@@ -140,6 +142,27 @@ func (m *Manager) sendPreflight() {
 		slog.Warn("send preflight_result", "error", err)
 	} else {
 		slog.Info("sent preflight_result to control plane")
+	}
+}
+
+func (m *Manager) sendPlatformInfo() {
+	info := platform.Detect()
+	payload, err := json.Marshal(info)
+	if err != nil {
+		slog.Warn("marshal platform info", "error", err)
+		return
+	}
+	msg := map[string]interface{}{
+		"type":    "platform_report",
+		"payload": json.RawMessage(payload),
+	}
+	if err := m.client.SendJSON(msg); err != nil {
+		slog.Warn("send platform_report", "error", err)
+	} else {
+		slog.Info("sent platform_report to control plane",
+			"is_arm64", info.IsArm64,
+			"microarchitecture", info.CPU.Microarchitecture,
+		)
 	}
 }
 
