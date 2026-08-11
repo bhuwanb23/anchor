@@ -1,0 +1,12 @@
+-- Add Arm Performix results and arm_features to benchmark_results.
+ALTER TABLE benchmark_results ADD COLUMN arm_features TEXT DEFAULT '';
+ALTER TABLE benchmark_results ADD COLUMN performix_tokens_per_second REAL DEFAULT 0;
+ALTER TABLE benchmark_results ADD COLUMN performix_ttft_ms INTEGER DEFAULT 0;
+ALTER TABLE benchmark_results ADD COLUMN performix_peak_memory_bytes INTEGER DEFAULT 0;
+ALTER TABLE benchmark_results ADD COLUMN performix_raw_output TEXT DEFAULT '';
+ALTER TABLE benchmark_results ADD COLUMN tokens_sec_range_min REAL DEFAULT 0;
+ALTER TABLE benchmark_results ADD COLUMN tokens_sec_range_max REAL DEFAULT 0;
+ALTER TABLE benchmark_results ADD COLUMN ttft_range_min_ms INTEGER DEFAULT 0;
+ALTER TABLE benchmark_results ADD COLUMN ttft_range_max_ms INTEGER DEFAULT 0;
+ALTER TABLE benchmark_results ADD COLUMN variance_detected INTEGER DEFAULT 0;
+ALTER TABLE benchmark_results ADD COLUMN actual_runs INTEGER DEFAULT 2;

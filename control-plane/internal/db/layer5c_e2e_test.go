@@ -120,12 +120,12 @@ func Test5C_FreshStart(t *testing.T) {
 	if err := db.Migrate(database); err != nil {
 		t.Fatalf("Migrate: %v", err)
 	}
-	if got := rowCount(t, database, "SELECT COUNT(*) FROM schema_migrations"); got != 26 {
-		t.Fatalf("schema_migrations count = %d, want 26", got)
+	if got := rowCount(t, database, "SELECT COUNT(*) FROM schema_migrations"); got != 27 {
+		t.Fatalf("schema_migrations count = %d, want 27", got)
 	}
 	// Every migration name recorded.
-	if got := rowCount(t, database, `SELECT COUNT(*) FROM schema_migrations WHERE name LIKE '%.sql'`); got != 26 {
-		t.Errorf("recorded migration names = %d, want 26", got)
+	if got := rowCount(t, database, `SELECT COUNT(*) FROM schema_migrations WHERE name LIKE '%.sql'`); got != 27 {
+		t.Errorf("recorded migration names = %d, want 27", got)
 	}
 
 	// Control plane is ready to accept requests: boot the real router against
