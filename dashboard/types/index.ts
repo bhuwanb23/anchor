@@ -120,13 +120,28 @@ export interface PlatformInfo {
   feature_sve: boolean;
   feature_sve2: boolean;
   feature_bf16: boolean;
+  // Build selection
+  image_tag: string;
+  optimization_label: string;
+  expected_hardware: string;
+  // Memory assessment
   memory_total_mb: number;
   memory_available_mb: number;
+  memory_available_gb: number;
   memory_recommended_model: string;
+  memory_recommended_quant: string;
+  memory_sufficient: boolean;
+  memory_note?: string;
+  // Disk assessment
   disk_total_gb: number;
   disk_available_gb: number;
-  recommended_build: string;
-  recommended_quantization: string;
+  disk_model_required_gb: number;
+  disk_sufficient: boolean;
+  disk_note?: string;
+  // Readiness
+  can_run_inference: boolean;
+  block_reason?: string;
+  readiness_notes?: string[];
   detected_at: string;
 }
 

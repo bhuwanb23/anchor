@@ -360,7 +360,8 @@ func (e *Executor) executeDetectPlatform(ctx context.Context, cmd Command, resul
 	slog.Info("platform detection complete",
 		"is_arm64", info.IsArm64,
 		"microarchitecture", info.CPU.Microarchitecture,
-		"recommended_build", info.RecommendedBuild,
+		"image_tag", info.Build.ImageTag,
+		"optimization", info.Build.OptimizationLabel,
 	)
 	return nil
 }

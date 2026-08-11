@@ -4,6 +4,8 @@ package platform
 
 import (
 	"bufio"
+	"fmt"
+	"math"
 	"os"
 	"os/exec"
 	"runtime"
@@ -27,7 +29,8 @@ func detectPlatform() *PlatformInfo {
 	detectCloudHint(info)
 	detectMemory(info)
 	detectDisk(info)
-	detectRecommendations(info)
+	selectBuild(info)
+	assessReadiness(info)
 
 	return info
 }
@@ -175,7 +178,6 @@ func detectCloudHint(info *PlatformInfo) {
 	hint := cloudProviderHints(boardVendor, chassisVendor, hostname)
 	if hint != "" {
 		info.CPU.CloudProviderHint = hint
-		// Upgrade confidence if we have a CPU part match, otherwise keep low
 		if info.CPU.DetectionConfidence != "high" {
 			info.CPU.DetectionConfidence = "low"
 		}
@@ -191,67 +193,165 @@ func readDMI(path string) string {
 	return strings.TrimSpace(string(data))
 }
 
-// detectMemory reads RAM from gopsutil and sets the recommended model size.
+// detectMemory reads RAM from gopsutil and applies the Step 4 decision table.
 func detectMemory(info *PlatformInfo) {
 	v, err := mem.VirtualMemory()
 	if err != nil {
 		return
 	}
 
+	totalMB := int64(v.Total / 1024 / 1024)
+	availMB := int64(v.Available / 1024 / 1024)
+	availGB := float64(availMB) / 1024.0
+
 	info.Memory = MemoryInfo{
-		TotalMB:     int64(v.Total / 1024 / 1024),
-		AvailableMB: int64(v.Available / 1024 / 1024),
+		TotalMB:      totalMB,
+		AvailableMB:  availMB,
+		AvailableGB:  math.Round(availGB*10) / 10,
+	}
+
+	// Step 4 decision table: Available RAM → model + quantization recommendation
+	switch {
+	case availGB > 14:
+		// Comfortable: 7B Q4_K_M with 6GB headroom
+		info.Memory.RecommendedModel = "7b"
+		info.Memory.RecommendedQuant = "Q4_K_M"
+		info.Memory.MemorySufficient = true
+	case availGB >= 8:
+		// Tight: 7B Q4_K_M minimum config
+		info.Memory.RecommendedModel = "7b"
+		info.Memory.RecommendedQuant = "Q4_K_M"
+		info.Memory.MemorySufficient = true
+		info.Memory.MemoryNote = "Memory is limited. Close other apps before deploying."
+	case availGB >= 4:
+		// Too tight for 7B: use 3B
+		info.Memory.RecommendedModel = "3b"
+		info.Memory.RecommendedQuant = "Q4_K_M"
+		info.Memory.MemorySufficient = true
+		info.Memory.MemoryNote = "Your server has limited memory. Using a smaller model."
+	default:
+		// Block: less than 4GB available
+		info.Memory.RecommendedModel = ""
+		info.Memory.RecommendedQuant = ""
+		info.Memory.MemorySufficient = false
 	}
 }
 
-// detectDisk reads disk usage for the root filesystem.
+// detectDisk reads disk usage for the root filesystem and checks against
+// the estimated model file size.
 func detectDisk(info *PlatformInfo) {
 	usage, err := disk.Usage("/")
 	if err != nil {
 		return
 	}
 
+	availGB := float64(usage.Free) / 1024 / 1024 / 1024
 	info.Disk = DiskInfo{
 		TotalGB:     float64(usage.Total) / 1024 / 1024 / 1024,
-		AvailableGB: float64(usage.Free) / 1024 / 1024 / 1024,
+		AvailableGB: math.Round(availGB*10) / 10,
+	}
+
+	// Estimate model file size based on recommended model
+	var modelSizeGB float64
+	switch info.Memory.RecommendedModel {
+	case "7b":
+		modelSizeGB = modelSize7BQ4KM
+	case "3b":
+		modelSizeGB = modelSize3BQ4KM
+	default:
+		modelSizeGB = modelSize7BQ4KM // default check against largest
+	}
+
+	info.Disk.ModelRequiredGB = math.Round((modelSizeGB+modelBufferGB)*10) / 10
+	info.Disk.DiskSufficient = info.Disk.AvailableGB >= info.Disk.ModelRequiredGB
+}
+
+// selectBuild picks the Docker image tag and optimization label (Step 3).
+// Decision logic evaluated in order, first match wins.
+func selectBuild(info *PlatformInfo) {
+	if !info.IsArm64 {
+		info.Build = BuildSelection{
+			ImageTag:         inferImageBase + ":x86_64",
+			OptimizationLabel: "No Arm optimization",
+			ExpectedHardware: "x86_64 server",
+		}
+		return
+	}
+
+	f := info.Features
+
+	switch {
+	case f.Sve2 && f.I8mm:
+		info.Build = BuildSelection{
+			ImageTag:         inferImageBase + ":arm64-sve2-i8mm",
+			OptimizationLabel: "Maximum (SVE2 + I8MM)",
+			ExpectedHardware: "Graviton 4, GCP Axion",
+		}
+	case f.Sve && f.I8mm:
+		info.Build = BuildSelection{
+			ImageTag:         inferImageBase + ":arm64-i8mm-sve",
+			OptimizationLabel: "Full (SVE + I8MM)",
+			ExpectedHardware: "Graviton 3",
+		}
+	case f.I8mm:
+		info.Build = BuildSelection{
+			ImageTag:         inferImageBase + ":arm64-i8mm",
+			OptimizationLabel: "High (I8MM)",
+			ExpectedHardware: "Azure Cobalt, Ampere Altra",
+		}
+	case f.Dotprod:
+		info.Build = BuildSelection{
+			ImageTag:         inferImageBase + ":arm64-dotprod",
+			OptimizationLabel: "Basic (DOTPROD)",
+			ExpectedHardware: "older Arm64 servers",
+		}
+	default:
+		info.Build = BuildSelection{
+			ImageTag:         inferImageBase + ":arm64",
+			OptimizationLabel: "Generic (Arm64)",
+			ExpectedHardware: "Arm64 server",
+		}
 	}
 }
 
-// detectRecommendations sets the recommended llama.cpp build and quantization.
-func detectRecommendations(info *PlatformInfo) {
-	info.RecommendedBuild = recommendBuild(info.Features)
-	info.RecommendedQuant = recommendQuantization(info.Memory.TotalMB, info.Features)
-}
+// assessReadiness evaluates memory and disk to determine if inference
+// can proceed and what notes/warnings to show.
+func assessReadiness(info *PlatformInfo) {
+	var notes []string
+	var blockReason string
+	canRun := true
 
-// recommendBuild picks the best llama.cpp build variant for the detected CPU.
-func recommendBuild(f CPUFeatures) string {
-	if f.I8mm && f.Sve {
-		return "arm64-i8mm-sve"
+	// Memory check
+	if !info.Memory.MemorySufficient {
+		canRun = false
+		blockReason = fmt.Sprintf(
+			"AI inference requires at least 4GB of available memory. Your server has %.1fGB available. Stop other running apps or upgrade to a larger server.",
+			info.Memory.AvailableGB,
+		)
+	} else if info.Memory.MemoryNote != "" {
+		notes = append(notes, info.Memory.MemoryNote)
 	}
-	if f.I8mm {
-		return "arm64-i8mm"
-	}
-	if f.Dotprod {
-		return "arm64-dotprod"
-	}
-	return "arm64"
-}
 
-// recommendQuantization picks a default quantization level based on
-// available RAM and CPU capabilities.
-func recommendQuantization(ramMB int64, f CPUFeatures) string {
-	// I8mm accelerates INT8 quantization — prefer higher quality quants
-	if f.I8mm && ramMB >= 16000 {
-		return "Q4_K_M"
+	// Disk check
+	if !info.Disk.DiskSufficient {
+		canRun = false
+		if blockReason != "" {
+			blockReason += " "
+		}
+		blockReason += fmt.Sprintf(
+			"Downloading this model requires %.1fGB of free disk space. You have %.1fGB available. Free up space or choose a smaller model.",
+			info.Disk.ModelRequiredGB, info.Disk.AvailableGB,
+		)
 	}
-	if f.I8mm && ramMB >= 8000 {
-		return "Q4_K_S"
+
+	// x86 note (not a block, just a note)
+	if !info.IsArm64 {
+		notes = append(notes, "For best results, use an Arm64 server.")
 	}
-	if ramMB >= 8000 {
-		return "Q4_K_S"
+
+	info.Readiness = Readiness{
+		CanRunInference: canRun,
+		BlockReason:     blockReason,
+		Notes:           notes,
 	}
-	if ramMB >= 4000 {
-		return "Q3_K_M"
-	}
-	return "Q2_K"
 }

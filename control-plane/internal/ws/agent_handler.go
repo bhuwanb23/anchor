@@ -487,17 +487,32 @@ type platformReportPayload struct {
 		Sve2    bool `json:"sve2"`
 		Bf16    bool `json:"bf16"`
 	} `json:"features"`
+	Build struct {
+		ImageTag          string `json:"image_tag"`
+		OptimizationLabel string `json:"optimization_label"`
+		ExpectedHardware  string `json:"expected_hardware"`
+	} `json:"build"`
 	Memory struct {
-		TotalMB          int64  `json:"total_mb"`
-		AvailableMB      int64  `json:"available_mb"`
-		RecommendedModel string `json:"recommended_max_model_size"`
+		TotalMB           int64   `json:"total_mb"`
+		AvailableMB       int64   `json:"available_mb"`
+		AvailableGB       float64 `json:"available_gb"`
+		RecommendedModel  string  `json:"recommended_model"`
+		RecommendedQuant  string  `json:"recommended_quantization"`
+		MemoryNote        string  `json:"memory_note,omitempty"`
+		MemorySufficient  bool    `json:"memory_sufficient"`
 	} `json:"memory"`
 	Disk struct {
-		TotalGB     float64 `json:"total_gb"`
-		AvailableGB float64 `json:"available_gb"`
+		TotalGB         float64 `json:"total_gb"`
+		AvailableGB     float64 `json:"available_gb"`
+		ModelRequiredGB float64 `json:"model_required_gb"`
+		DiskSufficient  bool    `json:"disk_sufficient"`
+		DiskNote        string  `json:"disk_note,omitempty"`
 	} `json:"disk"`
-	RecommendedBuild  string `json:"recommended_build"`
-	RecommendedQuant  string `json:"recommended_quantization"`
+	Readiness struct {
+		CanRunInference bool     `json:"can_run_inference"`
+		BlockReason     string   `json:"block_reason,omitempty"`
+		Notes           []string `json:"notes,omitempty"`
+	} `json:"readiness"`
 }
 
 func handlePlatformReport(db *sql.DB, serverID string, payload json.RawMessage) {
@@ -523,13 +538,24 @@ func handlePlatformReport(db *sql.DB, serverID string, payload json.RawMessage) 
 		FeatureSve:             p.Features.Sve,
 		FeatureSve2:            p.Features.Sve2,
 		FeatureBf16:            p.Features.Bf16,
+		ImageTag:               p.Build.ImageTag,
+		OptimizationLabel:      p.Build.OptimizationLabel,
+		ExpectedHardware:       p.Build.ExpectedHardware,
 		MemoryTotalMB:          p.Memory.TotalMB,
 		MemoryAvailableMB:      p.Memory.AvailableMB,
+		MemoryAvailableGB:      p.Memory.AvailableGB,
 		MemoryRecommendedModel: p.Memory.RecommendedModel,
+		MemoryRecommendedQuant: p.Memory.RecommendedQuant,
+		MemorySufficient:       p.Memory.MemorySufficient,
+		MemoryNote:             p.Memory.MemoryNote,
 		DiskTotalGB:            p.Disk.TotalGB,
 		DiskAvailableGB:        p.Disk.AvailableGB,
-		RecommendedBuild:       p.RecommendedBuild,
-		RecommendedQuantization: p.RecommendedQuant,
+		DiskModelRequiredGB:    p.Disk.ModelRequiredGB,
+		DiskSufficient:         p.Disk.DiskSufficient,
+		DiskNote:               p.Disk.DiskNote,
+		CanRunInference:        p.Readiness.CanRunInference,
+		BlockReason:            p.Readiness.BlockReason,
+		ReadinessNotes:         p.Readiness.Notes,
 	}
 
 	if err := queries.UpsertServerPlatform(db, platform); err != nil {
@@ -541,7 +567,9 @@ func handlePlatformReport(db *sql.DB, serverID string, payload json.RawMessage) 
 		"server_id", serverID,
 		"is_arm64", p.IsArm64,
 		"microarchitecture", p.CPU.Microarchitecture,
-		"recommended_build", p.RecommendedBuild,
+		"image_tag", p.Build.ImageTag,
+		"optimization", p.Build.OptimizationLabel,
+		"can_run", p.Readiness.CanRunInference,
 	)
 }
 
