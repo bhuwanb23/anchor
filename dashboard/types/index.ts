@@ -204,6 +204,51 @@ export interface InferenceStatus {
 }
 
 // ---------------------------------------------------------------------------
+// Benchmark Results (Anchor Infer — Phase 3)
+// ---------------------------------------------------------------------------
+
+export interface PromptBenchmarkResult {
+  prompt: string;
+  index: number;
+  warmup: boolean;
+  time_to_first_token_ms: number;
+  total_tokens: number;
+  total_time_ms: number;
+  tokens_per_second: number;
+}
+
+export interface PerformixResult {
+  tokens_per_second: number;
+  time_to_first_token_ms: number;
+  peak_memory_bytes: number;
+  total_duration_ms: number;
+  raw_output?: string;
+}
+
+export interface BenchmarkResult {
+  build_label: string;
+  image_tag: string;
+  prompts: PromptBenchmarkResult[];
+  median_tokens_per_second: number;
+  median_time_to_first_token_ms: number;
+  peak_memory_bytes: number;
+  total_duration_ms: number;
+  tokens_per_second_range: [number, number];
+  ttft_range_ms: [number, number];
+  variance_detected: boolean;
+  actual_runs: number;
+  performix?: PerformixResult;
+}
+
+export interface BenchmarkComparison {
+  tokens_per_second_improvement_pct: number;
+  ttft_improvement_pct: number;
+  memory_difference_bytes: number;
+  optimized: BenchmarkResult;
+  generic: BenchmarkResult;
+}
+
+// ---------------------------------------------------------------------------
 // Server Events
 // ---------------------------------------------------------------------------
 

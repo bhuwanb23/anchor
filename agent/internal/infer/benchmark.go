@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"math"
 	"math/rand"
 	"net/http"
 	"strconv"
@@ -35,7 +36,15 @@ var benchmarkPrompts = []string{
 const warmupRuns = 1
 
 // measuredRuns is the number of times each prompt is sent after warmup.
+// If variance between the two exceeds 20%, a third run is performed.
 const measuredRuns = 2
+
+// varianceThreshold is the maximum allowed coefficient of variation (as a percentage)
+// between measured runs. If exceeded, a third run is triggered.
+const varianceThreshold = 20.0
+
+// stabilizeWait is how long to wait after pausing other containers before benchmarking.
+const stabilizeWait = 10 * time.Second
 
 // ---------------------------------------------------------------------------
 // Benchmark result types
@@ -54,13 +63,39 @@ type PromptResult struct {
 
 // BenchmarkResult holds the full benchmark result for a deployment.
 type BenchmarkResult struct {
-	BuildLabel       string         `json:"build_label"`       // "optimized" or "generic"
-	ImageTag         string         `json:"image_tag"`
-	Prompts          []PromptResult `json:"prompts"`
-	MedianTokensSec  float64        `json:"median_tokens_per_second"`
-	MedianTTFT       time.Duration  `json:"median_time_to_first_token_ms"`
-	PeakMemoryBytes  uint64         `json:"peak_memory_bytes"`
-	TotalDuration    time.Duration  `json:"total_duration_ms"`
+	BuildLabel        string         `json:"build_label"`        // "optimized" or "generic"
+	ImageTag          string         `json:"image_tag"`
+	Prompts           []PromptResult `json:"prompts"`
+	MedianTokensSec   float64        `json:"median_tokens_per_second"`
+	MedianTTFT        time.Duration  `json:"median_time_to_first_token_ms"`
+	PeakMemoryBytes   uint64         `json:"peak_memory_bytes"`
+	TotalDuration     time.Duration  `json:"total_duration_ms"`
+	// Variance info
+	TokensSecRange    [2]float64     `json:"tokens_per_second_range"`   // [min, max] of measured runs
+	TTFTRange         [2]int64       `json:"ttft_range_ms"`             // [min, max] of measured runs
+	VarianceDetected  bool           `json:"variance_detected"`         // true if >20% variance triggered 3rd run
+	ActualRuns        int            `json:"actual_runs"`               // number of measured runs (2 or 3)
+	// Arm Performix results (nil if not available)
+	Performix         *PerformixResult `json:"performix,omitempty"`
+}
+
+// PerformixResult holds results from Arm Performix benchmarking.
+type PerformixResult struct {
+	TokensPerSecond  float64       `json:"tokens_per_second"`
+	TimeToFirstToken time.Duration `json:"time_to_first_token_ms"`
+	PeakMemoryBytes  uint64        `json:"peak_memory_bytes"`
+	TotalDuration    time.Duration `json:"total_duration_ms"`
+	RawOutput        string        `json:"raw_output,omitempty"`
+}
+
+// BenchmarkComparison holds a side-by-side comparison of generic vs optimized builds.
+type BenchmarkComparison struct {
+	Optimized         *BenchmarkResult `json:"optimized"`
+	Generic           *BenchmarkResult `json:"generic"`
+	// Calculated improvements
+	TokensSecImprovement   float64 `json:"tokens_per_second_improvement_pct"`
+	TTFTImprovement        float64 `json:"ttft_improvement_pct"`         // positive = faster
+	MemoryDifferenceBytes  int64   `json:"memory_difference_bytes"`
 }
 
 // ---------------------------------------------------------------------------
@@ -77,6 +112,9 @@ type BenchmarkOpts struct {
 	Docker      *docker.Client    // Docker client
 	Logger      *slog.Logger      // Logger
 	OnProgress  func(msg string)  // Progress callback
+	// Container pausing
+	ManagedContainers []string    // Container IDs to pause during benchmark (non-empty = pause)
+	PerformixImage    string      // Performix Docker image (empty = skip Performix)
 }
 
 // RunBenchmark starts a container with the given image, waits for it to be ready,
@@ -102,10 +140,41 @@ func RunBenchmark(ctx context.Context, opts BenchmarkOpts) (*BenchmarkResult, er
 		}
 	}
 
+	// ─── Step 1: Pause non-essential containers ──────────────────────
+	var stoppedContainers []string
+	if len(opts.ManagedContainers) > 0 {
+		progress(fmt.Sprintf("Pausing %d other containers for accurate benchmarking...", len(opts.ManagedContainers)))
+		for _, cid := range opts.ManagedContainers {
+			if err := opts.Docker.StopContainerGraceful(ctx, cid); err != nil {
+				log.Warn("benchmark: failed to pause container", "id", cid[:12], "error", err)
+				continue
+			}
+			stoppedContainers = append(stoppedContainers, cid)
+			log.Info("benchmark: paused container", "id", cid[:12])
+		}
+
+		progress(fmt.Sprintf("Waiting %s for resource stabilization...", stabilizeWait))
+		time.Sleep(stabilizeWait)
+	}
+
+	// Ensure containers are restarted when done.
+	defer func() {
+		if len(stoppedContainers) > 0 {
+			progress("Restarting paused containers...")
+			for _, cid := range stoppedContainers {
+				if err := opts.Docker.StartContainer(ctx, cid); err != nil {
+					log.Warn("benchmark: failed to restart container", "id", cid[:12], "error", err)
+				} else {
+					log.Info("benchmark: restarted container", "id", cid[:12])
+				}
+			}
+		}
+	}()
+
+	// ─── Step 2: Start benchmark container ───────────────────────────
 	progress("Starting benchmark container...")
 	log.Info("benchmark: starting container", "image", opts.Image, "name", containerName)
 
-	// Start the container.
 	containerID, err := opts.Docker.CreateContainer(ctx, docker.CreateContainerOpts{
 		Name:  containerName,
 		Image: opts.Image,
@@ -170,39 +239,22 @@ func RunBenchmark(ctx context.Context, opts BenchmarkOpts) (*BenchmarkResult, er
 
 	progress("Server ready. Running benchmark prompts...")
 
-	// Run prompts: warmup runs + measured runs.
-	totalRuns := warmupRuns + measuredRuns
-	var measured []PromptResult
-
-	for i, prompt := range benchmarkPrompts {
-		for run := 0; run < totalRuns; run++ {
-			isWarmup := run < warmupRuns
-			runLabel := "measured"
-			if isWarmup {
-				runLabel = "warmup"
-			}
-
-			progress(fmt.Sprintf("Prompt %d/4, run %d/%d (%s)...", i+1, run+1, totalRuns, runLabel))
-
-			pr, err := runPrompt(ctx, endpoint, prompt, i, isWarmup)
-			if err != nil {
-				log.Warn("benchmark: prompt failed", "prompt", i, "run", run, "error", err)
-				continue
-			}
-
-			if !isWarmup {
-				measured = append(measured, *pr)
-			}
-
-			// Brief pause between requests.
-			time.Sleep(500 * time.Millisecond)
-		}
+	// ─── Step 3: Run prompts with variance detection ─────────────────
+	measured, varianceDetected, err := runMeasuredPrompts(ctx, endpoint, progress, log)
+	if err != nil {
+		return nil, err
 	}
+	result.Prompts = measured
+	result.VarianceDetected = varianceDetected
+	result.ActualRuns = len(measured) / len(benchmarkPrompts)
 
 	// Calculate aggregate metrics.
-	result.Prompts = measured
 	result.MedianTokensSec = medianTokensPerSecond(measured)
 	result.MedianTTFT = medianTTFT(measured)
+
+	// Calculate ranges.
+	result.TokensSecRange = tokensSecRange(measured)
+	result.TTFTRange = ttftRange(measured)
 
 	// Sample peak memory.
 	progress("Collecting peak memory usage...")
@@ -211,10 +263,291 @@ func RunBenchmark(ctx context.Context, opts BenchmarkOpts) (*BenchmarkResult, er
 		result.PeakMemoryBytes = stats.RAMUsedBytes
 	}
 
+	// ─── Step 4: Run Arm Performix (if available) ───────────────────
+	if opts.PerformixImage != "" {
+		progress("Running Arm Performix benchmark...")
+		performixResult, err := runPerformix(ctx, opts, containerID, port, progress, log)
+		if err != nil {
+			log.Warn("benchmark: Performix failed (continuing with custom results)", "error", err)
+			progress("Arm Performix unavailable, using custom benchmark results")
+		} else {
+			result.Performix = performixResult
+			log.Info("benchmark: Performix complete",
+				"tok_sec", performixResult.TokensPerSecond,
+				"ttft_ms", performixResult.TimeToFirstToken.Milliseconds(),
+			)
+		}
+	}
+
 	progress(fmt.Sprintf("Benchmark complete. Median: %.1f tok/s, TTFT: %dms",
 		result.MedianTokensSec, result.MedianTTFT.Milliseconds()))
 
 	return result, nil
+}
+
+// ---------------------------------------------------------------------------
+// Measured prompts with variance detection
+// ---------------------------------------------------------------------------
+
+// runMeasuredPrompts runs the benchmark prompts with warmup + measured runs.
+// If variance exceeds the threshold, a third run is performed.
+func runMeasuredPrompts(ctx context.Context, endpoint string, progress func(string), log *slog.Logger) ([]PromptResult, bool, error) {
+	var allMeasured []PromptResult
+	varianceDetected := false
+
+	for i, prompt := range benchmarkPrompts {
+		// Phase 1: Warmup run (discard).
+		progress(fmt.Sprintf("Prompt %d/4, warmup run...", i+1))
+		_, err := runPrompt(ctx, endpoint, prompt, i, true)
+		if err != nil {
+			log.Warn("benchmark: warmup prompt failed", "prompt", i, "error", err)
+			continue
+		}
+		time.Sleep(500 * time.Millisecond)
+
+		// Phase 2: First measured run.
+		progress(fmt.Sprintf("Prompt %d/4, measured run 1/2...", i+1))
+		pr1, err := runPrompt(ctx, endpoint, prompt, i, false)
+		if err != nil {
+			log.Warn("benchmark: measured prompt 1 failed", "prompt", i, "error", err)
+			continue
+		}
+		allMeasured = append(allMeasured, *pr1)
+		time.Sleep(500 * time.Millisecond)
+
+		// Phase 3: Second measured run.
+		progress(fmt.Sprintf("Prompt %d/4, measured run 2/2...", i+1))
+		pr2, err := runPrompt(ctx, endpoint, prompt, i, false)
+		if err != nil {
+			log.Warn("benchmark: measured prompt 2 failed", "prompt", i, "error", err)
+			continue
+		}
+		allMeasured = append(allMeasured, *pr2)
+
+		// Phase 4: Variance check — run third if needed.
+		if pr1.TokensPerSecond > 0 && pr2.TokensPerSecond > 0 {
+			cv := coefficientOfVariation(pr1.TokensPerSecond, pr2.TokensPerSecond)
+			if cv > varianceThreshold {
+				varianceDetected = true
+				log.Warn("benchmark: high variance detected, running third measurement",
+					"prompt", i, "cv_pct", fmt.Sprintf("%.1f", cv))
+				progress(fmt.Sprintf("Prompt %d/4, high variance (%.0f%%), running 3rd measurement...", i+1, cv))
+
+				pr3, err := runPrompt(ctx, endpoint, prompt, i, false)
+				if err != nil {
+					log.Warn("benchmark: third measurement failed", "prompt", i, "error", err)
+				} else {
+					allMeasured = append(allMeasured, *pr3)
+				}
+			}
+		}
+
+		time.Sleep(500 * time.Millisecond)
+	}
+
+	return allMeasured, varianceDetected, nil
+}
+
+// coefficientOfVariation returns the CV (in percentage) of two values.
+func coefficientOfVariation(a, b float64) float64 {
+	if a == 0 && b == 0 {
+		return 0
+	}
+	mean := (a + b) / 2
+	if mean == 0 {
+		return 0
+	}
+	stddev := math.Sqrt(((a-mean)*(a-mean) + (b-mean)*(b-mean)) / 2)
+	return (stddev / mean) * 100
+}
+
+// ---------------------------------------------------------------------------
+// Arm Performix runner
+// ---------------------------------------------------------------------------
+
+const (
+	performixImageDefault = "arm/perf:latest"
+	performixTimeout      = 10 * time.Minute
+)
+
+// runPerformix pulls and runs the Arm Performix container against the inference server.
+func runPerformix(ctx context.Context, opts BenchmarkOpts, serverContainerID, serverPort string, progress func(string), log *slog.Logger) (*PerformixResult, error) {
+	image := opts.PerformixImage
+	if image == "" {
+		image = performixImageDefault
+	}
+
+	// Pull the Performix image.
+	progress("Pulling Arm Performix image...")
+	pullCtx, pullCancel := context.WithTimeout(ctx, 2*time.Minute)
+	defer pullCancel()
+
+	_, err := opts.Docker.PullImage(pullCtx, image, nil)
+	if err != nil {
+		return nil, fmt.Errorf("pull performix image: %w", err)
+	}
+
+	// Get the server container's IP on the Docker network so Performix can reach it.
+	serverInfo, err := opts.Docker.InspectContainer(ctx, serverContainerID)
+	if err != nil {
+		return nil, fmt.Errorf("inspect server container: %w", err)
+	}
+
+	// Find the network IP.
+	var serverIP string
+	for _, net := range serverInfo.NetworkSettings.Networks {
+		if net.IPAddress != "" {
+			serverIP = net.IPAddress
+			break
+		}
+	}
+	if serverIP == "" {
+		serverIP = "host.docker.internal"
+	}
+
+	// Run Performix container.
+	suffix := fmt.Sprintf("%06x", rand.Intn(0xffffff))
+	performixName := "performix_" + suffix
+
+	performixCtx, performixCancel := context.WithTimeout(ctx, performixTimeout)
+	defer performixCancel()
+
+	containerID, err := opts.Docker.CreateContainer(performixCtx, docker.CreateContainerOpts{
+		Name:  performixName,
+		Image: image,
+		Env: []string{
+			fmt.Sprintf("TARGET_URL=http://%s:%s", serverIP, serverPort),
+			"MODEL_NAME=local",
+		},
+		Labels: map[string]string{
+			"managed-by": "yourplatform",
+			"purpose":    "performix-benchmark",
+		},
+		RestartPolicy: "no",
+	})
+	if err != nil {
+		return nil, fmt.Errorf("create performix container: %w", err)
+	}
+
+	defer func() {
+		_ = opts.Docker.StopContainerGraceful(ctx, containerID)
+		_ = opts.Docker.RemoveContainer(ctx, containerID)
+	}()
+
+	if err := opts.Docker.StartContainer(performixCtx, containerID); err != nil {
+		return nil, fmt.Errorf("start performix container: %w", err)
+	}
+
+	progress("Performix running (this may take several minutes)...")
+
+	// Wait for Performix to finish by monitoring container status.
+	deadline := time.Now().Add(performixTimeout)
+	for time.Now().Before(deadline) {
+		select {
+		case <-performixCtx.Done():
+			return nil, performixCtx.Err()
+		case <-time.After(5 * time.Second):
+		}
+
+		stats, err := opts.Docker.GetContainerStats(performixCtx, containerID)
+		if err != nil {
+			// Container may have exited.
+			break
+		}
+		_ = stats
+	}
+
+	// Collect Performix output.
+	output, err := opts.Docker.GetContainerLogsTail(performixCtx, containerID, 200)
+	if err != nil {
+		return nil, fmt.Errorf("get performix logs: %w", err)
+	}
+
+	// Parse Performix output for metrics.
+	result := parsePerformixOutput(output)
+	if result == nil {
+		return nil, fmt.Errorf("could not parse performix output")
+	}
+	result.RawOutput = output
+
+	return result, nil
+}
+
+// parsePerformixOutput extracts metrics from Performix container logs.
+// Performix output format varies by version; this parser handles common patterns.
+func parsePerformixOutput(output string) *PerformixResult {
+	result := &PerformixResult{}
+
+	for _, line := range strings.Split(output, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+
+		// Look for tokens/sec patterns.
+		// Common formats:
+		//   "Tokens/sec: 31.5"
+		//   "tok/s: 31.5"
+		//   "throughput: 31.5 tokens/s"
+		lower := strings.ToLower(line)
+
+		if idx := strings.Index(lower, "tokens/sec"); idx >= 0 || strings.Index(lower, "tok/s") >= 0 || strings.Index(lower, "tokens/s") >= 0 {
+			if val := extractFloat(line); val > 0 {
+				result.TokensPerSecond = val
+			}
+		}
+
+		if strings.Contains(lower, "time to first token") || strings.Contains(lower, "ttft") || strings.Contains(lower, "first token latency") {
+			if val := extractFloat(line); val > 0 {
+				// Assume milliseconds.
+				result.TimeToFirstToken = time.Duration(int64(val)) * time.Millisecond
+			}
+		}
+
+		if strings.Contains(lower, "peak memory") || strings.Contains(lower, "max memory") || strings.Contains(lower, "memory usage") {
+			if val := extractFloat(line); val > 0 {
+				// Assume MB.
+				result.PeakMemoryBytes = uint64(val * 1024 * 1024)
+			}
+		}
+	}
+
+	// If we didn't find any metrics, return nil.
+	if result.TokensPerSecond == 0 && result.TimeToFirstToken == 0 {
+		return nil
+	}
+
+	return result
+}
+
+// extractFloat pulls the first floating-point number from a line.
+func extractFloat(line string) float64 {
+	// Find the last colon or equals sign, then extract the number.
+	var numStr string
+	for _, sep := range []string{":", "=", "is"} {
+		if idx := strings.LastIndex(strings.ToLower(line), sep); idx >= 0 {
+			rest := strings.TrimSpace(line[idx+len(sep):])
+			// Extract leading number.
+			for i, ch := range rest {
+				if (ch < '0' || ch > '9') && ch != '.' && ch != '-' {
+					if i > 0 {
+						numStr = rest[:i]
+					}
+					break
+				}
+				if i == len(rest)-1 {
+					numStr = rest
+				}
+			}
+			break
+		}
+	}
+
+	if numStr == "" {
+		return 0
+	}
+	val, _ := strconv.ParseFloat(numStr, 64)
+	return val
 }
 
 // ---------------------------------------------------------------------------
@@ -298,7 +631,6 @@ func runPrompt(ctx context.Context, endpoint, prompt string, index int, warmup b
 	for scanner.Scan() {
 		line := scanner.Text()
 
-		// Skip empty lines and non-data lines.
 		if !strings.HasPrefix(line, "data: ") {
 			continue
 		}
@@ -319,12 +651,10 @@ func runPrompt(ctx context.Context, endpoint, prompt string, index int, warmup b
 
 		choice := chunk.Choices[0]
 
-		// Record time of first token with content.
 		if firstTokenTime.IsZero() && choice.Delta.Content != "" {
 			firstTokenTime = time.Now()
 		}
 
-		// Count tokens (approximate: 1 chunk ≈ 1 token).
 		if choice.Delta.Content != "" {
 			totalTokens++
 		}
@@ -336,7 +666,6 @@ func runPrompt(ctx context.Context, endpoint, prompt string, index int, warmup b
 
 	totalTime := time.Since(start)
 
-	// If we got usage info from the server, use the accurate count.
 	if lastUsage != nil && lastUsage.CompletionTokens > 0 {
 		totalTokens = lastUsage.CompletionTokens
 	}
@@ -385,6 +714,53 @@ func waitForReady(ctx context.Context, endpoint string) error {
 }
 
 // ---------------------------------------------------------------------------
+// Comparison helpers
+// ---------------------------------------------------------------------------
+
+// CompareResults calculates improvements between generic and optimized builds.
+func CompareResults(optimized, generic *BenchmarkResult) *BenchmarkComparison {
+	if optimized == nil || generic == nil {
+		return nil
+	}
+
+	comp := &BenchmarkComparison{
+		Optimized: optimized,
+		Generic:   generic,
+	}
+
+	// Tokens/sec improvement: ((optimized - generic) / generic) × 100
+	if generic.MedianTokensSec > 0 {
+		comp.TokensSecImprovement = ((optimized.MedianTokensSec - generic.MedianTokensSec) / generic.MedianTokensSec) * 100
+	}
+
+	// TTFT improvement: ((generic - optimized) / generic) × 100
+	// Positive means optimized is faster (lower TTFT).
+	if generic.MedianTTFT > 0 {
+		comp.TTFTImprovement = ((float64(generic.MedianTTFT) - float64(optimized.MedianTTFT)) / float64(generic.MedianTTFT)) * 100
+	}
+
+	// Memory difference (usually near zero, same model).
+	comp.MemoryDifferenceBytes = int64(optimized.PeakMemoryBytes) - int64(generic.PeakMemoryBytes)
+
+	return comp
+}
+
+// FormatImprovement returns a human-readable improvement string.
+func FormatImprovement(pct float64, higherIsBetter bool) string {
+	if higherIsBetter {
+		if pct > 0 {
+			return fmt.Sprintf("+%.1f%%", pct)
+		}
+		return fmt.Sprintf("%.1f%%", pct)
+	}
+	// For TTFT, positive improvement means lower is better.
+	if pct > 0 {
+		return fmt.Sprintf("%.1f%% faster", pct)
+	}
+	return fmt.Sprintf("%.1f%% slower", -pct)
+}
+
+// ---------------------------------------------------------------------------
 // Aggregate helpers
 // ---------------------------------------------------------------------------
 
@@ -413,12 +789,46 @@ func medianTTFT(results []PromptResult) time.Duration {
 	return time.Duration(int64(median)) * time.Millisecond
 }
 
+// tokensSecRange returns the [min, max] of tokens/sec across measured results.
+func tokensSecRange(results []PromptResult) [2]float64 {
+	if len(results) == 0 {
+		return [2]float64{0, 0}
+	}
+	min, max := results[0].TokensPerSecond, results[0].TokensPerSecond
+	for _, r := range results[1:] {
+		if r.TokensPerSecond < min {
+			min = r.TokensPerSecond
+		}
+		if r.TokensPerSecond > max {
+			max = r.TokensPerSecond
+		}
+	}
+	return [2]float64{min, max}
+}
+
+// ttftRange returns the [min, max] TTFT in milliseconds across measured results.
+func ttftRange(results []PromptResult) [2]int64 {
+	if len(results) == 0 {
+		return [2]int64{0, 0}
+	}
+	min, max := results[0].TimeToFirstToken.Milliseconds(), results[0].TimeToFirstToken.Milliseconds()
+	for _, r := range results[1:] {
+		ms := r.TimeToFirstToken.Milliseconds()
+		if ms < min {
+			min = ms
+		}
+		if ms > max {
+			max = ms
+		}
+	}
+	return [2]int64{min, max}
+}
+
 // medianFloat64 returns the median of a float64 slice.
 func medianFloat64(vals []float64) float64 {
 	if len(vals) == 0 {
 		return 0
 	}
-	// Simple sort for small slices.
 	sorted := make([]float64, len(vals))
 	copy(sorted, vals)
 	for i := 1; i < len(sorted); i++ {

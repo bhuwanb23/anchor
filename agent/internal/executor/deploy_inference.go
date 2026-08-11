@@ -181,6 +181,22 @@ func (e *Executor) executeDeployInference(ctx context.Context, cmd Command, resu
 	slog.Info("API credentials generated", "project", projectName)
 
 	// ─── Step 3J: Run baseline benchmark (generic build) ─────────────
+	// Collect non-inference containers to pause during benchmarking.
+	var managedContainers []string
+	if e.stateManager != nil {
+		state := e.stateManager.GetState()
+		for projName, proj := range state.Projects {
+			if projName == projectName {
+				continue // Don't pause our own project's containers.
+			}
+			for role, ct := range proj.Containers {
+				if role != "inference" && ct.ContainerID != "" && ct.Status == "running" {
+					managedContainers = append(managedContainers, ct.ContainerID)
+				}
+			}
+		}
+	}
+
 	var baselineResult *infer.BenchmarkResult
 	if e.docker != nil && e.inferRegistry != nil {
 		SendProgress(e.progressSender, cmd.ID, "benchmarking", "Running baseline benchmark (generic build)...", 47)
@@ -191,13 +207,14 @@ func (e *Executor) executeDeployInference(ctx context.Context, cmd Command, resu
 		}
 
 		baselineResult, err = infer.RunBenchmark(ctx, infer.BenchmarkOpts{
-			Image:      genericImage,
-			VolumeName: volName,
-			VolumePath: "/models",
-			ModelFile:  quantInfo.FileName,
-			Template:   tmpl,
-			Docker:     e.docker,
-			Logger:     slog.Default(),
+			Image:             genericImage,
+			VolumeName:        volName,
+			VolumePath:        "/models",
+			ModelFile:         quantInfo.FileName,
+			Template:          tmpl,
+			Docker:            e.docker,
+			Logger:            slog.Default(),
+			ManagedContainers: managedContainers,
 			OnProgress: func(msg string) {
 				SendProgress(e.progressSender, cmd.ID, "benchmarking", msg, 47)
 			},
@@ -211,6 +228,8 @@ func (e *Executor) executeDeployInference(ctx context.Context, cmd Command, resu
 				"median_tok_sec", baselineResult.MedianTokensSec,
 				"median_ttft_ms", baselineResult.MedianTTFT.Milliseconds(),
 				"peak_memory", infer.FormatBytes(baselineResult.PeakMemoryBytes),
+				"variance_detected", baselineResult.VarianceDetected,
+				"actual_runs", baselineResult.ActualRuns,
 			)
 		}
 	}
@@ -326,6 +345,50 @@ func (e *Executor) executeDeployInference(ctx context.Context, cmd Command, resu
 		testPassed = true
 	}
 
+	// ─── Step 3K: Run optimized benchmark ────────────────────────────
+	var optimizedResult *infer.BenchmarkResult
+	var benchmarkComparison *infer.BenchmarkComparison
+	if e.docker != nil && e.inferRegistry != nil {
+		SendProgress(e.progressSender, cmd.ID, "benchmarking", "Running optimized benchmark...", 88)
+
+		optimizedResult, err = infer.RunBenchmark(ctx, infer.BenchmarkOpts{
+			Image:             optimizedImage,
+			VolumeName:        volName,
+			VolumePath:        "/models",
+			ModelFile:         quantInfo.FileName,
+			Template:          tmpl,
+			Docker:            e.docker,
+			Logger:            slog.Default(),
+			ManagedContainers: managedContainers,
+			// Performix image (if available in the platform image set).
+			PerformixImage: "ghcr.io/arm-performix/performix:latest",
+			OnProgress: func(msg string) {
+				SendProgress(e.progressSender, cmd.ID, "benchmarking", msg, 88)
+			},
+		})
+		if err != nil {
+			slog.Warn("optimized benchmark failed (continuing deployment)", "error", err)
+			SendProgress(e.progressSender, cmd.ID, "benchmarking", "Optimized benchmark failed, continuing...", 88)
+		} else {
+			slog.Info("optimized benchmark complete",
+				"median_tok_sec", optimizedResult.MedianTokensSec,
+				"median_ttft_ms", optimizedResult.MedianTTFT.Milliseconds(),
+				"peak_memory", infer.FormatBytes(optimizedResult.PeakMemoryBytes),
+				"variance_detected", optimizedResult.VarianceDetected,
+				"actual_runs", optimizedResult.ActualRuns,
+				"performix_available", optimizedResult.Performix != nil,
+			)
+
+			// Build comparison if baseline is available.
+			if baselineResult != nil {
+				benchmarkComparison = infer.CompareResults(optimizedResult, baselineResult)
+				SendProgress(e.progressSender, cmd.ID, "benchmarking",
+					fmt.Sprintf("Benchmark complete: %s improvement in throughput",
+						infer.FormatImprovement(benchmarkComparison.TokensSecImprovement, true)), 92)
+			}
+		}
+	}
+
 	// ─── Persist state ────────────────────────────────────────────────
 	if e.stateManager != nil {
 		_ = e.stateManager.SetContainer(projectName, "inference", &state.ContainerState{
@@ -343,7 +406,7 @@ func (e *Executor) executeDeployInference(ctx context.Context, cmd Command, resu
 
 	endpointURL := fmt.Sprintf("https://%s", domain)
 
-	// Build response with baseline benchmark if available.
+	// Build response with benchmark comparison if available.
 	resultMap := map[string]interface{}{
 		"template_id":     tmpl.ID,
 		"container_id":    containerID,
@@ -360,9 +423,38 @@ func (e *Executor) executeDeployInference(ctx context.Context, cmd Command, resu
 		"memory_limit_mb": memLimitMB,
 		"model_size_gb":   quantInfo.SizeGB,
 		"test_passed":     testPassed,
+		"arm_features":    plat.Build.OptimizationLabel,
 	}
 
-	if baselineResult != nil {
+	// Include benchmark comparison if both runs succeeded.
+	if benchmarkComparison != nil {
+		resultMap["benchmark_comparison"] = map[string]interface{}{
+			"tokens_per_second_improvement_pct": benchmarkComparison.TokensSecImprovement,
+			"ttft_improvement_pct":              benchmarkComparison.TTFTImprovement,
+			"memory_difference_bytes":           benchmarkComparison.MemoryDifferenceBytes,
+			"optimized": map[string]interface{}{
+				"median_tokens_per_second":   optimizedResult.MedianTokensSec,
+				"median_ttft_ms":             optimizedResult.MedianTTFT.Milliseconds(),
+				"peak_memory_bytes":          optimizedResult.PeakMemoryBytes,
+				"tokens_per_second_range":    optimizedResult.TokensSecRange,
+				"ttft_range_ms":              optimizedResult.TTFTRange,
+				"variance_detected":          optimizedResult.VarianceDetected,
+				"actual_runs":                optimizedResult.ActualRuns,
+				"performix":                  optimizedResult.Performix,
+			},
+			"generic": map[string]interface{}{
+				"median_tokens_per_second":   baselineResult.MedianTokensSec,
+				"median_ttft_ms":             baselineResult.MedianTTFT.Milliseconds(),
+				"peak_memory_bytes":          baselineResult.PeakMemoryBytes,
+				"tokens_per_second_range":    baselineResult.TokensSecRange,
+				"ttft_range_ms":              baselineResult.TTFTRange,
+				"variance_detected":          baselineResult.VarianceDetected,
+				"actual_runs":                baselineResult.ActualRuns,
+				"performix":                  baselineResult.Performix,
+			},
+		}
+	} else if baselineResult != nil {
+		// Fallback: only baseline available.
 		resultMap["baseline_benchmark"] = map[string]interface{}{
 			"median_tokens_per_second": baselineResult.MedianTokensSec,
 			"median_ttft_ms":           baselineResult.MedianTTFT.Milliseconds(),
