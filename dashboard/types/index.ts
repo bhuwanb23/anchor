@@ -146,6 +146,64 @@ export interface PlatformInfo {
 }
 
 // ---------------------------------------------------------------------------
+// Inference Templates (Anchor Infer — Phase 2)
+// ---------------------------------------------------------------------------
+
+export interface InferenceTemplate {
+  id: string;
+  name: string;
+  description: string;
+  category: string;
+  model: {
+    family: string;
+    size: string;
+    variant: string;
+    default_quant: string;
+    fallback_quants: string[];
+  };
+  runtime: {
+    engine: string;
+    internal_port: number;
+    api_format: string;
+    api_path: string;
+  };
+  resources: {
+    min_ram_gb: number;
+    min_disk_gb: number;
+    preferred_arch: string;
+  };
+}
+
+export interface DeployInferenceRequest {
+  template_id: string;
+  domain?: string;
+  api_key?: string;
+}
+
+export interface DeployInferenceResponse {
+  command_id: string;
+  status: string;
+}
+
+export interface InferenceStatus {
+  deployed: boolean;
+  status?: string;
+  created_at?: string;
+  details?: {
+    template_id: string;
+    container_id: string;
+    image_tag: string;
+    quantization: string;
+    model_file: string;
+    internal_port: number;
+    domain?: string;
+    api_path: string;
+    optimization: string;
+    memory_limit_mb: number;
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Server Events
 // ---------------------------------------------------------------------------
 

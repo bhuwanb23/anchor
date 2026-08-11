@@ -89,6 +89,7 @@ func NewRouter(database *sql.DB, cfg *config.Config, hub *ws.Hub, delivery *aler
 	backupHandler := &handlers.Backup{DB: database, Hub: hub}
 	teamHandler := &handlers.Teams{DB: database, Mailer: sender, Logger: slog.Default()}
 	platformHandler := &handlers.Platform{DB: database}
+	inferHandler := &handlers.Infer{DB: database, Hub: hub}
 	step5 := &handlers.Step5{DB: database, Cfg: cfg}
 
 	r.Route("/api/v1", func(r chi.Router) {
@@ -148,6 +149,11 @@ func NewRouter(database *sql.DB, cfg *config.Config, hub *ws.Hub, delivery *aler
 
 			// --- Platform (Anchor Infer) ---
 			r.Get("/servers/{serverID}/platform", platformHandler.GetServerPlatform)
+
+			// --- Inference (Anchor Infer) ---
+			r.Get("/infer/templates", inferHandler.ListTemplates)
+			r.Post("/servers/{serverID}/infer/deploy", inferHandler.DeployInference)
+			r.Get("/servers/{serverID}/infer/status", inferHandler.GetInferenceStatus)
 
 			// --- Apps (Layer 6 Step 5 handlers) ---
 			r.Get("/servers/{serverID}/apps", step5.ListApps)

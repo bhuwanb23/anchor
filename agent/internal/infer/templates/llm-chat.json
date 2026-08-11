@@ -1,0 +1,61 @@
+{
+  "id": "llm-chat-kleidiai",
+  "name": "LLM Chat",
+  "description": "Deploy a conversational AI endpoint powered by Llama 3.1 with OpenAI-compatible API",
+  "category": "Language Model",
+  "model": {
+    "family": "Llama 3.1",
+    "size": "8B",
+    "variant": "Instruct",
+    "source": {
+      "repository": "bartowski/Meta-Llama-3.1-8B-Instruct-GGUF",
+      "registry": "huggingface"
+    },
+    "default_quant": "Q4_K_M",
+    "fallback_quants": ["Q3_K_M", "Q2_K"],
+    "format": "GGUF",
+    "quantizations": {
+      "Q4_K_M": {
+        "file_name": "Meta-Llama-3.1-8B-Instruct-Q4_K_M.gguf",
+        "size_gb": 4.9,
+        "min_ram_gb": 6.0
+      },
+      "Q3_K_M": {
+        "file_name": "Meta-Llama-3.1-8B-Instruct-Q3_K_M.gguf",
+        "size_gb": 3.5,
+        "min_ram_gb": 5.0
+      },
+      "Q2_K": {
+        "file_name": "Meta-Llama-3.1-8B-Instruct-Q2_K.gguf",
+        "size_gb": 2.9,
+        "min_ram_gb": 4.0
+      }
+    }
+  },
+  "runtime": {
+    "engine": "llama.cpp",
+    "server_mode": "--server",
+    "internal_port": 8080,
+    "api_format": "openai-compatible",
+    "api_path": "/v1/chat/completions",
+    "context_window": 4096,
+    "max_concurrent": 4
+  },
+  "resources": {
+    "min_ram_gb": 6.0,
+    "min_disk_gb": 5.0,
+    "recommended_ram_gb": 10.0,
+    "preferred_arch": "arm64"
+  },
+  "benchmark": {
+    "prompts": [
+      "Explain the theory of general relativity in simple terms.",
+      "Write a Python function that implements binary search.",
+      "What are the key differences between TCP and UDP?",
+      "Summarize the causes and effects of World War I."
+    ],
+    "warmup_runs": 1,
+    "measured_runs": 2,
+    "metrics": ["tokens_per_sec", "ttft", "memory_mb"]
+  }
+}

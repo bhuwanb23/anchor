@@ -15,6 +15,7 @@ import (
 	"github.com/yourname/yourplatform/agent/internal/config"
 	"github.com/yourname/yourplatform/agent/internal/docker"
 	"github.com/yourname/yourplatform/agent/internal/executor"
+	"github.com/yourname/yourplatform/agent/internal/infer"
 	"github.com/yourname/yourplatform/agent/internal/lifecycle"
 	"github.com/yourname/yourplatform/agent/internal/logstream"
 	"github.com/yourname/yourplatform/agent/internal/metrics"
@@ -183,6 +184,15 @@ func runAgent(args []string) int {
 	exec := executor.New(dockerClient, caddyMgr, backupMgr).
 		WithStateManager(stateMgr).
 		WithServerID(cfg.ServerID)
+
+	// Load inference templates
+	inferRegistry, err := infer.NewRegistry()
+	if err != nil {
+		slog.Warn("failed to load inference templates", "error", err)
+	} else {
+		exec.WithInferRegistry(inferRegistry)
+		slog.Info("inference templates loaded", "count", len(inferRegistry.List()))
+	}
 
 	wsURL := lifecycle.WSURLFromControlPlane(cfg.ControlPlaneURL)
 	wsClient := ws.NewClient(wsURL, cfg.AgentID, cfg.AgentSecret, cfg.WSReconnectSec)

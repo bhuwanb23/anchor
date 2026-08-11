@@ -14,6 +14,7 @@ import (
 	"github.com/yourname/yourplatform/agent/internal/caddy"
 	"github.com/yourname/yourplatform/agent/internal/docker"
 	"github.com/yourname/yourplatform/agent/internal/env"
+	"github.com/yourname/yourplatform/agent/internal/infer"
 	"github.com/yourname/yourplatform/agent/internal/logstream"
 	"github.com/yourname/yourplatform/agent/internal/state"
 )
@@ -98,6 +99,13 @@ type BackupConfigPayload struct {
 	RetentionMonthly int  `json:"retention_monthly,omitempty"`
 }
 
+type DeployInferencePayload struct {
+	TemplateID string `json:"template_id"`
+	ServerID   string `json:"server_id"`
+	Domain     string `json:"domain,omitempty"`
+	APIKey     string `json:"api_key,omitempty"`
+}
+
 type FetchLogsPayload struct {
 	ContainerID string `json:"container_id"`
 }
@@ -129,6 +137,7 @@ type Executor struct {
 	progressSender ProgressSender
 	updateFn       func(ctx context.Context, version string) error
 	preflightFn    func() (string, error)
+	inferRegistry  *infer.Registry
 }
 
 // ProgressReporter sends image pull progress updates to the control plane.
@@ -217,6 +226,13 @@ func (e *Executor) WithPreflightFn(fn func() (string, error)) *Executor {
 func (e *Executor) WithEnvManager(em *env.Manager) *Executor {
 	if em != nil {
 		e.envManager = em
+	}
+	return e
+}
+
+func (e *Executor) WithInferRegistry(r *infer.Registry) *Executor {
+	if r != nil {
+		e.inferRegistry = r
 	}
 	return e
 }
@@ -343,6 +359,8 @@ func (e *Executor) Execute(ctx context.Context, cmd Command) Result {
 		err = e.executeGetState(ctx, cmd, &result)
 	case "detect_platform":
 		err = e.executeDetectPlatform(ctx, cmd, &result)
+	case "deploy_inference":
+		err = e.executeDeployInference(ctx, cmd, &result)
 	default:
 		result.Status = "error"
 		result.Error = fmt.Sprintf("unknown command type: %s", cmd.Type)
