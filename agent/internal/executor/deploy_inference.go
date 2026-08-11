@@ -180,6 +180,41 @@ func (e *Executor) executeDeployInference(ctx context.Context, cmd Command, resu
 
 	slog.Info("API credentials generated", "project", projectName)
 
+	// ─── Step 3J: Run baseline benchmark (generic build) ─────────────
+	var baselineResult *infer.BenchmarkResult
+	if e.docker != nil && e.inferRegistry != nil {
+		SendProgress(e.progressSender, cmd.ID, "benchmarking", "Running baseline benchmark (generic build)...", 47)
+
+		genericImage := platform.InferImageBase + ":arm64"
+		if !plat.IsArm64 {
+			genericImage = platform.InferImageBase + ":x86_64"
+		}
+
+		baselineResult, err = infer.RunBenchmark(ctx, infer.BenchmarkOpts{
+			Image:      genericImage,
+			VolumeName: volName,
+			VolumePath: "/models",
+			ModelFile:  quantInfo.FileName,
+			Template:   tmpl,
+			Docker:     e.docker,
+			Logger:     slog.Default(),
+			OnProgress: func(msg string) {
+				SendProgress(e.progressSender, cmd.ID, "benchmarking", msg, 47)
+			},
+		})
+		if err != nil {
+			// Benchmark failure is non-fatal — log and continue.
+			slog.Warn("baseline benchmark failed (continuing deployment)", "error", err)
+			SendProgress(e.progressSender, cmd.ID, "benchmarking", "Baseline benchmark failed, continuing...", 47)
+		} else {
+			slog.Info("baseline benchmark complete",
+				"median_tok_sec", baselineResult.MedianTokensSec,
+				"median_ttft_ms", baselineResult.MedianTTFT.Milliseconds(),
+				"peak_memory", infer.FormatBytes(baselineResult.PeakMemoryBytes),
+			)
+		}
+	}
+
 	// ─── Step 3F: Start inference server ───────────────────────────────
 	SendProgress(e.progressSender, cmd.ID, "starting", "Starting inference server...", 50)
 
@@ -307,7 +342,9 @@ func (e *Executor) executeDeployInference(ctx context.Context, cmd Command, resu
 	SendProgress(e.progressSender, cmd.ID, "complete", "Inference server deployed successfully!", 100)
 
 	endpointURL := fmt.Sprintf("https://%s", domain)
-	output, _ := json.Marshal(map[string]interface{}{
+
+	// Build response with baseline benchmark if available.
+	resultMap := map[string]interface{}{
 		"template_id":     tmpl.ID,
 		"container_id":    containerID,
 		"image_tag":       optimizedImage,
@@ -323,7 +360,18 @@ func (e *Executor) executeDeployInference(ctx context.Context, cmd Command, resu
 		"memory_limit_mb": memLimitMB,
 		"model_size_gb":   quantInfo.SizeGB,
 		"test_passed":     testPassed,
-	})
+	}
+
+	if baselineResult != nil {
+		resultMap["baseline_benchmark"] = map[string]interface{}{
+			"median_tokens_per_second": baselineResult.MedianTokensSec,
+			"median_ttft_ms":           baselineResult.MedianTTFT.Milliseconds(),
+			"peak_memory_bytes":        baselineResult.PeakMemoryBytes,
+			"total_duration_ms":        baselineResult.TotalDuration.Milliseconds(),
+		}
+	}
+
+	output, _ := json.Marshal(resultMap)
 	result.Status = "success"
 	result.Output = string(output)
 
