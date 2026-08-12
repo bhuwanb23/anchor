@@ -444,7 +444,9 @@ func TestJSONFieldNames(t *testing.T) {
 		FixInstruction: "do nothing",
 		AutoFixed:      false,
 	})
-	r.SystemInfo = SystemInfo{OS: "linux", Arch: "amd64"}
+	// os_pretty is serialized with omitempty, so the fixture must populate it
+	// for the field-contract assertion below to see it.
+	r.SystemInfo = SystemInfo{OS: "linux", OSVersion: "6.8", OSPretty: "Ubuntu 24.04", Arch: "amd64"}
 	r.Done()
 
 	data, _ := json.Marshal(r)
