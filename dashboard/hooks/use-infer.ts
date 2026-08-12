@@ -7,11 +7,15 @@ import type {
   InferenceTemplate,
   InferenceDeployResult,
   PlatformInfo,
+  BenchmarkComparison,
 } from "@/types";
 
 // ---------------------------------------------------------------------------
-// Deploy phases — the step list shown in Section 2 (Deploy Progress).
-// Keyed by the `phase` field the agent sends in command_progress messages.
+// Deploy steps — Section 2 (Deploy Progress) step list.
+// Mapped from the `phase` + `percent` fields the agent sends in
+// command_progress messages. The agent emits `benchmarking` twice (generic at
+// ~47%, optimized at ~88%), so percent disambiguates which benchmark step is
+// active.
 // ---------------------------------------------------------------------------
 
 export const INFER_DEPLOY_STEPS = [
@@ -19,16 +23,19 @@ export const INFER_DEPLOY_STEPS = [
   { key: "pulling", label: "Pulling runtime images" },
   { key: "volume", label: "Preparing model storage" },
   { key: "downloading", label: "Downloading model weights" },
-  { key: "credentials", label: "Generating API credentials" },
   { key: "benchmarking", label: "Benchmarking generic build" },
   { key: "starting", label: "Starting optimized inference server" },
-  { key: "loading", label: "Loading model into memory" },
   { key: "routing", label: "Configuring HTTPS endpoint" },
-  { key: "testing", label: "Testing endpoint" },
-  { key: "complete", label: "Deployment complete" },
+  { key: "benchmarking", label: "Benchmarking optimized build" },
 ] as const;
 
-export type InferDeployPhase = "idle" | "deploying" | "succeeded" | "failed";
+export const INFER_BENCH_STEPS = [
+  { key: "benchmarking", label: "Benchmarking generic build" },
+  { key: "benchmarking", label: "Benchmarking optimized build" },
+] as const;
+
+export type InferDeployPhase = "idle" | "deploying" | "benchmarking" | "succeeded" | "failed";
+export type InferDeployMode = "deploy" | "benchmark";
 
 export interface InferProgress {
   command_id: string;
@@ -37,13 +44,66 @@ export interface InferProgress {
   percent: number;
 }
 
+export interface InferLogLine {
+  at: number;
+  text: string;
+}
+
+export interface InferStepTiming {
+  started: number;
+  done?: number;
+}
+
 export interface InferDeployState {
   phase: InferDeployPhase;
+  mode: InferDeployMode;
   commandId: string | null;
   progress: InferProgress | null;
   result: InferenceDeployResult | null;
   error: string | null;
   startedAt: number | null;
+  log: InferLogLine[];
+  stepTimings: Record<number, InferStepTiming>;
+  stepIndex: number;
+}
+
+// Map an agent (phase, percent) pair to the 0-based index of the active step.
+// Returns steps.length for the fully-complete state.
+export function stepIndexFor(
+  mode: InferDeployMode,
+  phase: string,
+  percent: number
+): number {
+  const steps = mode === "benchmark" ? INFER_BENCH_STEPS : INFER_DEPLOY_STEPS;
+  if (phase === "complete") return steps.length;
+  switch (phase) {
+    case "validating":
+      return 0;
+    case "pulling":
+      return 1;
+    case "volume":
+      return 2;
+    case "downloading":
+    case "credentials":
+      return 3;
+    case "benchmarking":
+      // Generic benchmark runs at ~47%, optimized at ~88%.
+      return percent < 70
+        ? mode === "benchmark"
+          ? 0
+          : 4
+        : mode === "benchmark"
+          ? 1
+          : 7;
+    case "starting":
+    case "loading":
+      return mode === "benchmark" ? 1 : 5;
+    case "routing":
+    case "testing":
+      return mode === "benchmark" ? 1 : 6;
+    default:
+      return 0;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -132,51 +192,108 @@ export function usePlatformInfo(serverId: string | null) {
 }
 
 // ---------------------------------------------------------------------------
-// Deploy — POST the deploy command, then track command_progress /
+// Deploy / benchmark — POST the command, then track command_progress and
 // command_result over the shared WebSocket.
 // ---------------------------------------------------------------------------
 
 const initialState: InferDeployState = {
   phase: "idle",
+  mode: "deploy",
   commandId: null,
   progress: null,
   result: null,
   error: null,
   startedAt: null,
+  log: [],
+  stepTimings: {},
+  stepIndex: 0,
 };
+
+const MAX_LOG_LINES = 300;
 
 export function useInferDeploy(serverId: string | null) {
   const [state, setState] = useState<InferDeployState>(initialState);
   const unsubRef = useRef<(() => void)[]>([]);
   const mountedRef = useRef(true);
+  const lastTemplateRef = useRef<string | null>(null);
 
-  // Parse the deploy result output — the agent returns a JSON string with
-  // the endpoint URL, API key, and benchmark comparison.
+  // Parse the command output — the agent returns a JSON string with the
+  // endpoint URL, API key, and (for benchmark runs) a fresh comparison.
   const parseResult = useCallback((output: string): InferenceDeployResult => {
     try {
-      const parsed = JSON.parse(output);
-      return parsed as InferenceDeployResult;
+      return JSON.parse(output) as InferenceDeployResult;
     } catch {
       return { error: output };
     }
   }, []);
 
+  const appendLog = useCallback(
+    (prev: InferDeployState, text: string): InferDeployState => {
+      const next: InferLogLine[] = [...prev.log, { at: Date.now(), text }];
+      if (next.length > MAX_LOG_LINES) next.splice(0, next.length - MAX_LOG_LINES);
+      return { ...prev, log: next };
+    },
+    []
+  );
+
+  const advanceStep = useCallback(
+    (prev: InferDeployState, idx: number): InferDeployState => {
+      if (idx === prev.stepIndex) return prev;
+      const timings = { ...prev.stepTimings };
+      const now = Date.now();
+      // Mark the previous active step as done.
+      const prevTiming = timings[prev.stepIndex];
+      if (prevTiming && !prevTiming.done) {
+        timings[prev.stepIndex] = { ...prevTiming, done: now };
+      }
+      // Start timing the newly active step.
+      const nextTiming = timings[idx];
+      if (!nextTiming) {
+        timings[idx] = { started: now };
+      }
+      return { ...prev, stepTimings: timings, stepIndex: idx };
+    },
+    []
+  );
+
+  const applyProgress = useCallback(
+    (prev: InferDeployState, phase: string, message: string, percent: number): InferDeployState => {
+      const idx = stepIndexFor(prev.mode, phase, percent);
+      let next: InferDeployState = {
+        ...prev,
+        progress: { command_id: prev.commandId || "", phase, message, percent },
+      };
+      next = advanceStep(next, idx);
+      return appendLog(next, message || phase);
+    },
+    [advanceStep, appendLog]
+  );
+
   const deploy = useCallback(
     async (templateId: string): Promise<boolean> => {
       if (!serverId) return false;
+      lastTemplateRef.current = templateId;
       try {
         const res = await api.post<{ command_id: string; status: string }>(
           `/api/v1/servers/${serverId}/infer/deploy`,
           { template_id: templateId }
         );
         const commandId = res.data.command_id;
+        const now = Date.now();
         setState({
+          ...initialState,
           phase: "deploying",
+          mode: "deploy",
           commandId,
-          progress: { command_id: commandId, phase: "validating", message: "Starting deployment…", percent: 2 },
-          result: null,
-          error: null,
-          startedAt: Date.now(),
+          startedAt: now,
+          stepTimings: { 0: { started: now } },
+          log: [{ at: now, text: `Deploying ${templateId}…` }],
+          progress: {
+            command_id: commandId,
+            phase: "validating",
+            message: "Starting deployment…",
+            percent: 2,
+          },
         });
         return true;
       } catch (e) {
@@ -194,8 +311,81 @@ export function useInferDeploy(serverId: string | null) {
     [serverId]
   );
 
+  // Re-run the benchmark pipeline against the existing deployment. The
+  // previously deployed endpoint stays up; only the comparison is refreshed.
+  const runBenchmark = useCallback(
+    async (templateId: string): Promise<boolean> => {
+      if (!serverId) return false;
+      lastTemplateRef.current = templateId;
+      try {
+        const res = await api.post<{ command_id: string; status: string }>(
+          `/api/v1/servers/${serverId}/infer/benchmark`,
+          { template_id: templateId }
+        );
+        const commandId = res.data.command_id;
+        const now = Date.now();
+        setState((prev) => ({
+          ...prev,
+          phase: "benchmarking",
+          mode: "benchmark",
+          commandId,
+          error: null,
+          startedAt: now,
+          stepTimings: { 0: { started: now } },
+          stepIndex: 0,
+          log: [...prev.log, { at: now, text: "Re-running benchmark…" }],
+          progress: {
+            command_id: commandId,
+            phase: "benchmarking",
+            message: "Running baseline benchmark…",
+            percent: 10,
+          },
+        }));
+        return true;
+      } catch (e) {
+        setState((prev) => ({
+          ...prev,
+          phase: "failed",
+          error:
+            (e as { response?: { data?: { error?: string } } })?.response?.data
+              ?.error ||
+            (e instanceof Error ? e.message : "Benchmark failed to start"),
+        }));
+        return false;
+      }
+    },
+    [serverId]
+  );
+
+  // Try Again — re-deploy the last template from scratch.
+  const retry = useCallback((): Promise<boolean> => {
+    if (!lastTemplateRef.current) return Promise.resolve(false);
+    return deploy(lastTemplateRef.current);
+  }, [deploy]);
+
   const reset = useCallback(() => {
     setState(initialState);
+  }, []);
+
+  // Restore a pre-computed deploy result (e.g. from GET /infer/status on
+  // page load) so Sections 3 and 4 populate immediately.
+  const restore = useCallback((result: InferenceDeployResult) => {
+    const now = Date.now();
+    setState({
+      ...initialState,
+      phase: "succeeded",
+      mode: "deploy",
+      result,
+      startedAt: now,
+      log: [{ at: now, text: "Deployment restored from saved state." }],
+      progress: {
+        command_id: "",
+        phase: "complete",
+        message: "Deployment complete",
+        percent: 100,
+      },
+      stepIndex: INFER_DEPLOY_STEPS.length,
+    });
   }, []);
 
   useEffect(() => {
@@ -212,17 +402,7 @@ export function useInferDeploy(serverId: string | null) {
       if (!p.command_id) return;
       setState((prev) => {
         if (prev.commandId && p.command_id !== prev.commandId) return prev;
-        return {
-          ...prev,
-          phase: "deploying",
-          commandId: p.command_id || null,
-          progress: {
-            command_id: p.command_id || prev.commandId || "",
-            phase: p.phase || "",
-            message: p.message || "",
-            percent: typeof p.percent === "number" ? p.percent : prev.progress?.percent ?? 0,
-          },
-        };
+        return applyProgress(prev, p.phase || "", p.message || "", typeof p.percent === "number" ? p.percent : prev.progress?.percent ?? 0);
       });
     };
 
@@ -237,21 +417,53 @@ export function useInferDeploy(serverId: string | null) {
       setState((prev) => {
         if (prev.commandId && p.command_id !== prev.commandId) return prev;
         if (p.status === "success") {
-          const result = p.output ? parseResult(p.output) : null;
+          const parsed = p.output ? parseResult(p.output) : null;
+          const now = Date.now();
+          if (prev.mode === "benchmark" && prev.result) {
+            // Merge the fresh comparison into the existing endpoint result.
+            const merged: InferenceDeployResult = {
+              ...prev.result,
+              benchmark_comparison:
+                (parsed?.benchmark_comparison as BenchmarkComparison) ||
+                prev.result.benchmark_comparison,
+              benchmarked_at:
+                parsed?.benchmarked_at || prev.result.benchmarked_at || new Date(now).toISOString(),
+            };
+            return {
+              ...prev,
+              phase: "succeeded",
+              error: null,
+              result: merged,
+              stepTimings: {
+                ...prev.stepTimings,
+                [prev.stepIndex]: { ...prev.stepTimings[prev.stepIndex], done: now },
+              },
+              stepIndex: INFER_BENCH_STEPS.length,
+              log: [...prev.log, { at: now, text: "Benchmark complete." }],
+            };
+          }
           return {
             ...prev,
             phase: "succeeded",
-            progress: prev.progress
-              ? { ...prev.progress, percent: 100, phase: "complete" }
-              : prev.progress,
-            result,
             error: null,
+            result: parsed
+              ? {
+                  ...parsed,
+                  benchmarked_at: parsed.benchmarked_at || new Date(now).toISOString(),
+                }
+              : prev.result,
+            stepTimings: {
+              ...prev.stepTimings,
+              [prev.stepIndex]: { ...prev.stepTimings[prev.stepIndex], done: now },
+            },
+            stepIndex: INFER_DEPLOY_STEPS.length,
+            log: [...prev.log, { at: now, text: parsed?.endpoint_url ? "Deploy complete." : "Benchmark complete." }],
           };
         }
         return {
           ...prev,
           phase: "failed",
-          error: p.error || p.output || "Deploy failed",
+          error: p.error || p.output || "Command failed",
         };
       });
     };
@@ -271,7 +483,7 @@ export function useInferDeploy(serverId: string | null) {
       unsubRef.current.forEach((fn) => fn());
       unsubRef.current = [];
     };
-  }, [parseResult]);
+  }, [applyProgress, parseResult]);
 
-  return { ...state, deploy, reset };
+  return { ...state, deploy, runBenchmark, retry, reset, restore };
 }

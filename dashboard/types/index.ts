@@ -224,6 +224,7 @@ export interface InferenceDeployResult {
   test_passed?: boolean;
   benchmark_comparison?: BenchmarkComparison;
   baseline_benchmark?: BenchmarkResult;
+  benchmarked_at?: string;
   error?: string;
 }
 
@@ -254,7 +255,7 @@ export interface BenchmarkResult {
   image_tag: string;
   prompts: PromptBenchmarkResult[];
   median_tokens_per_second: number;
-  median_time_to_first_token_ms: number;
+  median_ttft_ms: number;
   peak_memory_bytes: number;
   total_duration_ms: number;
   tokens_per_second_range: [number, number];
@@ -270,6 +271,7 @@ export interface BenchmarkComparison {
   memory_difference_bytes: number;
   optimized: BenchmarkResult;
   generic: BenchmarkResult;
+  benchmarked_at?: string;
 }
 
 // ---------------------------------------------------------------------------
