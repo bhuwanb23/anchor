@@ -12,6 +12,7 @@ import {
   Server,
   Bell,
   HardDrive,
+  Cpu,
 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { useServerStore } from "@/store/server-store";
@@ -185,6 +186,14 @@ export function Sidebar({ collapsed, onNavigate, onExpand }: SidebarProps) {
             icon={<Server className="h-4 w-4" />}
           >
             Servers
+          </NavItem>
+          <NavItem
+            href="/infer"
+            active={pathname === "/infer" || pathname.startsWith("/infer")}
+            onClick={onNavigate}
+            icon={<Cpu className="h-4 w-4" />}
+          >
+            Infer
           </NavItem>
         </div>
 
