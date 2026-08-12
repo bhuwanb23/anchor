@@ -417,11 +417,12 @@ export function useInferDeploy(serverId: string | null) {
         status?: string;
         details?: InferenceDeployResult;
       }>(`/api/v1/servers/${serverId}/infer/status`);
-      if (!mountedRef.current) return;		if (!statusRes.data?.deployed || !statusRes.data.details) {
-			// No completed deploy yet. If a command is in flight, leave the UI
-			// alone so the live progress keeps showing; otherwise stay idle.
-			return;
-		}
+      if (!mountedRef.current) return;
+      if (!statusRes.data?.deployed || !statusRes.data.details) {
+        // No completed deploy yet. If a command is in flight, leave the UI
+        // alone so the live progress keeps showing; otherwise stay idle.
+        return;
+      }
       const details = { ...statusRes.data.details };
       // Fold in the persisted benchmark comparison if available.
       try {
