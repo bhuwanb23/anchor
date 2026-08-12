@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ChevronDown } from "lucide-react";
 import { useServers } from "@/hooks/use-server";
@@ -16,12 +16,15 @@ import { LiveEndpoint } from "@/components/infer/live-endpoint";
 import { BenchmarkCard } from "@/components/infer/benchmark-card";
 import { Button } from "@/components/ui/button";
 import { FadeIn } from "@/components/ui/page-states";
+import api from "@/lib/api";
+import type { BenchmarkComparison, InferenceDeployResult } from "@/types";
 
 export default function InferPage() {
   const router = useRouter();
   const { servers, isLoading: serversLoading } = useServers(15_000);
   const selectServer = useServerStore((s) => s.selectServer);
   const [serverId, setServerId] = useState<string | null>(null);
+  const restoredRef = useRef(false);
 
   // Default to the first connected server (or first server) once loaded.
   useEffect(() => {
@@ -48,6 +51,49 @@ export default function InferPage() {
   const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null);
   const deploy = useInferDeploy(serverId);
 
+  // On page load, restore pre-computed results so a demo shows Sections 3 + 4
+  // immediately (the benchmark runs ahead of the presentation).
+  useEffect(() => {
+    if (!serverId || restoredRef.current) return;
+    restoredRef.current = true;
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const statusRes = await api.get<{
+          deployed: boolean;
+          details?: InferenceDeployResult;
+        }>(`/api/v1/servers/${serverId}/infer/status`);
+        if (!cancelled && statusRes.data?.deployed && statusRes.data.details) {
+          const details = statusRes.data.details;
+          // Fold in the persisted benchmark comparison if available.
+          try {
+            const benchRes = await api.get<BenchmarkComparison>(
+              `/api/v1/servers/${serverId}/infer/benchmark`
+            );
+            if (!cancelled && benchRes.data?.optimized) {
+              details.benchmark_comparison = benchRes.data;
+              details.benchmarked_at = benchRes.data.benchmarked_at || details.benchmarked_at;
+            }
+          } catch {
+            // No stored benchmark yet — keep whatever the deploy returned.
+          }
+          if (!cancelled) {
+            deploy.restore(details);
+            setSelectedTemplateId(details.template_id || null);
+          }
+        }
+      } catch {
+        // No prior deploy — Sections 2–4 stay hidden.
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [serverId]);
+
   const selectedTemplate = useMemo(
     () => templates.find((t) => t.id === selectedTemplateId) || null,
     [templates, selectedTemplateId]
@@ -64,6 +110,15 @@ export default function InferPage() {
     }
   };
 
+  const handleRunBenchmark = async () => {
+    const templateId = deploy.result?.template_id || selectedTemplateId;
+    if (!templateId) return;
+    await deploy.runBenchmark(templateId);
+    if (window !== undefined) {
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }
+  };
+
   const hardwareLabel =
     platform && (platform.cpu_microarchitecture || platform.cpu_cloud_provider_hint)
       ? [platform.cpu_microarchitecture, platform.cpu_cloud_provider_hint]
@@ -75,10 +130,11 @@ export default function InferPage() {
 
   // Progressive visibility:
   //   Section 1 — always visible
-  //   Section 2 — appears when deploy starts
+  //   Section 2 — appears when deploy/benchmark is running or failed
   //   Section 3 — appears when deploy succeeds
   //   Section 4 — appears when the benchmark comparison is present
-  const showProgress = deploy.phase === "deploying" || deploy.phase === "failed";
+  const showProgress =
+    deploy.phase === "deploying" || deploy.phase === "benchmarking" || deploy.phase === "failed";
   const showEndpoint = deploy.phase === "succeeded" && !!deploy.result;
   const showBenchmark = showEndpoint && !!benchmark;
 
@@ -112,17 +168,35 @@ export default function InferPage() {
           }}
         />
 
-        {/* Section 2 — Deploy Progress (appears when deploy starts) */}
-        {showProgress && selectedTemplate && (
+        {/* Section 2 — Deploy / Benchmark Progress */}
+        {showProgress && (
           <DeployProgress
-            modelName={`${selectedTemplate.name}${modelLabel ? ` (${modelLabel})` : ""}`}
+            modelName={
+              selectedTemplate?.name ||
+              deploy.result?.template_id ||
+              "model"
+            }
             state={deploy}
+            onRetry={() => {
+              void handleDeploy(deploy.result?.template_id || selectedTemplateId || "");
+            }}
+            onChangeConfig={() => {
+              deploy.reset();
+              setSelectedTemplateId(null);
+              if (window !== undefined) {
+                window.scrollTo({ top: 0, behavior: "smooth" });
+              }
+            }}
           />
         )}
 
         {/* Section 3 — Live Endpoint (appears when deploy succeeds) */}
         {showEndpoint && deploy.result && (
-          <LiveEndpoint result={deploy.result} />
+          <LiveEndpoint
+            result={deploy.result}
+            modelLabel={modelLabel || deploy.result.model_file?.replace(/\.gguf$/, "") || ""}
+            deployedAt={deploy.result.benchmarked_at}
+          />
         )}
 
         {/* Section 4 — Benchmark Card (appears when benchmark completes) */}
@@ -131,6 +205,8 @@ export default function InferPage() {
             comparison={benchmark}
             hardwareLabel={hardwareLabel}
             modelLabel={modelLabel || deploy.result?.model_file || "LLM"}
+            running={deploy.phase === "benchmarking"}
+            onRunAgain={handleRunBenchmark}
           />
         )}
 
@@ -146,7 +222,11 @@ export default function InferPage() {
             <div className="relative">
               <select
                 value={serverId || ""}
-                onChange={(e) => setServerId(e.target.value || null)}
+                onChange={(e) => {
+                  setServerId(e.target.value || null);
+                  restoredRef.current = false;
+                  deploy.reset();
+                }}
                 className="appearance-none rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)] py-2 pl-3.5 pr-9 text-sm font-medium text-[var(--color-ink)] shadow-sm transition-colors focus:border-[var(--color-accent)] focus:outline-none focus:ring-2 focus:ring-[var(--color-accent-soft)]"
               >
                 {servers.map((s) => (
