@@ -77,14 +77,18 @@ func (inf *Infer) DeployInference(w http.ResponseWriter, r *http.Request) {
 		"api_key":     req.APIKey,
 	})
 
-	// Enqueue command
-	if err := queries.EnqueuePendingCommand(inf.DB, cmdID, serverID, "deploy_inference", string(payload), "infer", ""); err != nil {
-		slog.Error("enqueue deploy_inference", "error", err)
+	// Record in the commands audit table (drives GetInferenceStatus + result
+	// routing). QueueOrSendCommand below handles both the live-send path and
+	// enqueueing for offline delivery — enqueueing here too would create a
+	// duplicate pending_commands row when the agent is disconnected.
+	if err := queries.InsertCommand(inf.DB, cmdID, serverID, "deploy_inference", string(payload), "infer", "queued", userID, time.Now().UTC().Format(time.RFC3339)); err != nil {
+		slog.Error("insert deploy_inference command", "error", err)
 		Respond500(w, r)
 		return
 	}
 
-	// Try to send immediately if agent is connected
+	// Send immediately if the agent is connected, otherwise queue for delivery
+	// on reconnect.
 	cmd := map[string]interface{}{
 		"id":      cmdID,
 		"type":    "deploy_inference",
@@ -150,8 +154,8 @@ func (inf *Infer) RunBenchmark(w http.ResponseWriter, r *http.Request) {
 		"server_id":   serverID,
 	})
 
-	if err := queries.EnqueuePendingCommand(inf.DB, cmdID, serverID, "run_benchmark", string(payload), "infer", ""); err != nil {
-		slog.Error("enqueue run_benchmark", "error", err)
+	if err := queries.InsertCommand(inf.DB, cmdID, serverID, "run_benchmark", string(payload), "infer", "queued", userID, time.Now().UTC().Format(time.RFC3339)); err != nil {
+		slog.Error("insert run_benchmark command", "error", err)
 		Respond500(w, r)
 		return
 	}
@@ -213,7 +217,7 @@ func (inf *Infer) GetBenchmarkResults(w http.ResponseWriter, r *http.Request) {
 
 	RespondJSON(w, http.StatusOK, map[string]interface{}{
 		"tokens_per_second_improvement_pct": improvementPct(generic.MedianTokensPerSecond, optimized.MedianTokensPerSecond),
-		"ttft_improvement_pct":              improvementPct(float64(optimized.MedianTTFTMs), float64(generic.MedianTTFTMs)),
+		"ttft_improvement_pct":              ttftImprovementPct(generic.MedianTTFTMs, optimized.MedianTTFTMs),
 		"memory_difference_bytes":           int64(optimized.PeakMemoryBytes) - int64(generic.PeakMemoryBytes),
 		"optimized":                         benchmarkResultResponse(optimized),
 		"generic":                           benchmarkResultResponse(generic),
@@ -228,6 +232,16 @@ func improvementPct(baseline, value float64) float64 {
 		return 0
 	}
 	return ((value - baseline) / baseline) * 100
+}
+
+// ttftImprovementPct mirrors the agent's latency formula: lower TTFT is
+// better, so improvement is measured against the generic baseline.
+// ((generic - optimized) / generic) × 100 → positive = faster.
+func ttftImprovementPct(genericMS, optimizedMS int64) float64 {
+	if genericMS == 0 {
+		return 0
+	}
+	return (float64(genericMS) - float64(optimizedMS)) / float64(genericMS) * 100
 }
 
 // benchmarkResultResponse maps a stored benchmark row to the same shape the
@@ -312,14 +326,17 @@ func (inf *Infer) GetInferenceStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Query latest inference command status
-	var status, output string
-	var createdAt time.Time
+	// Query the latest deploy_inference command from the commands audit table.
+	// The agent's result payload is stored in `result` as JSON with an `output`
+	// field holding the deploy details JSON string.
+	// Note: created_at is stored as TEXT (RFC3339) by the agent, so we scan it
+	// as a string and parse — the SQLite driver can't scan TEXT into time.Time.
+	var status, resultJSON, createdAtRaw string
 	err = inf.DB.QueryRow(`
-		SELECT status, output, created_at FROM pending_commands
-		WHERE server_id = ? AND type = 'deploy_inference'
+		SELECT status, result, created_at FROM commands
+		WHERE server_id = ? AND command_type = 'deploy_inference'
 		ORDER BY created_at DESC LIMIT 1
-	`, serverID).Scan(&status, &output, &createdAt)
+	`, serverID).Scan(&status, &resultJSON, &createdAtRaw)
 
 	if err == sql.ErrNoRows {
 		RespondJSON(w, http.StatusOK, map[string]interface{}{
@@ -328,20 +345,28 @@ func (inf *Infer) GetInferenceStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
+		slog.Error("query infer status", "error", err)
 		Respond500(w, r)
 		return
 	}
 
 	result := map[string]interface{}{
-		"deployed":   status == "completed",
+		"deployed":   status == "success",
 		"status":     status,
-		"created_at": createdAt,
+		"created_at": createdAtRaw,
 	}
 
-	if status == "completed" && output != "" {
-		var out map[string]interface{}
-		if json.Unmarshal([]byte(output), &out) == nil {
-			result["details"] = out
+	if status == "success" && resultJSON != "" {
+		// resultJSON is the agent payload {command_id, status, output, error};
+		// `output` is the deploy details JSON string.
+		var payload struct {
+			Output string `json:"output"`
+		}
+		if json.Unmarshal([]byte(resultJSON), &payload) == nil && payload.Output != "" {
+			var out map[string]interface{}
+			if json.Unmarshal([]byte(payload.Output), &out) == nil {
+				result["details"] = out
+			}
 		}
 	}
 

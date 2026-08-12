@@ -88,18 +88,24 @@ func GetBenchmarkResultsByServer(db *sql.DB, serverID string) ([]BenchmarkResult
 	var results []BenchmarkResult
 	for rows.Next() {
 		var b BenchmarkResult
+		// deployment_id, performix_raw_output are nullable; prompt_results is a
+		// TEXT column that the driver can't scan directly into json.RawMessage.
+		var depID, perfRaw, promptsRaw sql.NullString
 		if err := rows.Scan(
-			&b.ID, &b.ServerID, &b.DeploymentID, &b.TemplateID, &b.BuildLabel, &b.ImageTag, &b.Quantization,
+			&b.ID, &b.ServerID, &depID, &b.TemplateID, &b.BuildLabel, &b.ImageTag, &b.Quantization,
 			&b.ArmFeatures,
 			&b.MedianTokensPerSecond, &b.MedianTTFTMs, &b.PeakMemoryBytes, &b.TotalDurationMs,
-			&b.PromptResults,
+			&promptsRaw,
 			&b.TokensSecRangeMin, &b.TokensSecRangeMax, &b.TTFTRangeMinMs, &b.TTFTRangeMaxMs,
 			&b.VarianceDetected, &b.ActualRuns,
-			&b.PerformixTokensPerSecond, &b.PerformixTTFTMs, &b.PerformixPeakMemoryBytes, &b.PerformixRawOutput,
+			&b.PerformixTokensPerSecond, &b.PerformixTTFTMs, &b.PerformixPeakMemoryBytes, &perfRaw,
 			&b.CreatedAt, &b.UpdatedAt,
 		); err != nil {
 			return nil, err
 		}
+		b.DeploymentID = depID.String
+		b.PerformixRawOutput = perfRaw.String
+		b.PromptResults = json.RawMessage(promptsRaw.String)
 		results = append(results, b)
 	}
 	return results, nil
@@ -109,6 +115,7 @@ func GetBenchmarkResultsByServer(db *sql.DB, serverID string) ([]BenchmarkResult
 // for a server and build label (e.g. "optimized" or "generic").
 func GetLatestBenchmarkByServerAndBuild(db *sql.DB, serverID, buildLabel string) (*BenchmarkResult, error) {
 	var b BenchmarkResult
+	var depID, perfRaw, promptsRaw sql.NullString
 	err := db.QueryRow(`
 		SELECT id, server_id, deployment_id, template_id, build_label, image_tag, quantization,
 		       arm_features,
@@ -122,18 +129,21 @@ func GetLatestBenchmarkByServerAndBuild(db *sql.DB, serverID, buildLabel string)
 		WHERE server_id = ? AND build_label = ?
 		ORDER BY created_at DESC
 		LIMIT 1`, serverID, buildLabel).Scan(
-		&b.ID, &b.ServerID, &b.DeploymentID, &b.TemplateID, &b.BuildLabel, &b.ImageTag, &b.Quantization,
+		&b.ID, &b.ServerID, &depID, &b.TemplateID, &b.BuildLabel, &b.ImageTag, &b.Quantization,
 		&b.ArmFeatures,
 		&b.MedianTokensPerSecond, &b.MedianTTFTMs, &b.PeakMemoryBytes, &b.TotalDurationMs,
-		&b.PromptResults,
+		&promptsRaw,
 		&b.TokensSecRangeMin, &b.TokensSecRangeMax, &b.TTFTRangeMinMs, &b.TTFTRangeMaxMs,
 		&b.VarianceDetected, &b.ActualRuns,
-		&b.PerformixTokensPerSecond, &b.PerformixTTFTMs, &b.PerformixPeakMemoryBytes, &b.PerformixRawOutput,
+		&b.PerformixTokensPerSecond, &b.PerformixTTFTMs, &b.PerformixPeakMemoryBytes, &perfRaw,
 		&b.CreatedAt, &b.UpdatedAt,
 	)
 	if err != nil {
 		return nil, err
 	}
+	b.DeploymentID = depID.String
+	b.PerformixRawOutput = perfRaw.String
+	b.PromptResults = json.RawMessage(promptsRaw.String)
 	return &b, nil
 }
 
