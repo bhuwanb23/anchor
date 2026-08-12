@@ -113,7 +113,12 @@ func (e *Executor) executeRunBenchmark(ctx context.Context, cmd Command, result 
 		},
 	})
 	if err != nil {
-		return fmt.Errorf("baseline benchmark failed: %w", err)
+		// Cross-phase error contract: benchmark failure is not fatal — the
+		// inference endpoint keeps running; the user can retry from the UI.
+		return fmt.Errorf(
+			"The benchmark could not complete: %w. Your inference endpoint is still running and accessible — you can run the benchmark again from the dashboard.",
+			err,
+		)
 	}
 	SendProgress(e.progressSender, cmd.ID, "benchmarking", "Baseline complete. Benchmarking optimized build...", 60)
 
@@ -133,7 +138,10 @@ func (e *Executor) executeRunBenchmark(ctx context.Context, cmd Command, result 
 		},
 	})
 	if err != nil {
-		return fmt.Errorf("optimized benchmark failed: %w", err)
+		return fmt.Errorf(
+			"The benchmark could not complete: %w. Your inference endpoint is still running and accessible — you can run the benchmark again from the dashboard.",
+			err,
+		)
 	}
 
 	comparison := infer.CompareResults(optimizedResult, baselineResult)

@@ -918,30 +918,34 @@ func persistBenchmarkIfPresent(db *sql.DB, serverID string, payload json.RawMess
 		ArmFeatures  string `json:"arm_features"`
 		Comparison   struct {
 			Optimized struct {
-				ImageTag            string  `json:"image_tag"`
-				MedianTokensPerSec  float64 `json:"median_tokens_per_second"`
-				MedianTTFTMs        int64   `json:"median_ttft_ms"`
-				PeakMemoryBytes     uint64  `json:"peak_memory_bytes"`
-				TotalDurationMs     int64   `json:"total_duration_ms"`
-				TokensSecRangeMin   float64 `json:"tokens_sec_range_min"`
-				TokensSecRangeMax   float64 `json:"tokens_sec_range_max"`
-				TTFTRangeMinMs      int64   `json:"ttft_range_min_ms"`
-				TTFTRangeMaxMs      int64   `json:"ttft_range_max_ms"`
-				VarianceDetected    bool    `json:"variance_detected"`
-				ActualRuns          int     `json:"actual_runs"`
+				ImageTag             string    `json:"image_tag"`
+				MedianTokensPerSec   float64   `json:"median_tokens_per_second"`
+				MedianTTFTMs         int64     `json:"median_ttft_ms"`
+				PeakMemoryBytes      uint64    `json:"peak_memory_bytes"`
+				TotalDurationMs      int64     `json:"total_duration_ms"`
+				TokensPerSecondRange [2]float64 `json:"tokens_per_second_range"`
+				TTFTRangeMs          [2]int64   `json:"ttft_range_ms"`
+				TokensSecRangeMin    float64   `json:"tokens_sec_range_min"`
+				TokensSecRangeMax    float64   `json:"tokens_sec_range_max"`
+				TTFTRangeMinMs       int64     `json:"ttft_range_min_ms"`
+				TTFTRangeMaxMs       int64     `json:"ttft_range_max_ms"`
+				VarianceDetected     bool      `json:"variance_detected"`
+				ActualRuns           int       `json:"actual_runs"`
 			} `json:"optimized"`
 			Generic struct {
-				ImageTag            string  `json:"image_tag"`
-				MedianTokensPerSec  float64 `json:"median_tokens_per_second"`
-				MedianTTFTMs        int64   `json:"median_ttft_ms"`
-				PeakMemoryBytes     uint64  `json:"peak_memory_bytes"`
-				TotalDurationMs     int64   `json:"total_duration_ms"`
-				TokensSecRangeMin   float64 `json:"tokens_sec_range_min"`
-				TokensSecRangeMax   float64 `json:"tokens_sec_range_max"`
-				TTFTRangeMinMs      int64   `json:"ttft_range_min_ms"`
-				TTFTRangeMaxMs      int64   `json:"ttft_range_max_ms"`
-				VarianceDetected    bool    `json:"variance_detected"`
-				ActualRuns          int     `json:"actual_runs"`
+				ImageTag             string    `json:"image_tag"`
+				MedianTokensPerSec   float64   `json:"median_tokens_per_second"`
+				MedianTTFTMs         int64     `json:"median_ttft_ms"`
+				PeakMemoryBytes      uint64    `json:"peak_memory_bytes"`
+				TotalDurationMs      int64     `json:"total_duration_ms"`
+				TokensPerSecondRange [2]float64 `json:"tokens_per_second_range"`
+				TTFTRangeMs          [2]int64   `json:"ttft_range_ms"`
+				TokensSecRangeMin    float64   `json:"tokens_sec_range_min"`
+				TokensSecRangeMax    float64   `json:"tokens_sec_range_max"`
+				TTFTRangeMinMs       int64     `json:"ttft_range_min_ms"`
+				TTFTRangeMaxMs       int64     `json:"ttft_range_max_ms"`
+				VarianceDetected     bool      `json:"variance_detected"`
+				ActualRuns           int       `json:"actual_runs"`
 			} `json:"generic"`
 		} `json:"benchmark_comparison"`
 	}
@@ -956,18 +960,31 @@ func persistBenchmarkIfPresent(db *sql.DB, serverID string, payload json.RawMess
 	}
 
 	insertBenchmarkRow := func(buildLabel string, m struct {
-		ImageTag           string  `json:"image_tag"`
-		MedianTokensPerSec float64 `json:"median_tokens_per_second"`
-		MedianTTFTMs       int64   `json:"median_ttft_ms"`
-		PeakMemoryBytes    uint64  `json:"peak_memory_bytes"`
-		TotalDurationMs    int64   `json:"total_duration_ms"`
-		TokensSecRangeMin  float64 `json:"tokens_sec_range_min"`
-		TokensSecRangeMax  float64 `json:"tokens_sec_range_max"`
-		TTFTRangeMinMs     int64   `json:"ttft_range_min_ms"`
-		TTFTRangeMaxMs     int64   `json:"ttft_range_max_ms"`
-		VarianceDetected   bool    `json:"variance_detected"`
-		ActualRuns         int     `json:"actual_runs"`
+		ImageTag             string    `json:"image_tag"`
+		MedianTokensPerSec   float64   `json:"median_tokens_per_second"`
+		MedianTTFTMs         int64     `json:"median_ttft_ms"`
+		PeakMemoryBytes      uint64    `json:"peak_memory_bytes"`
+		TotalDurationMs      int64     `json:"total_duration_ms"`
+		TokensPerSecondRange [2]float64 `json:"tokens_per_second_range"`
+		TTFTRangeMs          [2]int64   `json:"ttft_range_ms"`
+		TokensSecRangeMin    float64   `json:"tokens_sec_range_min"`
+		TokensSecRangeMax    float64   `json:"tokens_sec_range_max"`
+		TTFTRangeMinMs       int64     `json:"ttft_range_min_ms"`
+		TTFTRangeMaxMs       int64     `json:"ttft_range_max_ms"`
+		VarianceDetected     bool      `json:"variance_detected"`
+		ActualRuns           int       `json:"actual_runs"`
 	}) {
+		// The agent sends ranges as arrays (tokens_per_second_range: [min,max]);
+		// older payloads used flat min/max fields. Prefer the array form.
+		tpsMin, tpsMax := m.TokensSecRangeMin, m.TokensSecRangeMax
+		if m.TokensPerSecondRange != [2]float64{} {
+			tpsMin, tpsMax = m.TokensPerSecondRange[0], m.TokensPerSecondRange[1]
+		}
+		ttftMin, ttftMax := m.TTFTRangeMinMs, m.TTFTRangeMaxMs
+		if m.TTFTRangeMs != [2]int64{} {
+			ttftMin, ttftMax = m.TTFTRangeMs[0], m.TTFTRangeMs[1]
+		}
+
 		row := &queries.BenchmarkResult{
 			ServerID:              serverID,
 			TemplateID:            out.TemplateID,
@@ -980,10 +997,10 @@ func persistBenchmarkIfPresent(db *sql.DB, serverID string, payload json.RawMess
 			PeakMemoryBytes:       m.PeakMemoryBytes,
 			TotalDurationMs:       m.TotalDurationMs,
 			PromptResults:         json.RawMessage("[]"), // NOT NULL column
-			TokensSecRangeMin:     m.TokensSecRangeMin,
-			TokensSecRangeMax:     m.TokensSecRangeMax,
-			TTFTRangeMinMs:        m.TTFTRangeMinMs,
-			TTFTRangeMaxMs:        m.TTFTRangeMaxMs,
+			TokensSecRangeMin:     tpsMin,
+			TokensSecRangeMax:     tpsMax,
+			TTFTRangeMinMs:        ttftMin,
+			TTFTRangeMaxMs:        ttftMax,
 			VarianceDetected:      m.VarianceDetected,
 			ActualRuns:            m.ActualRuns,
 		}

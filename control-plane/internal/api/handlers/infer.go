@@ -366,6 +366,13 @@ func (inf *Infer) GetInferenceStatus(w http.ResponseWriter, r *http.Request) {
 			var out map[string]interface{}
 			if json.Unmarshal([]byte(payload.Output), &out) == nil {
 				result["details"] = out
+				// The API key lives in the deploy result output. Returning it on
+				// status lets the dashboard restore a pre-run deployment with a
+				// fully working Section 3 (copy/reveal key + live test prompt)
+				// on page load, which the demo relies on.
+				if key, ok := out["api_key"].(string); ok && key != "" {
+					result["api_key"] = key
+				}
 			}
 		}
 	}
