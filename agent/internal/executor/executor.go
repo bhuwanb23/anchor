@@ -361,6 +361,8 @@ func (e *Executor) Execute(ctx context.Context, cmd Command) Result {
 		err = e.executeDetectPlatform(ctx, cmd, &result)
 	case "deploy_inference":
 		err = e.executeDeployInference(ctx, cmd, &result)
+	case "run_benchmark":
+		err = e.executeRunBenchmark(ctx, cmd, &result)
 	default:
 		result.Status = "error"
 		result.Error = fmt.Sprintf("unknown command type: %s", cmd.Type)
