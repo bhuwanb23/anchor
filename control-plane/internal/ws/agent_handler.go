@@ -837,6 +837,10 @@ func routeCommandResult(hub *Hub, db *sql.DB, serverID string, payload json.RawM
 		return
 	}
 
+	// Anchor Infer: persist any benchmark results carried by the command output
+	// so the dashboard can restore them on page load and history builds up.
+	persistBenchmarkIfPresent(db, serverID, payload)
+
 	// Normal path: a dashboard is waiting on this command.
 	if connID := hub.ResolvePendingCommand(cmdID); connID != "" {
 		_ = queries.UpdateCommandStatus(db, cmdID, commandResultStatus(payload), string(payload))
@@ -883,6 +887,114 @@ func commandResultStatus(payload json.RawMessage) string {
 		return "failed"
 	}
 	return "success"
+}
+
+// persistBenchmarkIfPresent stores benchmark comparison rows from a completed
+// deploy_inference / run_benchmark command result. The agent output is a JSON
+// string with an optional benchmark_comparison object; when present, both the
+// optimized and generic sides are persisted (best-effort).
+func persistBenchmarkIfPresent(db *sql.DB, serverID string, payload json.RawMessage) {
+	if db == nil {
+		return
+	}
+
+	var res struct {
+		Status string `json:"status"`
+		Output string `json:"output"`
+	}
+	if err := json.Unmarshal(payload, &res); err != nil {
+		return
+	}
+	if res.Status != "success" && res.Status != "completed" && res.Status != "ok" {
+		return
+	}
+	if res.Output == "" {
+		return
+	}
+
+	var out struct {
+		TemplateID   string `json:"template_id"`
+		Quantization string `json:"quantization"`
+		ArmFeatures  string `json:"arm_features"`
+		Comparison   struct {
+			Optimized struct {
+				ImageTag            string  `json:"image_tag"`
+				MedianTokensPerSec  float64 `json:"median_tokens_per_second"`
+				MedianTTFTMs        int64   `json:"median_ttft_ms"`
+				PeakMemoryBytes     uint64  `json:"peak_memory_bytes"`
+				TotalDurationMs     int64   `json:"total_duration_ms"`
+				TokensSecRangeMin   float64 `json:"tokens_sec_range_min"`
+				TokensSecRangeMax   float64 `json:"tokens_sec_range_max"`
+				TTFTRangeMinMs      int64   `json:"ttft_range_min_ms"`
+				TTFTRangeMaxMs      int64   `json:"ttft_range_max_ms"`
+				VarianceDetected    bool    `json:"variance_detected"`
+				ActualRuns          int     `json:"actual_runs"`
+			} `json:"optimized"`
+			Generic struct {
+				ImageTag            string  `json:"image_tag"`
+				MedianTokensPerSec  float64 `json:"median_tokens_per_second"`
+				MedianTTFTMs        int64   `json:"median_ttft_ms"`
+				PeakMemoryBytes     uint64  `json:"peak_memory_bytes"`
+				TotalDurationMs     int64   `json:"total_duration_ms"`
+				TokensSecRangeMin   float64 `json:"tokens_sec_range_min"`
+				TokensSecRangeMax   float64 `json:"tokens_sec_range_max"`
+				TTFTRangeMinMs      int64   `json:"ttft_range_min_ms"`
+				TTFTRangeMaxMs      int64   `json:"ttft_range_max_ms"`
+				VarianceDetected    bool    `json:"variance_detected"`
+				ActualRuns          int     `json:"actual_runs"`
+			} `json:"generic"`
+		} `json:"benchmark_comparison"`
+	}
+	if err := json.Unmarshal([]byte(res.Output), &out); err != nil {
+		return
+	}
+
+	optimized := out.Comparison.Optimized
+	generic := out.Comparison.Generic
+	if optimized.MedianTokensPerSec == 0 && optimized.MedianTTFTMs == 0 && optimized.PeakMemoryBytes == 0 {
+		return // no comparison present
+	}
+
+	insertBenchmarkRow := func(buildLabel string, m struct {
+		ImageTag           string  `json:"image_tag"`
+		MedianTokensPerSec float64 `json:"median_tokens_per_second"`
+		MedianTTFTMs       int64   `json:"median_ttft_ms"`
+		PeakMemoryBytes    uint64  `json:"peak_memory_bytes"`
+		TotalDurationMs    int64   `json:"total_duration_ms"`
+		TokensSecRangeMin  float64 `json:"tokens_sec_range_min"`
+		TokensSecRangeMax  float64 `json:"tokens_sec_range_max"`
+		TTFTRangeMinMs     int64   `json:"ttft_range_min_ms"`
+		TTFTRangeMaxMs     int64   `json:"ttft_range_max_ms"`
+		VarianceDetected   bool    `json:"variance_detected"`
+		ActualRuns         int     `json:"actual_runs"`
+	}) {
+		row := &queries.BenchmarkResult{
+			ServerID:              serverID,
+			TemplateID:            out.TemplateID,
+			BuildLabel:            buildLabel,
+			ImageTag:              m.ImageTag,
+			Quantization:          out.Quantization,
+			ArmFeatures:           out.ArmFeatures,
+			MedianTokensPerSecond: m.MedianTokensPerSec,
+			MedianTTFTMs:          m.MedianTTFTMs,
+			PeakMemoryBytes:       m.PeakMemoryBytes,
+			TotalDurationMs:       m.TotalDurationMs,
+			PromptResults:         json.RawMessage("[]"), // NOT NULL column
+			TokensSecRangeMin:     m.TokensSecRangeMin,
+			TokensSecRangeMax:     m.TokensSecRangeMax,
+			TTFTRangeMinMs:        m.TTFTRangeMinMs,
+			TTFTRangeMaxMs:        m.TTFTRangeMaxMs,
+			VarianceDetected:      m.VarianceDetected,
+			ActualRuns:            m.ActualRuns,
+		}
+		if err := queries.InsertBenchmarkResult(db, row); err != nil {
+			slog.Warn("persist benchmark result", "server_id", serverID, "build", buildLabel, "error", err)
+		}
+	}
+
+	insertBenchmarkRow("optimized", optimized)
+	insertBenchmarkRow("generic", generic)
+	slog.Info("benchmark results persisted", "server_id", serverID, "template", out.TemplateID)
 }
 
 func sendHelloAck(conn *websocket.Conn, db *sql.DB, serverID string) {
