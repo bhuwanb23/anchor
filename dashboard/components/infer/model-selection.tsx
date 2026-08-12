@@ -6,6 +6,32 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { InferenceTemplate, PlatformInfo } from "@/types";
+import type { WsConnectionStatus } from "@/hooks/use-infer";
+
+// Connection dot shown in the page header (green/yellow/grey).
+function ConnectionDot({ status }: { status: WsConnectionStatus }) {
+  const color =
+    status === "connected"
+      ? "bg-[var(--color-success)]"
+      : status === "connecting"
+        ? "animate-pulse bg-[var(--color-warning)]"
+        : "bg-[var(--color-muted)]";
+  const label =
+    status === "connected"
+      ? "Connected to control plane"
+      : status === "connecting"
+        ? "Reconnecting…"
+        : "Disconnected";
+  return (
+    <span
+      className="ml-1.5 inline-flex items-center gap-1.5 text-xs font-semibold text-[var(--color-muted)]"
+      title={label}
+    >
+      <span className={`h-2 w-2 rounded-full ${color}`} />
+      {status === "connected" ? "Live" : status === "connecting" ? "Reconnecting" : "Offline"}
+    </span>
+  );
+}
 
 // ---------------------------------------------------------------------------
 // Helpers — human-readable readiness strings
@@ -34,6 +60,7 @@ interface ModelSelectionProps {
   serverId: string | null;
   serverName: string | null;
   serverConnected: boolean;
+  wsStatus: WsConnectionStatus;
   serversCount: number;
   templates: InferenceTemplate[];
   templatesLoading: boolean;
@@ -52,6 +79,7 @@ export function ModelSelection({
   serverId,
   serverName,
   serverConnected,
+  wsStatus,
   serversCount,
   templates,
   templatesLoading,
@@ -72,9 +100,12 @@ export function ModelSelection({
     <section className="space-y-6">
       {/* Header */}
       <div>
-        <h1 className="text-3xl font-extrabold tracking-tight text-[var(--color-ink)]">
-          Anchor Infer
-        </h1>
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+          <h1 className="text-3xl font-extrabold tracking-tight text-[var(--color-ink)]">
+            Anchor Infer
+          </h1>
+          <ConnectionDot status={wsStatus} />
+        </div>
         <p className="mt-1 text-[var(--color-muted)]">
           Deploy AI models on Arm hardware, automatically optimized
         </p>

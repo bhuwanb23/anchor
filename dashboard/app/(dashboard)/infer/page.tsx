@@ -94,6 +94,12 @@ export default function InferPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [serverId]);
 
+  // Reconnect banner state: shown while a deploy/benchmark is running and the
+  // WebSocket drops. On reconnect the hook re-fetches status from the API.
+  const connectionLost =
+    deploy.wsStatus !== "connected" &&
+    (deploy.phase === "deploying" || deploy.phase === "benchmarking");
+
   const selectedTemplate = useMemo(
     () => templates.find((t) => t.id === selectedTemplateId) || null,
     [templates, selectedTemplateId]
@@ -141,11 +147,25 @@ export default function InferPage() {
   return (
     <FadeIn>
       <div className="mx-auto max-w-3xl space-y-6">
+        {/* Reconnect banner — connection dropped mid-deploy */}
+        {connectionLost && (
+          <div className="flex items-start gap-3 rounded-[var(--radius-md)] border border-[var(--color-warning)]/40 bg-[var(--color-warning-soft)] px-4 py-3">
+            <span className="mt-1.5 h-2 w-2 shrink-0 animate-pulse rounded-full bg-[var(--color-warning)]" />
+            <div>
+              <p className="text-sm font-semibold text-[var(--color-ink)]">
+                Connection to your server was lost. The deploy is still running.
+              </p>
+              <p className="mt-0.5 text-sm text-[var(--color-muted)]">Reconnecting…</p>
+            </div>
+          </div>
+        )}
+
         {/* Section 1 — Model Selection (always visible) */}
         <ModelSelection
           serverId={serverId}
           serverName={selectedServer?.name || null}
           serverConnected={selectedServer?.status === "connected"}
+          wsStatus={deploy.wsStatus}
           serversCount={servers.length}
           templates={templates}
           templatesLoading={templatesLoading || serversLoading}

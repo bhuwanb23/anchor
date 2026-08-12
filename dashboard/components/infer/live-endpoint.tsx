@@ -224,6 +224,8 @@ print(resp.json()["choices"][0]["message"]["content"])`;
           <p className="text-sm font-semibold text-[var(--color-ink)]">Send a test message</p>
           <div className="flex flex-col gap-2 sm:flex-row">
             <textarea
+              id="infer-test-message"
+              name="infer-test-message"
               value={message}
               onChange={(e) => setMessage(e.target.value)}
               onKeyDown={(e) => {

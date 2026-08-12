@@ -211,11 +211,27 @@ const initialState: InferDeployState = {
 
 const MAX_LOG_LINES = 300;
 
+export type WsConnectionStatus = "connected" | "connecting" | "disconnected";
+
+// Extract a readable text fragment from an agent broadcast payload
+// (log_line / log_lines / pull_progress / docker_status / state_update).
+function extractLogText(payload: unknown): string | null {
+  if (!payload || typeof payload !== "object") return null;
+  const p = payload as Record<string, unknown>;
+  if (typeof p.message === "string" && p.message) return p.message;
+  if (typeof p.line === "string" && p.line) return p.line;
+  if (typeof p.status === "string" && p.status) return p.status;
+  if (typeof p.error === "string" && p.error) return p.error;
+  return null;
+}
+
 export function useInferDeploy(serverId: string | null) {
   const [state, setState] = useState<InferDeployState>(initialState);
+  const [wsStatus, setWsStatus] = useState<WsConnectionStatus>("connecting");
   const unsubRef = useRef<(() => void)[]>([]);
   const mountedRef = useRef(true);
   const lastTemplateRef = useRef<string | null>(null);
+  const hadCommandRef = useRef(false);
 
   // Parse the command output — the agent returns a JSON string with the
   // endpoint URL, API key, and (for benchmark runs) a fresh comparison.
@@ -273,6 +289,7 @@ export function useInferDeploy(serverId: string | null) {
     async (templateId: string): Promise<boolean> => {
       if (!serverId) return false;
       lastTemplateRef.current = templateId;
+      hadCommandRef.current = true;
       try {
         const res = await api.post<{ command_id: string; status: string }>(
           `/api/v1/servers/${serverId}/infer/deploy`,
@@ -317,6 +334,7 @@ export function useInferDeploy(serverId: string | null) {
     async (templateId: string): Promise<boolean> => {
       if (!serverId) return false;
       lastTemplateRef.current = templateId;
+      hadCommandRef.current = true;
       try {
         const res = await api.post<{ command_id: string; status: string }>(
           `/api/v1/servers/${serverId}/infer/benchmark`,
@@ -387,6 +405,44 @@ export function useInferDeploy(serverId: string | null) {
       stepIndex: INFER_DEPLOY_STEPS.length,
     });
   }, []);
+
+  // Re-fetch the current deploy state from the control plane. Used on page
+  // load and after a WebSocket reconnect so the UI reflects what happened
+  // while disconnected.
+  const refreshFromAPI = useCallback(async () => {
+    if (!serverId) return;
+    try {
+      const statusRes = await api.get<{
+        deployed: boolean;
+        status?: string;
+        details?: InferenceDeployResult;
+      }>(`/api/v1/servers/${serverId}/infer/status`);
+      if (!mountedRef.current) return;		if (!statusRes.data?.deployed || !statusRes.data.details) {
+			// No completed deploy yet. If a command is in flight, leave the UI
+			// alone so the live progress keeps showing; otherwise stay idle.
+			return;
+		}
+      const details = { ...statusRes.data.details };
+      // Fold in the persisted benchmark comparison if available.
+      try {
+        const benchRes = await api.get<BenchmarkComparison>(
+          `/api/v1/servers/${serverId}/infer/benchmark`
+        );
+        if (mountedRef.current && benchRes.data?.optimized) {
+          details.benchmark_comparison = benchRes.data;
+          details.benchmarked_at = benchRes.data.benchmarked_at || details.benchmarked_at;
+        }
+      } catch {
+        // No stored benchmark yet.
+      }
+      if (mountedRef.current) {
+        restore(details);
+        if (details.template_id) lastTemplateRef.current = details.template_id;
+      }
+    } catch {
+      // Status endpoint unavailable — leave the current UI state alone.
+    }
+  }, [serverId, restore]);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -468,6 +524,32 @@ export function useInferDeploy(serverId: string | null) {
       });
     };
 
+    // Raw agent output for this server: docker pull progress, log lines, and
+    // state updates all land in the Section 2 terminal log. Only surfaced
+    // while a deploy/benchmark command is active to avoid noise.
+    const onBroadcast = (msg: WSMessage) => {
+      setState((prev) => {
+        if (prev.phase !== "deploying" && prev.phase !== "benchmarking") return prev;
+        const text = extractLogText(msg.payload);
+        if (!text) return prev;
+        return appendLog(prev, text);
+      });
+    };
+
+    // Connection lifecycle: track status and re-sync from the API after a
+    // reconnect if we had issued a command.
+    const onConnect = () => {
+      setWsStatus("connected");
+      if (serverId) client.subscribeServer(serverId);
+      if (hadCommandRef.current) {
+        void refreshFromAPI();
+      }
+    };
+    const onDisconnect = () => setWsStatus("disconnected");
+    const onReconnecting = () => setWsStatus("connecting");
+
+    if (serverId) client.subscribeServer(serverId);
+
     // Command results arrive as `result` from the agent; the hub may also
     // emit `command_result`. Listen to both (existing dialogs do the same).
     unsubRef.current.forEach((fn) => fn());
@@ -475,15 +557,24 @@ export function useInferDeploy(serverId: string | null) {
       client.on("command_progress", onProgress),
       client.on("command_result", onResult),
       client.on("result", onResult),
+      client.on("log_line", onBroadcast),
+      client.on("log_lines", onBroadcast),
+      client.on("pull_progress", onBroadcast),
+      client.on("state_update", onBroadcast),
+      client.on("docker_status", onBroadcast),
+      client.onConnect(onConnect),
+      client.onDisconnect(onDisconnect),
+      client.onReconnecting(onReconnecting),
     ];
     client.connect();
 
     return () => {
       mountedRef.current = false;
+      if (serverId) client.unsubscribeServer();
       unsubRef.current.forEach((fn) => fn());
       unsubRef.current = [];
     };
-  }, [applyProgress, parseResult]);
+  }, [applyProgress, parseResult, appendLog, serverId, refreshFromAPI]);
 
-  return { ...state, deploy, runBenchmark, retry, reset, restore };
+  return { ...state, wsStatus, deploy, runBenchmark, retry, reset, restore, refreshFromAPI };
 }
