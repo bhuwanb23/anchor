@@ -188,18 +188,22 @@ export interface DeployInferenceResponse {
 export interface InferenceStatus {
   deployed: boolean;
   status?: string;
+  command_id?: string;
   created_at?: string;
   details?: {
-    template_id: string;
-    container_id: string;
-    image_tag: string;
-    quantization: string;
-    model_file: string;
-    internal_port: number;
+    template_id?: string;
+    container_id?: string;
+    image_tag?: string;
+    quantization?: string;
+    model_file?: string;
+    internal_port?: number;
     domain?: string;
-    api_path: string;
-    optimization: string;
-    memory_limit_mb: number;
+    endpoint_url?: string;
+    api_key?: string;
+    api_path?: string;
+    optimization?: string;
+    memory_limit_mb?: number;
+    benchmark_comparison?: BenchmarkComparison;
   };
 }
 
@@ -226,17 +230,18 @@ export interface PerformixResult {
 }
 
 export interface BenchmarkResult {
-  build_label: string;
-  image_tag: string;
-  prompts: PromptBenchmarkResult[];
+  build_label?: string;
+  image_tag?: string;
+  prompts?: PromptBenchmarkResult[];
   median_tokens_per_second: number;
-  median_time_to_first_token_ms: number;
+  median_time_to_first_token_ms?: number;
+  median_ttft_ms?: number;
   peak_memory_bytes: number;
-  total_duration_ms: number;
-  tokens_per_second_range: [number, number];
-  ttft_range_ms: [number, number];
-  variance_detected: boolean;
-  actual_runs: number;
+  total_duration_ms?: number;
+  tokens_per_second_range?: [number, number];
+  ttft_range_ms?: [number, number];
+  variance_detected?: boolean;
+  actual_runs?: number;
   performix?: PerformixResult;
 }
 
