@@ -12,7 +12,7 @@ import {
   Server,
   Bell,
   HardDrive,
-  Sparkles,
+  Cpu,
 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { useServerStore } from "@/store/server-store";
@@ -260,14 +260,6 @@ export function Sidebar({ collapsed, onNavigate, onExpand }: SidebarProps) {
                 icon={<HardDrive className="h-4 w-4" />}
               >
                 Backups
-              </NavItem>
-              <NavItem
-                href={`/servers/${activeId}/infer`}
-                active={pathname.includes("/infer")}
-                onClick={onNavigate}
-                icon={<Sparkles className="h-4 w-4" />}
-              >
-                Infer
               </NavItem>
             </div>
           </>

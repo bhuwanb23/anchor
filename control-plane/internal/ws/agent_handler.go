@@ -837,15 +837,13 @@ func routeCommandResult(hub *Hub, db *sql.DB, serverID string, payload json.RawM
 		return
 	}
 
-	// Anchor Infer: persist any benchmark results carried by the command output
-	// so the dashboard can restore them on page load and history builds up.
+	// Anchor Infer: persist benchmark rows once (avoid double-insert via MaybePersist).
 	persistBenchmarkIfPresent(db, serverID, payload)
+	maybePersistDetectPlatform(db, serverID, cmdID, payload)
 
 	// Normal path: a dashboard is waiting on this command.
 	if connID := hub.ResolvePendingCommand(cmdID); connID != "" {
 		_ = queries.UpdateCommandStatus(db, cmdID, commandResultStatus(payload), string(payload))
-		queries.MaybePersistInferBenchmarks(db, serverID, cmdID, string(payload))
-		maybePersistDetectPlatform(db, serverID, cmdID, payload)
 		hub.SendToBrowser(connID, data)
 		return
 	}
@@ -859,16 +857,12 @@ func routeCommandResult(hub *Hub, db *sql.DB, serverID string, payload json.RawM
 	if rec.Status == "timeout" {
 		// Late result after a timeout: record for audit, do not re-deliver.
 		_ = queries.UpdateCommandResult(db, cmdID, string(payload))
-		queries.MaybePersistInferBenchmarks(db, serverID, cmdID, string(payload))
-		maybePersistDetectPlatform(db, serverID, cmdID, payload)
 		return
 	}
 
 	// The issuer's dashboard may have reconnected elsewhere — deliver there;
 	// otherwise the result stays in the DB for command history.
 	_ = queries.UpdateCommandStatus(db, cmdID, commandResultStatus(payload), string(payload))
-	queries.MaybePersistInferBenchmarks(db, serverID, cmdID, string(payload))
-	maybePersistDetectPlatform(db, serverID, cmdID, payload)
 	if connID := hub.FindBrowserByUser(rec.IssuedBy); connID != "" {
 		hub.SendToBrowser(connID, data)
 	}

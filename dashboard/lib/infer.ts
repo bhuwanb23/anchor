@@ -55,6 +55,6 @@ export async function fetchInferBenchmarks(serverId: string): Promise<{
   optimized?: BenchmarkComparison["optimized"];
   generic?: BenchmarkComparison["generic"];
 }> {
-  const { data } = await api.get(`/api/v1/servers/${serverId}/infer/benchmarks`);
+  const { data } = await api.get(`/api/v1/servers/${serverId}/infer/benchmark`);
   return data;
 }

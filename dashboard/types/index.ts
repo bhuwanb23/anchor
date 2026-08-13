@@ -190,21 +190,30 @@ export interface InferenceStatus {
   status?: string;
   command_id?: string;
   created_at?: string;
-  details?: {
-    template_id?: string;
-    container_id?: string;
-    image_tag?: string;
-    quantization?: string;
-    model_file?: string;
-    internal_port?: number;
-    domain?: string;
-    endpoint_url?: string;
-    api_key?: string;
-    api_path?: string;
-    optimization?: string;
-    memory_limit_mb?: number;
-    benchmark_comparison?: BenchmarkComparison;
-  };
+  api_key?: string;
+  details?: InferenceDeployResult;
+}
+
+/** Parsed deploy_inference command output (live result + status restore). */
+export interface InferenceDeployResult {
+  template_id?: string;
+  container_id?: string;
+  image_tag?: string;
+  quantization?: string;
+  model_file?: string;
+  internal_port?: number;
+  domain?: string;
+  endpoint_url?: string;
+  api_key?: string;
+  api_path?: string;
+  optimization?: string;
+  memory_limit_mb?: number;
+  model_size_gb?: number;
+  test_passed?: boolean;
+  benchmark_comparison?: BenchmarkComparison;
+  baseline_benchmark?: BenchmarkResult;
+  benchmarked_at?: string;
+  error?: string;
 }
 
 // ---------------------------------------------------------------------------
