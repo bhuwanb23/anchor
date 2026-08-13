@@ -560,10 +560,15 @@ func buildCommandEnvelope(cmd browserCommand) []byte {
 // commandTimeoutFor returns the deadline for a command type: restores get 30
 // minutes, everything else 10 (Layer 5B Step 4B).
 func commandTimeoutFor(cmdType string) time.Duration {
-	if cmdType == "restore" {
+	switch cmdType {
+	case "restore":
 		return 30 * time.Minute
+	case "deploy_inference":
+		// First-time model download + dual benchmarks can exceed 30 minutes.
+		return 45 * time.Minute
+	default:
+		return 10 * time.Minute
 	}
-	return 10 * time.Minute
 }
 
 // handleBrowserCommand runs the Layer 5B Step 4 command pipeline and returns

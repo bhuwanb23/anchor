@@ -338,7 +338,7 @@ func (e *Executor) executeDeployInference(ctx context.Context, cmd Command, resu
 
 	testPassed := false
 	if e.docker != nil && containerID != "" {
-		if err := e.testInferenceEndpoint(ctx, tmpl.Runtime.InternalPort, apiKey); err != nil {
+		if err := e.testInferenceEndpoint(ctx, containerID, tmpl.Runtime.InternalPort, apiKey); err != nil {
 			slog.Warn("endpoint test failed (deploy marked as failed)", "error", err)
 			return fmt.Errorf("endpoint test failed: %w", err)
 		}
@@ -566,8 +566,8 @@ func (e *Executor) waitForInferenceReady(ctx context.Context, containerID string
 	return fmt.Errorf("inference server did not start within %s", timeout)
 }
 
-// testInferenceEndpoint sends a simple test prompt to verify the full path works.
-func (e *Executor) testInferenceEndpoint(ctx context.Context, port int, apiKey string) error {
+// testInferenceEndpoint sends a simple test prompt inside the inference container.
+func (e *Executor) testInferenceEndpoint(ctx context.Context, containerID string, port int, apiKey string) error {
 	if e.docker == nil {
 		return nil
 	}
@@ -581,7 +581,7 @@ func (e *Executor) testInferenceEndpoint(ctx context.Context, port int, apiKey s
 		fmt.Sprintf("http://localhost:%d/v1/chat/completions", port),
 	}
 
-	output, err := e.docker.ExecInContainer(ctx, fmt.Sprintf("test-infer-%d", time.Now().UnixNano()), cmd)
+	output, err := e.docker.ExecInContainer(ctx, containerID, cmd)
 	if err != nil {
 		return fmt.Errorf("test request failed: %w", err)
 	}

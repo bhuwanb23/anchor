@@ -840,6 +840,8 @@ func routeCommandResult(hub *Hub, db *sql.DB, serverID string, payload json.RawM
 	// Normal path: a dashboard is waiting on this command.
 	if connID := hub.ResolvePendingCommand(cmdID); connID != "" {
 		_ = queries.UpdateCommandStatus(db, cmdID, commandResultStatus(payload), string(payload))
+		queries.MaybePersistInferBenchmarks(db, serverID, cmdID, string(payload))
+		maybePersistDetectPlatform(db, serverID, cmdID, payload)
 		hub.SendToBrowser(connID, data)
 		return
 	}
@@ -853,15 +855,36 @@ func routeCommandResult(hub *Hub, db *sql.DB, serverID string, payload json.RawM
 	if rec.Status == "timeout" {
 		// Late result after a timeout: record for audit, do not re-deliver.
 		_ = queries.UpdateCommandResult(db, cmdID, string(payload))
+		queries.MaybePersistInferBenchmarks(db, serverID, cmdID, string(payload))
+		maybePersistDetectPlatform(db, serverID, cmdID, payload)
 		return
 	}
 
 	// The issuer's dashboard may have reconnected elsewhere — deliver there;
 	// otherwise the result stays in the DB for command history.
 	_ = queries.UpdateCommandStatus(db, cmdID, commandResultStatus(payload), string(payload))
+	queries.MaybePersistInferBenchmarks(db, serverID, cmdID, string(payload))
+	maybePersistDetectPlatform(db, serverID, cmdID, payload)
 	if connID := hub.FindBrowserByUser(rec.IssuedBy); connID != "" {
 		hub.SendToBrowser(connID, data)
 	}
+}
+
+// maybePersistDetectPlatform upserts server_platform when a detect_platform
+// command succeeds with nested PlatformInfo JSON in the result output.
+func maybePersistDetectPlatform(db *sql.DB, serverID, cmdID string, payload json.RawMessage) {
+	if rec, _ := queries.GetCommandByID(db, cmdID); rec != nil && rec.CommandType != "" && rec.CommandType != "detect_platform" {
+		return
+	}
+	var outer map[string]interface{}
+	if err := json.Unmarshal(payload, &outer); err != nil {
+		return
+	}
+	outStr, _ := outer["output"].(string)
+	if outStr == "" {
+		return
+	}
+	handlePlatformReport(db, serverID, json.RawMessage(outStr))
 }
 
 // commandResultStatus derives the terminal DB status from a result payload.

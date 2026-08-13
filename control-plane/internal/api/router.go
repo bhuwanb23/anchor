@@ -88,7 +88,7 @@ func NewRouter(database *sql.DB, cfg *config.Config, hub *ws.Hub, delivery *aler
 	customDomainHandler := &handlers.CustomDomain{DB: database, Hub: hub}
 	backupHandler := &handlers.Backup{DB: database, Hub: hub}
 	teamHandler := &handlers.Teams{DB: database, Mailer: sender, Logger: slog.Default()}
-	platformHandler := &handlers.Platform{DB: database}
+	platformHandler := &handlers.Platform{DB: database, Hub: hub}
 	inferHandler := &handlers.Infer{DB: database, Hub: hub}
 	step5 := &handlers.Step5{DB: database, Cfg: cfg}
 
@@ -149,11 +149,13 @@ func NewRouter(database *sql.DB, cfg *config.Config, hub *ws.Hub, delivery *aler
 
 			// --- Platform (Anchor Infer) ---
 			r.Get("/servers/{serverID}/platform", platformHandler.GetServerPlatform)
+			r.Post("/servers/{serverID}/platform/detect", platformHandler.DetectPlatform)
 
 			// --- Inference (Anchor Infer) ---
 			r.Get("/infer/templates", inferHandler.ListTemplates)
 			r.Post("/servers/{serverID}/infer/deploy", inferHandler.DeployInference)
 			r.Get("/servers/{serverID}/infer/status", inferHandler.GetInferenceStatus)
+			r.Get("/servers/{serverID}/infer/benchmarks", inferHandler.GetBenchmarks)
 
 			// --- Apps (Layer 6 Step 5 handlers) ---
 			r.Get("/servers/{serverID}/apps", step5.ListApps)
