@@ -56,14 +56,26 @@ func (e *Executor) executeDeployInference(ctx context.Context, cmd Command, resu
 	availableRAMGB := float64(plat.Memory.AvailableMB) / 1024.0
 	quantKey, quantInfo := tmpl.SelectQuantization(availableRAMGB)
 	if quantInfo == nil {
-		return fmt.Errorf("no suitable quantization found for %.1fGB RAM", availableRAMGB)
+		// Cross-phase error contract: specific, actionable, non-technical.
+		minGB := 0.0
+		for _, q := range tmpl.Model.Quantizations {
+			if q.MinRAMGB > 0 && (minGB == 0 || q.MinRAMGB < minGB) {
+				minGB = q.MinRAMGB
+			}
+		}
+		return fmt.Errorf(
+			"Your server has %.1fGB of available memory. Deploying %s %s requires at least %.1fGB. Options: stop other running apps to free memory, or use a larger server.",
+			availableRAMGB, tmpl.Model.Family, tmpl.Model.Size, minGB,
+		)
 	}
 	if !plat.Readiness.CanRunInference {
 		return fmt.Errorf("server not ready: %s", plat.Readiness.BlockReason)
 	}
 	if plat.Disk.AvailableGB < quantInfo.SizeGB+1.0 {
-		return fmt.Errorf("insufficient disk: need %.1fGB for model + 1GB buffer, have %.1fGB available",
-			quantInfo.SizeGB, plat.Disk.AvailableGB)
+		return fmt.Errorf(
+			"Not enough free disk space: this model needs %.1fGB, but only %.1fGB is available. Free up space and try again, or use a larger server.",
+			quantInfo.SizeGB+1.0, plat.Disk.AvailableGB,
+		)
 	}
 
 	slog.Info("readiness validated",
@@ -523,11 +535,15 @@ print(f"Downloaded to: {path}")
 
 	// Execute the download command: pip install huggingface_hub then run script
 	cmd := []string{"sh", "-c", fmt.Sprintf("pip install -q huggingface_hub && python3 -c '%s'", downloadScript)}
-	output, err := e.docker.ExecInContainer(ctx, id, cmd)
-	if err != nil {
+	if _, err := e.docker.ExecInContainer(ctx, id, cmd); err != nil {
 		_ = e.docker.StopContainerGraceful(ctx, id)
 		_ = e.docker.RemoveContainer(ctx, id)
-		return fmt.Errorf("download failed: %w\nOutput: %s", err, output)
+		// Cross-phase error contract: the download resumes from where it
+		// stopped (huggingface_hub reuses the partial file on retry).
+		return fmt.Errorf(
+			"The model download was interrupted. This is usually a temporary network issue — the download will resume from where it stopped if you try again. (%w)",
+			err,
+		)
 	}
 
 	_ = e.docker.StopContainerGraceful(ctx, id)
@@ -563,7 +579,12 @@ func (e *Executor) waitForInferenceReady(ctx context.Context, containerID string
 		}
 	}
 
-	return fmt.Errorf("inference server did not start within %s", timeout)
+	// Cross-phase error contract: name the symptom, give the cause, tell the
+	// user what to do next.
+	return fmt.Errorf(
+		"The inference server took too long to start (%d minutes). This can happen on servers with slow disk I/O. Try again, or check your server's disk performance.",
+		int(timeout.Minutes()),
+	)
 }
 
 // testInferenceEndpoint sends a simple test prompt inside the inference container.

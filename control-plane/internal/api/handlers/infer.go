@@ -61,20 +61,15 @@ func (inf *Infer) DeployInference(w http.ResponseWriter, r *http.Request) {
 		"domain":      req.Domain,
 		"api_key":     req.APIKey,
 	})
-	now := time.Now().UTC().Format(time.RFC3339)
-	projectKey := "infer:" + req.TemplateID
 
-	if dup, err := queries.HasInProgressCommand(inf.DB, serverID, "deploy_inference", projectKey); err == nil && dup {
-		Respond400(w, r, "An inference deploy for this template is already in progress")
-		return
-	}
-
-	if err := queries.InsertCommand(inf.DB, cmdID, serverID, "deploy_inference", string(payload), projectKey, "queued", userID, now); err != nil {
-		slog.Error("insert deploy_inference command", "error", err)
+	// Enqueue command
+	if err := queries.EnqueuePendingCommand(inf.DB, cmdID, serverID, "deploy_inference", string(payload), "infer", ""); err != nil {
+		slog.Error("enqueue deploy_inference", "error", err)
 		Respond500(w, r)
 		return
 	}
 
+	// Try to send immediately if agent is connected
 	cmd := map[string]interface{}{
 		"id":      cmdID,
 		"type":    "deploy_inference",
@@ -93,6 +88,166 @@ func (inf *Infer) DeployInference(w http.ResponseWriter, r *http.Request) {
 		"command_id": cmdID,
 		"status":     "queued",
 	})
+}
+
+// RunBenchmarkRequest is the dashboard request to re-run the benchmark
+// pipeline against an existing inference deployment.
+type RunBenchmarkRequest struct {
+	TemplateID string `json:"template_id"`
+}
+
+// RunBenchmark dispatches a run_benchmark command to the agent. The agent
+// reuses the deployed model volume, so results are directly comparable.
+func (inf *Infer) RunBenchmark(w http.ResponseWriter, r *http.Request) {
+	userID := middleware.UserIDFromContext(r.Context())
+	if userID == "" {
+		Respond401(w, r)
+		return
+	}
+
+	serverID := chi.URLParam(r, "serverID")
+	if serverID == "" {
+		Respond400(w, r, "serverID is required")
+		return
+	}
+
+	var ownerID string
+	err := inf.DB.QueryRow("SELECT user_id FROM servers WHERE id = ?", serverID).Scan(&ownerID)
+	if err == sql.ErrNoRows {
+		Respond404(w, r, "server not found")
+		return
+	}
+	if err != nil {
+		slog.Error("query server owner", "error", err)
+		Respond500(w, r)
+		return
+	}
+	if ownerID != userID {
+		Respond403(w, r, "you do not have access to this server")
+		return
+	}
+
+	var req RunBenchmarkRequest
+	if err := DecodeJSON(w, r, &req); err != nil {
+		return
+	}
+	if req.TemplateID == "" {
+		Respond400(w, r, "template_id is required")
+		return
+	}
+
+	cmdID := "cmd-" + uuid.New().String()[:12]
+	payload, _ := json.Marshal(map[string]interface{}{
+		"template_id": req.TemplateID,
+		"server_id":   serverID,
+	})
+
+	if err := queries.InsertCommand(inf.DB, cmdID, serverID, "run_benchmark", string(payload), "infer", "queued", userID, time.Now().UTC().Format(time.RFC3339)); err != nil {
+		slog.Error("insert run_benchmark command", "error", err)
+		Respond500(w, r)
+		return
+	}
+
+	cmd := map[string]interface{}{
+		"id":      cmdID,
+		"type":    "run_benchmark",
+		"payload": json.RawMessage(payload),
+	}
+	_ = ws.QueueOrSendCommand(inf.Hub, inf.DB, serverID, cmd)
+
+	RespondJSON(w, http.StatusAccepted, map[string]interface{}{
+		"command_id": cmdID,
+		"status":     "queued",
+	})
+}
+
+// GetBenchmarkResults returns the latest stored benchmark comparison for a
+// server, so the dashboard can restore pre-computed results on page load.
+func (inf *Infer) GetBenchmarkResults(w http.ResponseWriter, r *http.Request) {
+	userID := middleware.UserIDFromContext(r.Context())
+	if userID == "" {
+		Respond401(w, r)
+		return
+	}
+
+	serverID := chi.URLParam(r, "serverID")
+	if serverID == "" {
+		Respond400(w, r, "serverID is required")
+		return
+	}
+
+	var ownerID string
+	err := inf.DB.QueryRow("SELECT user_id FROM servers WHERE id = ?", serverID).Scan(&ownerID)
+	if err == sql.ErrNoRows {
+		Respond404(w, r, "server not found")
+		return
+	}
+	if err != nil {
+		slog.Error("query server owner", "error", err)
+		Respond500(w, r)
+		return
+	}
+	if ownerID != userID {
+		Respond403(w, r, "you do not have access to this server")
+		return
+	}
+
+	optimized, generic, err := queries.GetBenchmarkComparison(inf.DB, serverID)
+	if err != nil {
+		slog.Error("get benchmark comparison", "error", err)
+		Respond500(w, r)
+		return
+	}
+	if optimized == nil || generic == nil {
+		RespondJSON(w, http.StatusOK, map[string]interface{}{})
+		return
+	}
+
+	RespondJSON(w, http.StatusOK, map[string]interface{}{
+		"tokens_per_second_improvement_pct": improvementPct(generic.MedianTokensPerSecond, optimized.MedianTokensPerSecond),
+		"ttft_improvement_pct":              ttftImprovementPct(generic.MedianTTFTMs, optimized.MedianTTFTMs),
+		"memory_difference_bytes":           int64(optimized.PeakMemoryBytes) - int64(generic.PeakMemoryBytes),
+		"optimized":                         benchmarkResultResponse(optimized),
+		"generic":                           benchmarkResultResponse(generic),
+		"benchmarked_at":                    optimized.CreatedAt,
+	})
+}
+
+// improvementPct returns the percentage change from baseline to value
+// (positive = improvement, negative = regression).
+func improvementPct(baseline, value float64) float64 {
+	if baseline == 0 {
+		return 0
+	}
+	return ((value - baseline) / baseline) * 100
+}
+
+// ttftImprovementPct mirrors the agent's latency formula: lower TTFT is
+// better, so improvement is measured against the generic baseline.
+// ((generic - optimized) / generic) × 100 → positive = faster.
+func ttftImprovementPct(genericMS, optimizedMS int64) float64 {
+	if genericMS == 0 {
+		return 0
+	}
+	return (float64(genericMS) - float64(optimizedMS)) / float64(genericMS) * 100
+}
+
+// benchmarkResultResponse maps a stored benchmark row to the same shape the
+// agent returns in the command output, so the dashboard handles both paths
+// identically.
+func benchmarkResultResponse(b *queries.BenchmarkResult) map[string]interface{} {
+	return map[string]interface{}{
+		"build_label":              b.BuildLabel,
+		"image_tag":                b.ImageTag,
+		"median_tokens_per_second": b.MedianTokensPerSecond,
+		"median_ttft_ms":           b.MedianTTFTMs,
+		"peak_memory_bytes":        b.PeakMemoryBytes,
+		"total_duration_ms":        b.TotalDurationMs,
+		"tokens_per_second_range":  [2]float64{b.TokensSecRangeMin, b.TokensSecRangeMax},
+		"ttft_range_ms":            [2]int64{b.TTFTRangeMinMs, b.TTFTRangeMaxMs},
+		"variance_detected":        b.VarianceDetected,
+		"actual_runs":              b.ActualRuns,
+	}
 }
 
 // ListTemplates returns the available inference templates.
@@ -142,16 +297,14 @@ func (inf *Infer) GetInferenceStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var (
-		cmdID, status, result string
-		createdAt             string
-	)
-	err := inf.DB.QueryRow(`
-		SELECT id, status, COALESCE(result,''), created_at
-		FROM commands
-		WHERE server_id = ? AND command_type = 'deploy_inference'
+	// Query latest inference command status
+	var status, output string
+	var createdAt time.Time
+	err = inf.DB.QueryRow(`
+		SELECT status, output, created_at FROM pending_commands
+		WHERE server_id = ? AND type = 'deploy_inference'
 		ORDER BY created_at DESC LIMIT 1
-	`, serverID).Scan(&cmdID, &status, &result, &createdAt)
+	`, serverID).Scan(&status, &output, &createdAt)
 
 	if err == sql.ErrNoRows {
 		RespondJSON(w, http.StatusOK, map[string]interface{}{
@@ -165,112 +318,18 @@ func (inf *Infer) GetInferenceStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	out := map[string]interface{}{
-		"deployed":   status == "success",
+	result := map[string]interface{}{
+		"deployed":   status == "completed",
 		"status":     status,
-		"command_id": cmdID,
 		"created_at": createdAt,
 	}
 
-	if result != "" {
-		details := parseInferCommandResult(result)
-		if details != nil {
-			out["details"] = details
-			if status == "success" {
-				queries.PersistInferBenchmarksFromDetails(inf.DB, serverID, details)
-			}
+	if status == "completed" && output != "" {
+		var out map[string]interface{}
+		if json.Unmarshal([]byte(output), &out) == nil {
+			result["details"] = out
 		}
 	}
 
-	RespondJSON(w, http.StatusOK, out)
-}
-
-// GetBenchmarks returns the latest generic/optimized comparison for a server.
-func (inf *Infer) GetBenchmarks(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.UserIDFromContext(r.Context())
-	if userID == "" {
-		Respond401(w, r)
-		return
-	}
-	serverID := chi.URLParam(r, "serverID")
-	if serverID == "" {
-		Respond400(w, r, "serverID is required")
-		return
-	}
-	if !inf.userOwnsServer(w, r, userID, serverID) {
-		return
-	}
-
-	optimized, generic, err := queries.GetBenchmarkComparison(inf.DB, serverID)
-	if err != nil {
-		slog.Error("get benchmark comparison", "error", err)
-		Respond500(w, r)
-		return
-	}
-	if optimized == nil && generic == nil {
-		RespondJSON(w, http.StatusOK, map[string]interface{}{
-			"available": false,
-		})
-		return
-	}
-
-	resp := map[string]interface{}{
-		"available": true,
-		"optimized": optimized,
-		"generic":   generic,
-	}
-	if optimized != nil && generic != nil && generic.MedianTokensPerSecond > 0 {
-		tpsImp := ((optimized.MedianTokensPerSecond - generic.MedianTokensPerSecond) / generic.MedianTokensPerSecond) * 100
-		ttftImp := 0.0
-		if generic.MedianTTFTMs > 0 {
-			ttftImp = (float64(generic.MedianTTFTMs-optimized.MedianTTFTMs) / float64(generic.MedianTTFTMs)) * 100
-		}
-		resp["tokens_per_second_improvement_pct"] = tpsImp
-		resp["ttft_improvement_pct"] = ttftImp
-		resp["memory_difference_bytes"] = int64(optimized.PeakMemoryBytes) - int64(generic.PeakMemoryBytes)
-	}
-	RespondJSON(w, http.StatusOK, resp)
-}
-
-func (inf *Infer) userOwnsServer(w http.ResponseWriter, r *http.Request, userID, serverID string) bool {
-	var ownerID string
-	err := inf.DB.QueryRow("SELECT user_id FROM servers WHERE id = ?", serverID).Scan(&ownerID)
-	if err == sql.ErrNoRows {
-		Respond404(w, r, "server not found")
-		return false
-	}
-	if err != nil {
-		slog.Error("query server owner", "error", err)
-		Respond500(w, r)
-		return false
-	}
-	if ownerID != userID {
-		Respond403(w, r, "you do not have access to this server")
-		return false
-	}
-	return true
-}
-
-// parseInferCommandResult unwraps agent result envelopes into a details map.
-func parseInferCommandResult(raw string) map[string]interface{} {
-	var outer map[string]interface{}
-	if err := json.Unmarshal([]byte(raw), &outer); err != nil {
-		return nil
-	}
-	if outStr, ok := outer["output"].(string); ok && outStr != "" {
-		var inner map[string]interface{}
-		if json.Unmarshal([]byte(outStr), &inner) == nil {
-			return inner
-		}
-	}
-	if details, ok := outer["details"].(map[string]interface{}); ok {
-		return details
-	}
-	if _, hasEndpoint := outer["endpoint_url"]; hasEndpoint {
-		return outer
-	}
-	if _, hasTpl := outer["template_id"]; hasTpl {
-		return outer
-	}
-	return nil
+	RespondJSON(w, http.StatusOK, result)
 }

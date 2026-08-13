@@ -251,6 +251,7 @@ export interface BenchmarkComparison {
   memory_difference_bytes: number;
   optimized: BenchmarkResult;
   generic: BenchmarkResult;
+  benchmarked_at?: string;
 }
 
 // ---------------------------------------------------------------------------

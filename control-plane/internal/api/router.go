@@ -154,6 +154,8 @@ func NewRouter(database *sql.DB, cfg *config.Config, hub *ws.Hub, delivery *aler
 			// --- Inference (Anchor Infer) ---
 			r.Get("/infer/templates", inferHandler.ListTemplates)
 			r.Post("/servers/{serverID}/infer/deploy", inferHandler.DeployInference)
+			r.Post("/servers/{serverID}/infer/benchmark", inferHandler.RunBenchmark)
+			r.Get("/servers/{serverID}/infer/benchmark", inferHandler.GetBenchmarkResults)
 			r.Get("/servers/{serverID}/infer/status", inferHandler.GetInferenceStatus)
 			r.Get("/servers/{serverID}/infer/benchmarks", inferHandler.GetBenchmarks)
 

@@ -187,6 +187,14 @@ export function Sidebar({ collapsed, onNavigate, onExpand }: SidebarProps) {
           >
             Servers
           </NavItem>
+          <NavItem
+            href="/infer"
+            active={pathname === "/infer" || pathname.startsWith("/infer")}
+            onClick={onNavigate}
+            icon={<Cpu className="h-4 w-4" />}
+          >
+            Infer
+          </NavItem>
         </div>
 
         <NavLabel>Servers</NavLabel>
