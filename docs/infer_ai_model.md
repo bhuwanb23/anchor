@@ -1349,3 +1349,30 @@ The judges see:
   → A connection to an existing product (Anchor)
   → A concrete answer to "why Arm?" with evidence
 ```
+
+---
+
+## Integration status (wired into Anchor)
+
+```
+Connected end-to-end through the same agent WS hub, auth, and commands table:
+
+  Dashboard  /servers/{id}/infer
+    → GET  /api/v1/servers/{id}/platform
+    → POST /api/v1/servers/{id}/platform/detect   (detect_platform command)
+    → GET  /api/v1/infer/templates
+    → POST /api/v1/servers/{id}/infer/deploy       (deploy_inference, 45m timeout)
+    → GET  /api/v1/servers/{id}/infer/status
+    → GET  /api/v1/servers/{id}/infer/benchmarks
+    → Live progress via browser WS (command_progress / command_result)
+
+  Agent
+    → On connect: platform_report → server_platform table
+    → detect_platform → nested PlatformInfo in command result → upserted
+    → deploy_inference → model pull, dual bench, Caddy route, endpoint test
+
+  Still required for a live Arm demo (not code gaps):
+    → Pullable KleidiAI/llama.cpp images (replace ghcr.io/yourname/infer:* placeholders)
+    → Connected Arm64 agent with enough RAM/disk
+    → Optional: Whisper template, Performix, checksum validation
+```
