@@ -1,17 +1,13 @@
-# CI benchmark run — 2026-08-14T05:37:44Z
+# CI full-matrix — 2026-08-14 (run 31775408483)
 
-- Runner: `ubuntu-24.04-arm` (`aarch64`)
-- Model: TinyLlama 1.1B Chat Q4_K_M
-- Prompt tokens: 128 · generation: 64 · repeats: 3
-- llama.cpp: `2bacf9ea5cf9e191430d4c786202d5984df7c193`
+- Runner: `ubuntu-24.04-arm` · outer pairs: 3 · alternating order
+- llama.cpp: `3d93885`
 
-| Build | Blended median t/s (pp+tg) | Generation `avg_ts` | Source |
-|---|---:|---:|---|
-| Generic (`GGML_CPU_KLEIDIAI=OFF`) | 99.06 | 50.58 | json |
-| KleidiAI (`GGML_CPU_KLEIDIAI=ON`) | 99.77 | 52.04 | json |
+| Cell | Generic tg | KleidiAI tg | Δ% | Decision |
+|---|---:|---:|---:|---|
+| TinyLlama Q4_K_M short | 50.63 | 50.74 | +0.2% | no-go |
+| TinyLlama Q8_0 short | 56.69 | 65.55 | **+15.6%** | go (scoped) |
+| Mistral 7B Q4_K_M short | 8.56 | 8.55 | −0.1% | no-go |
+| Mistral 7B Q4_K_M long | 8.63 | 8.64 | +0.0% | no-go |
 
-**Blended improvement:** 0.7% (99.77 vs 99.06 t/s)  
-**Generation improvement:** 2.9% (52.04 vs 50.58 t/s)
-
-**Decision:** below 15% bar → measure-and-report pitch (see `BENCHMARKS.md` + `test-matrix.md`).  
-**Next cell:** Mistral 7B Q4_K_M · same runner · short · outer_repeats=3.
+See `docs/ci/test-matrix.md` for ranges and pitch wording.

@@ -1,53 +1,52 @@
 # Anchor Infer — Arm bench test matrix
 
-One variable at a time. Fill cells from [`validate.yml`](../../.github/workflows/validate.yml)
-artifacts (`ci-benchmark-results.json`). Headline metric = **generation (tg) tokens/sec**,
-median across outer pairs; always keep the honest Δ% visible in the pitch.
+One variable at a time. Headline metric = **generation (tg) tokens/sec**, median of
+outer pairs with alternating build order. Always keep the honest Δ% in the pitch.
 
-**Go/no-go (per cell):** Δ ≥ ~15% → may support a KleidiAI uplift claim for that
-model/hardware/quant. Otherwise keep the **measure-and-report pipeline** story.
+**Source run:** [Actions #31775408483](https://github.com/bhuwanb23/anchor/actions/runs/31775408483)
+(`full-matrix`, `outer_repeats=3`, 2026-08-14). Raw JSON re-parsed locally (CI summary
+glob missed `run*-generic.json` — fixed in workflow after this run).
 
-## How to run
+**Go/no-go (per cell):** Δ ≥ ~15% → may support a *scoped* KleidiAI claim for that
+model/quant/hardware. Otherwise keep the measure-and-report story.
 
-**Full CI matrix in parallel** (recommended):
+## Matrix (GH `ubuntu-24.04-arm`)
 
-Actions → **Validate Arm Optimization** → Run workflow → suite = `full-matrix`, outer_repeats = `3`.
+| Model | Quant | Prompt | Generic tg (median) | KleidiAI tg (median) | Δ% | Range (g / k) | N | Decision |
+|---|---|---|---:|---:|---:|---|---:|---|
+| TinyLlama 1.1B | Q4_K_M | short (−p128 −n64) | 50.63 | 50.74 | **+0.2%** | 49.9–51.3 / 50.0–51.2 | 3 | **no-go** |
+| TinyLlama 1.1B | Q8_0 | short | 56.69 | 65.55 | **+15.6%** | 56.5–57.5 / 64.6–66.4 | 3 | **go (scoped)** |
+| Mistral 7B Instruct | Q4_K_M | short | 8.56 | 8.55 | **−0.1%** | 8.52–8.57 / 8.55–8.59 | 3 | **no-go** |
+| Mistral 7B Instruct | Q4_K_M | long (−p512 −n128) | 8.63 | 8.64 | **+0.0%** | 8.61–8.64 / 8.56–8.66 | 3 | **no-go** |
+| Mistral 7B Instruct | Q4_K_M | short | — | — | — | — | ≥3 | pending — Graviton4/Axion manual |
 
-That spins **4 parallel arm64 jobs**:
+Also recorded (prompt eval, informational):
 
-| Job | model_id | prompt |
-|---|---|---|
-| 1 | `tinyllama-q4km` | short |
-| 2 | `tinyllama-q8_0` | short |
-| 3 | `mistral-7b-q4km` | short |
-| 4 | `mistral-7b-q4km` | long |
-
-Other suites: `smoke` (TinyLlama only), `mistral-only`, `tinyllama-quants`.
-
-Test 3 (Graviton4 / Axion / i8mm·SME) stays **manual outside CI**.
-
-## Matrix
-
-| Model | Quant | Hardware | Prompt | Generic tg (median) | KleidiAI tg (median) | Δ% | N pairs | Status |
-|---|---|---|---|---:|---:|---:|---:|---|
-| TinyLlama 1.1B | Q4_K_M | GH `ubuntu-24.04-arm` | short (−p128 −n64) | 50.58 | 52.04 | **+2.9%** | 1* | done — no-go (pre-matrix) |
-| TinyLlama 1.1B | Q4_K_M | GH `ubuntu-24.04-arm` | short | — | — | — | 3 | pending — full-matrix |
-| TinyLlama 1.1B | Q8_0 | GH `ubuntu-24.04-arm` | short | — | — | — | 3 | pending — full-matrix |
-| Mistral 7B Instruct | Q4_K_M | GH `ubuntu-24.04-arm` | short | — | — | — | 3 | pending — full-matrix |
-| Mistral 7B Instruct | Q4_K_M | GH `ubuntu-24.04-arm` | long (−p512 −n128) | — | — | — | 3 | pending — full-matrix |
-| Mistral 7B Instruct | Q4_K_M | Graviton4 / Axion (manual) | short | — | — | — | ≥3 | pending |
-
-\*Legacy single-pair cell from 2026-08-14. Replaced by N=3 when full-matrix finishes.
+| Cell | Generic pp | KleidiAI pp |
+|---|---:|---:|
+| TinyLlama Q4_K_M short | 147.59 | 147.12 |
+| TinyLlama Q8_0 short | 205.23 | 390.39 |
+| Mistral Q4_K_M short | 23.11 | 23.10 |
+| Mistral Q4_K_M long | 20.30 | 20.28 |
 
 ## Decision log
 
-| Date (UTC) | Cell | Finding | Submission impact |
-|---|---|---|---|
-| 2026-08-14 | TinyLlama Q4_K_M / GH arm64 / short | +2.9% tg (single pair) | Do **not** claim large KleidiAI speedups. Pitch = measure-and-report Arm deploy path. |
-| _pending_ | Mistral 7B Q4_K_M / GH arm64 / short | | If Δ still &lt;15%, Test 2/3 next; if ≥15%, may add a scoped “on 7B / this runner” claim with the real number. |
+| Date (UTC) | Finding | Submission impact |
+|---|---|---|
+| 2026-08-14 | TinyLlama Q4_K_M / GH arm64 / short: +0.2% (N=3) | Confirms earlier ~+2.9% single-pair was noise-adjacent; **no** Q4_K_M uplift claim. |
+| 2026-08-14 | TinyLlama Q8_0 / GH arm64 / short: **+15.6%** tg (N=3, ranges non-overlapping) | Only CI cell ≥15%. Allow a **scoped** claim: “KleidiAI helped on TinyLlama Q8_0 on this runner (+15.6% tg).” Do not generalize to Q4_K_M or 7B. |
+| 2026-08-14 | Mistral 7B Q4_K_M short & long: ~0% | Model-size alone did not open a gap on GH arm64 with Q4_K_M. |
+| _pending_ | Same cells on i8mm/SME hardware | Only way to test “CI runner lacks the ISA KleidiAI wants.” |
 
-## Pitch rule
+## Pitch (locked from this matrix)
 
-If a judge asks “how much faster?”: answer with the **filled cell** (model, hardware,
-median tg, Δ%, N). Never substitute “Arm-optimized, faster inference” for a missing
-or modest number. A well-instrumented marginal result beats a vague inflated claim.
+> Anchor Infer is an automated Arm64 deployment path — architecture detection,
+> quantized GGUF, OpenAI-compatible endpoint, and a dual-benchmark card — built to
+> surface real KleidiAI gains where hardware and quant support them.
+>
+> On GitHub `ubuntu-24.04-arm`, measured generation Δ: TinyLlama Q4_K_M **+0.2%**,
+> Mistral 7B Q4_K_M **~0%**, TinyLlama Q8_0 **+15.6%**. We report the number; we don’t
+> invent one.
+
+**If a judge asks “how much faster?”** — quote the cell above. Never “Arm-optimized,
+faster inference” without the figure.

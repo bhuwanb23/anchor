@@ -308,8 +308,9 @@ jobs:
               return empty
 
           generic_tg, kleidi_tg, generic_pp, kleidi_pp, per_run = [], [], [], [], []
-          for base in sorted(results.glob("run*-generic")):
-              stem = base.name
+          # Match run1-generic.json (not extensionless run1-generic)
+          for base in sorted(results.glob("run*-generic.json")):
+              stem = base.name[: -len(".json")]  # run1-generic
               run_id = stem.split("-", 1)[0]
               g = parse_file(results / stem)
               k = parse_file(results / f"{run_id}-kleidi")

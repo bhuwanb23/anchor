@@ -1,91 +1,66 @@
 # Anchor Infer — Arm optimization benchmarks
 
-Phase 1 proof artifact from [`docs/infer_idea_validation.md`](docs/infer_idea_validation.md).
-**Living decision tool:** the one-variable test matrix in
-[`docs/ci/test-matrix.md`](docs/ci/test-matrix.md) — fill it before locking the submission story.
+Phase 1 proof artifact. Living decision tool:
+[`docs/ci/test-matrix.md`](docs/ci/test-matrix.md).
 
-Numbers come only from real `ubuntu-24.04-arm` runs (or named manual hardware), via
-[`.github/workflows/validate.yml`](.github/workflows/validate.yml). Never estimate.
+Numbers from real `ubuntu-24.04-arm` runs via
+[`.github/workflows/validate.yml`](.github/workflows/validate.yml) — never estimated.
+
+**Latest full matrix:** [Actions run 31775408483](https://github.com/bhuwanb23/anchor/actions/runs/31775408483)
+(2026-08-14, 4 parallel cells, N=3 outer pairs, alternating order).
 
 ---
 
-## Headline claim (lock only after the matrix says so)
-
-**Current locked claim (after TinyLlama cell only):**
+## Headline claim
 
 > Anchor Infer is an automated Arm64 deployment path — architecture detection,
-> quantized GGUF, OpenAI-compatible endpoint, and a dual-benchmark card, built to
-> **surface real KleidiAI gains where hardware and model support them**.
+> quantized GGUF, OpenAI-compatible endpoint, and a dual-benchmark card — built to
+> **surface real KleidiAI gains where model/quant/hardware support them**.
 
-We do **not** claim a large KleidiAI speedup until a matrix cell shows Δ ≥ ~15% with
-median-of-N rigor. Until then the honest number for TinyLlama on GH arm64 is **+2.9% tg**.
+On GH arm64 we measured:
+
+| Cell | Generation Δ (median of 3) |
+|---|---|
+| TinyLlama Q4_K_M short | **+0.2%** |
+| TinyLlama Q8_0 short | **+15.6%** ← only cell ≥15% |
+| Mistral 7B Q4_K_M short | **−0.1%** |
+| Mistral 7B Q4_K_M long | **+0.0%** |
+
+Scoped claim allowed: KleidiAI helped **TinyLlama Q8_0** on this runner. Do **not**
+claim a general KleidiAI speedup for Q4_K_M or 7B on GH Actions arm64.
 
 ---
 
-## How to reproduce / extend
+## Full matrix results (2026-08-14)
 
-1. Actions → **Validate Arm Optimization** → Run workflow.
-2. Change **one** input: `model_id` *or* `prompt_profile` *or* hardware (manual).
-3. Prefer `outer_repeats=3` (alternating generic/KleidiAI order).
-4. Download the artifact → copy the generation Δ row into [`docs/ci/test-matrix.md`](docs/ci/test-matrix.md).
+| Model | Quant | Prompt | Generic tg | KleidiAI tg | Δ% | Decision |
+|---|---|---|---:|---:|---:|---|
+| TinyLlama 1.1B | Q4_K_M | short | 50.63 | 50.74 | +0.2% | no-go |
+| TinyLlama 1.1B | Q8_0 | short | 56.69 | 65.55 | **+15.6%** | go (scoped) |
+| Mistral 7B Instruct | Q4_K_M | short | 8.56 | 8.55 | −0.1% | no-go |
+| Mistral 7B Instruct | Q4_K_M | long | 8.63 | 8.64 | +0.0% | no-go |
 
-### Local equivalent (aarch64)
+Ranges (tg): TinyLlama Q4 49.9–51.3 vs 50.0–51.2 · Q8 56.5–57.5 vs 64.6–66.4 ·
+Mistral short 8.52–8.57 vs 8.55–8.59 · long 8.61–8.64 vs 8.56–8.66.
 
-```bash
-git clone --depth 1 https://github.com/ggml-org/llama.cpp.git && cd llama.cpp
-cmake -B build-generic -DGGML_NATIVE=ON -DGGML_CPU_KLEIDIAI=OFF -DLLAMA_CURL=OFF
-cmake --build build-generic --config Release -j"$(nproc)" --target llama-bench
-cmake -B build-kleidi -DGGML_NATIVE=ON -DGGML_CPU_KLEIDIAI=ON -DLLAMA_CURL=OFF
-cmake --build build-kleidi --config Release -j"$(nproc)" --target llama-bench
-# Confirm: grep GGML_CPU_KLEIDIAI:BOOL=ON build-kleidi/CMakeCache.txt
+llama.cpp commit on that run: `3d93885`.
 
-# Example — Mistral 7B Q4_K_M (Test 1)
-curl -L -o ~/models/model.gguf \
-  https://huggingface.co/TheBloke/Mistral-7B-Instruct-v0.2-GGUF/resolve/main/mistral-7b-instruct-v0.2.Q4_K_M.gguf
+---
 
-# Alternate order across pairs; report median tg
-./build-generic/bin/llama-bench -m ~/models/model.gguf -p 128 -n 64 -r 3 -o json
-./build-kleidi/bin/llama-bench  -m ~/models/model.gguf -p 128 -n 64 -r 3 -o json
-```
-
-### Fixed methodology
+## Methodology
 
 | Rule | Detail |
 |---|---|
-| One variable at a time | Model size → quant → hardware → prompt length (see matrix doc) |
+| Parallel cells | `suite=full-matrix` → one arm64 job per cell |
 | Headline metric | Generation `avg_ts` (tg), not blended pp+tg |
-| Stats | Inner `llama-bench -r 3`; outer pairs N=3–5 with **alternating** build order |
-| Report | Median tg + range; exact model/quant/hardware/prompt |
-| Go/no-go | Per-cell Δ ≥ ~15% before any “faster with KleidiAI” marketing |
+| Stats | Inner `llama-bench -r 3`; outer pairs N=3 with alternating order |
+| Go/no-go | Per-cell Δ ≥ ~15% before any uplift marketing |
 
----
-
-## Completed cells
-
-### 2026-08-14 — TinyLlama 1.1B Q4_K_M · GH `ubuntu-24.04-arm` · short
-
-| Build | Prompt pp t/s | Generation tg t/s |
-|---|---:|---:|
-| Generic (`GGML_CPU_KLEIDIAI=OFF`) | 147.54 | 50.58 |
-| KleidiAI (`GGML_CPU_KLEIDIAI=ON`) | ~147.5 | 52.04 |
-
-- **Δ tg: +2.9%** (blended median of pp+tg rows was +0.7% — informational only)
-- Inner repeats: 3 · Outer pairs: 1 (noise bounds not established)
-- llama.cpp: `2bacf9e`
-- **Decision:** no-go for uplift claim on this cell
-
-Sidecar: [`docs/ci/arm-benchmark-latest.md`](docs/ci/arm-benchmark-latest.md)
-
-### Pending — next run
-
-**Test 1:** Mistral 7B Instruct Q4_K_M · same runner · short · `outer_repeats=3`  
-Dispatch defaults in the workflow already point at this cell.
+Reproduce: Actions → Validate Arm Optimization → `full-matrix` / `outer_repeats=3`.
 
 ---
 
 ## Relationship to product benchmarks
 
-- This file + the matrix prove the **compiler/runtime** comparison in isolation.
-- Dashboard generic vs optimized comes from agent dual-image deploy
-  (`deploy_inference` / `run_benchmark`) via `ANCHOR_INFER_IMAGE_BASE`.
-- Same honesty rule applies on demo day: show the card’s real %, never invent one.
+Dashboard generic vs optimized comes from agent dual-image deploy. Same honesty rule
+on demo day: show the card’s real %, quote the matrix cell if asked.

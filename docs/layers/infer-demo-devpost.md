@@ -11,9 +11,9 @@ Honest numbers: [`../ci/test-matrix.md`](../ci/test-matrix.md) · [`../../BENCHM
 > surface real KleidiAI gains where hardware supports them, and to show the real
 > measured delta when it does not.
 
-**If asked “how much faster?”** — quote the matrix cell (e.g. TinyLlama on GH arm64:
-**+2.9%** generation t/s). Do not say “Arm-optimized, faster inference” without the
-number. Judges respect a well-instrumented marginal result more than a vague claim.
+**If asked “how much faster?”** — quote the matrix:
+TinyLlama Q4_K_M **+0.2%**, Mistral 7B Q4_K_M **~0%**, TinyLlama Q8_0 **+15.6%**
+(all GH `ubuntu-24.04-arm`, N=3). Never “Arm-optimized, faster inference” without the number.
 
 ## Timed dry run (2–3 minutes)
 

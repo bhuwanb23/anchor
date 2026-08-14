@@ -1,24 +1,42 @@
 {
-  "date_utc": "2026-08-14T05:37:44Z",
-  "runner": "ubuntu-24.04-arm",
-  "arch": "aarch64",
-  "model": "tinyllama-1.1b-chat-v1.0.Q4_K_M",
-  "llama_commit": "2bacf9ea5cf9e191430d4c786202d5984df7c193",
-  "p": 128,
-  "n": 64,
-  "r": 3,
-  "n_threads": 4,
-  "generic": {
-    "prompt_tps": 147.539116,
-    "generation_tps": 50.578651,
-    "blended_median_tps": 99.0588835
-  },
-  "kleidi": {
-    "generation_tps": 52.036405,
-    "blended_median_tps": 99.7698345
-  },
-  "improvement_pct_blended": 0.7177054443582481,
-  "improvement_pct_generation": 2.882,
-  "go_no_go": "no-go",
-  "claim": "Arm path + quantization; do not claim large KleidiAI uplift from this run"
+  "run_id": 31775408483,
+  "date_utc": "2026-08-14",
+  "hardware": "github-ubuntu-24.04-arm",
+  "outer_repeats": 3,
+  "llama_commit": "3d93885352a0049c8388a0da0698ec1a69e60d90",
+  "cells": [
+    {
+      "model_id": "tinyllama-q4km",
+      "prompt_profile": "short",
+      "generic_tg_median": 50.631323,
+      "kleidi_tg_median": 50.740031,
+      "improvement_pct_generation": 0.2147050354579911,
+      "go_no_go_15pct": "no-go"
+    },
+    {
+      "model_id": "tinyllama-q8_0",
+      "prompt_profile": "short",
+      "generic_tg_median": 56.693672,
+      "kleidi_tg_median": 65.54753,
+      "improvement_pct_generation": 15.617012777016798,
+      "go_no_go_15pct": "go"
+    },
+    {
+      "model_id": "mistral-7b-q4km",
+      "prompt_profile": "short",
+      "generic_tg_median": 8.558331,
+      "kleidi_tg_median": 8.552645,
+      "improvement_pct_generation": -0.06643818753914456,
+      "go_no_go_15pct": "no-go"
+    },
+    {
+      "model_id": "mistral-7b-q4km",
+      "prompt_profile": "long",
+      "generic_tg_median": 8.634723,
+      "kleidi_tg_median": 8.638481,
+      "improvement_pct_generation": 0.043521952007044826,
+      "go_no_go_15pct": "no-go"
+    }
+  ],
+  "pitch": "measure-and-report; scoped KleidiAI claim only for TinyLlama Q8_0 (+15.6% tg) on GH arm64"
 }

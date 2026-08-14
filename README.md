@@ -123,8 +123,10 @@ never “Arm-optimized, faster inference” without the number.
 - Numbers + go/no-go: [`BENCHMARKS.md`](BENCHMARKS.md)
 - Workflow: [`.github/workflows/validate.yml`](.github/workflows/validate.yml)
 
-**TinyLlama / GH arm64 (2026-08-14):** generation **+2.9%** (50.58 → 52.04 t/s) — **no-go**
-for a KleidiAI uplift headline. Next cell: Mistral 7B Q4_K_M, same runner, `outer_repeats=3`.
+**TinyLlama Q4_K_M / GH arm64 (N=3):** generation **+0.2%** — no-go.  
+**TinyLlama Q8_0 / GH arm64 (N=3):** generation **+15.6%** — only scoped KleidiAI “go”.  
+**Mistral 7B Q4_K_M short/long:** ~**0%** — no-go.  
+Full table: [`docs/ci/test-matrix.md`](docs/ci/test-matrix.md).
 
 ### Add another model template
 
