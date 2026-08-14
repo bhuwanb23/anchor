@@ -43,7 +43,10 @@ make dev
 make dev-agent
 ```
 
-Then open the dashboard (typically `http://localhost:3000`), sign up, connect a server, open **Infer** (`/infer`).
+Then open the dashboard (typically `http://localhost:3000`), sign up, open **Servers → Add server**
+(no multi-step onboarding wizard), connect a VPS, then open **Infer** (`/infer`).
+
+Video checklist: [`DEMO.md`](../DEMO.md).
 
 Useful Make targets:
 

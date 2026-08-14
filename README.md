@@ -26,6 +26,7 @@
 |---|---|
 | **Live dashboard** | https://anchor-web-tvir.onrender.com |
 | **Live API** | https://anchor-api-o1ba.onrender.com/health |
+| **Local demo / video** | [`DEMO.md`](DEMO.md) |
 | **CI Arm matrix** | [Actions → Validate Arm Optimization](https://github.com/bhuwanb23/anchor/actions/workflows/validate.yml) |
 | **Numbers** | [`BENCHMARKS.md`](BENCHMARKS.md) · [`docs/ci/test-matrix.md`](docs/ci/test-matrix.md) |
 
@@ -163,29 +164,41 @@ Deep dive: [`docs/infer_ai_model.md`](docs/infer_ai_model.md) · validation plan
 Prerequisites: Go 1.22+, Node 20+ with pnpm, Docker.
 
 ```bash
-git clone <this-repo>
+git clone https://github.com/bhuwanb23/anchor.git
 cd anchor
-make dev            # control plane + dashboard (hot reload)
-make dev-agent      # in another terminal: run the agent locally
+cp control-plane/.env.example control-plane/.env
+cp agent/.env.example agent/.env   # fill after first server token
+make tidy && make test && make build   # validate toolchain
+make dev            # control plane + dashboard (http://localhost:3000)
+make dev-agent      # other terminal — after install command exists
 ```
 
-Configuration lives in `agent/.env.example` and `control-plane/.env.example` — copy them, fill in your values, and you're up. Cross-compile release binaries for Linux with:
+**First run (no onboarding wizard):** Sign up → **Servers** → **Add server** → copy install command → SSH to your VPS → wait until status is connected → open **Infer**.
+
+Cross-compile agent binaries:
 
 ```bash
-make release        # linux/amd64 + linux/arm64 + SHA-256 checksums
+make release        # linux/amd64 + linux/arm64 (+ checksums on Unix)
 ```
+
+### Record a demo video (local)
+
+Full script: [`DEMO.md`](DEMO.md). Short version: pre-warm Infer overnight, then film Overview → Infer → live prompt → honest bench %.
 
 ## Use the hosted version (Render)
 
 Deploy control plane + dashboard with the free Blueprint in [`render.yaml`](render.yaml). Guide: [`docs/deploy-render.md`](docs/deploy-render.md).
 
+- Dashboard: https://anchor-web-tvir.onrender.com  
+- API: https://anchor-api-o1ba.onrender.com  
+
 Free tier: both services sleep when idle; SQLite is ephemeral (no disks on free). Agents still run on **your** VPS.
 
 ## Project status
 
-**Done:** install layer, server preflight, Docker management, Caddy management with auto-HTTPS, agent lifecycle + reconnection, command executor with offline queue, metrics collection (Layer 4C, fully tested), control-plane API with migrations, emerald dashboard UX, Render Blueprint for cloud deploy, **Anchor Infer** (platform detect, deploy, dual benchmark, `/infer` UI).
+**Done:** install layer, server preflight, Docker management, Caddy management with auto-HTTPS, agent lifecycle + reconnection, command executor with offline queue, metrics collection (Layer 4C, fully tested), control-plane API with migrations, emerald dashboard UX, Render Blueprint, **Anchor Infer**, Arm CI matrix + judge docs, **onboarding wizard removed** (connect via `/servers?connect=1`).
 
-**In progress:** publishing Infer runtime images to GHCR; optional Graviton4/Axion manual cell; backup UI polish, billing, multi-server polish, agent release binaries.
+**In progress:** publishing Infer runtime images to GHCR; optional Graviton4/Axion manual cell; deeper dashboard visual polish; billing; multi-server polish; agent release binaries.
 
 **Explicitly not being built:** custom hypervisor, storage clustering (Ceph/Gluster), multi-region auto-scaling, Kubernetes-style orchestration, custom container runtime, custom TLS engine.
 
@@ -198,6 +211,7 @@ Free tier: both services sleep when idle; SQLite is ephemeral (no disks on free)
 | `dashboard/` | Next.js web UI (Dockerfile) |
 | `infer/docker/` | Dockerfiles + build script for llama.cpp Infer runtime images |
 | `BENCHMARKS.md` | Phase 1 KleidiAI vs generic proof numbers |
+| `DEMO.md` | Local demo + video recording checklist |
 | `docs/infer-for-judges.md` | Judge-facing setup / Arm / optimizations / evidence |
 | `docs/assets/infer/` | Infer pipeline, Arm targeting, and bench bar diagrams |
 | `docs/` | Architecture, per-layer plans, and project overview |
@@ -205,15 +219,22 @@ Free tier: both services sleep when idle; SQLite is ephemeral (no disks on free)
 | `render.yaml` | Render Blueprint (API + dashboard) |
 | `docs/assets/readme/` | Diagrams used in this README (SVG sources + PNG renders) |
 
-## Development
+## Development / Make targets
+
+| Target | What it does |
+|---|---|
+| `make tidy` | `go mod tidy` for control-plane + agent |
+| `make lint` | `go vet` + dashboard eslint |
+| `make test` | All Go tests (agent + control plane) |
+| `make build` | Local binaries + `pnpm build` |
+| `make dev` | Hot-reload API + dashboard |
+| `make dev-agent` | Run agent against local/control-plane URL |
+| `make release` | Cross-compile linux amd64/arm64 agents |
+| `make db-reset` | Delete local SQLite (Windows-friendly) |
+| `make clean` | Remove `bin/`, `release/`, `.next`, tmp |
 
 ```bash
-make dev            # backend + frontend with hot reload
-make build          # build all three binaries/bundles
-make test           # Go tests across agent + control plane
-make lint           # go vet + eslint
-make tidy           # go mod tidy for both Go modules
-make db-reset       # drop local dev database
+make tidy && make lint && make test && make build
 ```
 
 ## Contributing

@@ -182,7 +182,7 @@ export default function InferPage() {
           onDetectPlatform={() => void detectPlatform()}
           onPickServer={() => {
             if (servers.length === 0) {
-              router.push("/onboarding/connect-server");
+              router.push("/servers?connect=1");
               return;
             }
             document
@@ -272,7 +272,7 @@ export default function InferPage() {
 
         {!serversLoading && servers.length === 0 && (
           <div className="text-center">
-            <Button onClick={() => router.push("/onboarding/connect-server")}>
+            <Button onClick={() => router.push("/servers?connect=1")}>
               Connect a server first
             </Button>
           </div>

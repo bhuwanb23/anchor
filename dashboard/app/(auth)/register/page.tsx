@@ -42,8 +42,8 @@ export default function RegisterPage() {
     try {
       await authRegister({ name: data.name, email: data.email, password: data.password });
       await login({ email: data.email, password: data.password });
-      toast.success("Welcome — let’s connect your first server");
-      router.push("/onboarding");
+      toast.success("Account created — connect a server when you’re ready");
+      router.push("/servers?connect=1");
     } catch (e) {
       const message =
         (e as { response?: { data?: { error?: string } } })?.response?.data?.error ??

@@ -110,7 +110,7 @@ export default function OverviewPage() {
             Your infrastructure, calmly.
           </h2>
         </div>
-        <Link href="/onboarding/connect-server">
+        <Link href="/servers?connect=1">
           <Button size="sm" variant="secondary" className="gap-1.5">
             <Plus className="h-4 w-4" />
             Connect server
@@ -409,7 +409,7 @@ export default function OverviewPage() {
               <p className="mx-auto max-w-sm text-sm text-[var(--color-muted)]">
                 Connect a VPS when you&apos;re ready — or keep exploring the dashboard.
               </p>
-              <Link href="/onboarding/connect-server">
+              <Link href="/servers?connect=1">
                 <Button className="gap-2">
                   <Plus className="h-4 w-4" />
                   Connect your first server

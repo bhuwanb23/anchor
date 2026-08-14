@@ -136,7 +136,7 @@ export function Sidebar({ collapsed, onNavigate, onExpand }: SidebarProps) {
           <button
             type="button"
             onClick={() => {
-              router.push("/onboarding/connect-server");
+              router.push("/servers?connect=1");
               onNavigate?.();
             }}
             className="mt-1 flex h-9 w-9 items-center justify-center rounded-[var(--radius-md)] text-[var(--color-muted)] hover:bg-[var(--color-paper-2)]"
@@ -232,7 +232,7 @@ export function Sidebar({ collapsed, onNavigate, onExpand }: SidebarProps) {
         <button
           type="button"
           onClick={() => {
-            router.push("/onboarding/connect-server");
+            router.push("/servers?connect=1");
             onNavigate?.();
           }}
           className="mb-5 flex w-full items-center gap-2 rounded-[var(--radius-md)] px-3 py-2.5 text-sm font-medium text-[var(--color-muted)] hover:bg-[var(--color-paper-2)] hover:text-[var(--color-accent)]"

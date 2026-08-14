@@ -76,8 +76,8 @@ export function Header({ onMenuClick }: HeaderProps) {
   const primaryCta =
     pathname === "/overview" || pathname === "/servers"
       ? {
-          label: "Connect server",
-          href: "/onboarding/connect-server",
+          label: "Add server",
+          href: "/servers?connect=1",
           icon: <Plus className="h-4 w-4" />,
         }
       : pathServerId && !pathname.includes("/apps/new")
@@ -86,7 +86,13 @@ export function Header({ onMenuClick }: HeaderProps) {
             href: `/servers/${pathServerId}/apps/new`,
             icon: <Rocket className="h-4 w-4" />,
           }
-        : null;
+        : pathname === "/infer"
+          ? {
+              label: "Add server",
+              href: "/servers?connect=1",
+              icon: <Plus className="h-4 w-4" />,
+            }
+          : null;
 
   return (
     <header className="sticky top-0 z-40 border-b border-[var(--color-border)] bg-[var(--color-surface)]/85 px-4 py-4 backdrop-blur-md sm:px-6 lg:px-8">
