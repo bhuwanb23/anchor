@@ -7,32 +7,37 @@ median across outer pairs; always keep the honest Δ% visible in the pitch.
 **Go/no-go (per cell):** Δ ≥ ~15% → may support a KleidiAI uplift claim for that
 model/hardware/quant. Otherwise keep the **measure-and-report pipeline** story.
 
-## How to run the next cell
+## How to run
 
-Actions → **Validate Arm Optimization** → Run workflow:
+**Full CI matrix in parallel** (recommended):
 
-| Goal | `model_id` | `prompt_profile` | `outer_repeats` |
-|---|---|---|---|
-| Test 1 — model size | `mistral-7b-q4km` | `short` | `3` |
-| Test 4 — long prompt | same model as last good cell | `long` | `3` |
-| Test 2 — quant | `tinyllama-q8_0` or `mistral-7b-q8_0` | `short` | `3` |
-| Baseline re-check | `tinyllama-q4km` | `short` | `3` |
+Actions → **Validate Arm Optimization** → Run workflow → suite = `full-matrix`, outer_repeats = `3`.
 
-Test 3 (Graviton4 / Axion / i8mm·SME) is **manual outside CI** — same `llama-bench`
-flags, paste into the matrix with hardware = that instance.
+That spins **4 parallel arm64 jobs**:
+
+| Job | model_id | prompt |
+|---|---|---|
+| 1 | `tinyllama-q4km` | short |
+| 2 | `tinyllama-q8_0` | short |
+| 3 | `mistral-7b-q4km` | short |
+| 4 | `mistral-7b-q4km` | long |
+
+Other suites: `smoke` (TinyLlama only), `mistral-only`, `tinyllama-quants`.
+
+Test 3 (Graviton4 / Axion / i8mm·SME) stays **manual outside CI**.
 
 ## Matrix
 
 | Model | Quant | Hardware | Prompt | Generic tg (median) | KleidiAI tg (median) | Δ% | N pairs | Status |
 |---|---|---|---|---:|---:|---:|---:|---|
-| TinyLlama 1.1B | Q4_K_M | GH `ubuntu-24.04-arm` | short (−p128 −n64) | 50.58 | 52.04 | **+2.9%** | 1* | done — no-go |
-| Mistral 7B Instruct | Q4_K_M | GH `ubuntu-24.04-arm` | short | — | — | — | 3 | **next — run via workflow_dispatch** |
-| Mistral 7B Instruct | Q4_K_M | GH `ubuntu-24.04-arm` | long (−p512 −n128) | — | — | — | 3 | pending |
-| TinyLlama 1.1B | Q8_0 | GH `ubuntu-24.04-arm` | short | — | — | — | 3 | pending |
+| TinyLlama 1.1B | Q4_K_M | GH `ubuntu-24.04-arm` | short (−p128 −n64) | 50.58 | 52.04 | **+2.9%** | 1* | done — no-go (pre-matrix) |
+| TinyLlama 1.1B | Q4_K_M | GH `ubuntu-24.04-arm` | short | — | — | — | 3 | pending — full-matrix |
+| TinyLlama 1.1B | Q8_0 | GH `ubuntu-24.04-arm` | short | — | — | — | 3 | pending — full-matrix |
+| Mistral 7B Instruct | Q4_K_M | GH `ubuntu-24.04-arm` | short | — | — | — | 3 | pending — full-matrix |
+| Mistral 7B Instruct | Q4_K_M | GH `ubuntu-24.04-arm` | long (−p512 −n128) | — | — | — | 3 | pending — full-matrix |
 | Mistral 7B Instruct | Q4_K_M | Graviton4 / Axion (manual) | short | — | — | — | ≥3 | pending |
 
-\*First cell used a single outer pair (`llama-bench -r 3` inner only).  
-**Note (2026-08-14):** Actions run [#4](https://github.com/bhuwanb23/anchor/actions/runs/31774666953) succeeded but was a **push** with defaults → artifact `arm-benchmark-tinyllama-q4km-short` only (~5m). That does **not** fill the Mistral row. Test 1 requires **Run workflow** (dispatch), not a docs push.
+\*Legacy single-pair cell from 2026-08-14. Replaced by N=3 when full-matrix finishes.
 
 ## Decision log
 

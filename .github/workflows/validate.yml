@@ -1,33 +1,23 @@
 name: Validate Arm Optimization
 
-# KleidiAI vs generic llama.cpp on arm64 — one variable at a time.
-# Default (push): TinyLlama Q4_K_M short prompt (baseline cell).
-# Manual runs: pick model / quant / prompt profile / outer repeats via workflow_dispatch.
+# Parallel Arm64 cells: each matrix entry gets its own ubuntu-24.04-arm runner.
+# Push → smoke (TinyLlama only). workflow_dispatch → full CI matrix by default.
 
 on:
   workflow_dispatch:
     inputs:
-      model_id:
-        description: "Model + quant (change only this for Test 1 / Test 2)"
+      suite:
+        description: "Which cells to run in parallel"
         type: choice
         required: true
-        default: mistral-7b-q4km
+        default: full-matrix
         options:
-          - tinyllama-q4km
-          - tinyllama-q8_0
-          - tinyllama-q4_0
-          - mistral-7b-q4km
-          - mistral-7b-q8_0
-      prompt_profile:
-        description: "Prompt/gen length (Test 4)"
-        type: choice
-        required: true
-        default: short
-        options:
-          - short
-          - long
+          - full-matrix
+          - smoke
+          - mistral-only
+          - tinyllama-quants
       outer_repeats:
-        description: "Full generic+Kleidi pairs to run (median across these; alternate order)"
+        description: "Outer generic↔Kleidi pairs per cell (alternating order)"
         type: choice
         required: true
         default: "3"
@@ -39,19 +29,70 @@ on:
     paths:
       - ".github/workflows/validate.yml"
       - "infer/**"
-      # Intentionally NOT BENCHMARKS.md / docs/ci
 
 jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set.outputs.matrix }}
+      outer_repeats: ${{ steps.set.outputs.outer_repeats }}
+    steps:
+      - id: set
+        env:
+          SUITE: ${{ github.event.inputs.suite || 'smoke' }}
+          OUTER: ${{ github.event.inputs.outer_repeats || '1' }}
+        run: |
+          python3 <<'PY'
+          import json, os
+          suite = os.environ["SUITE"]
+          outer = os.environ["OUTER"]
+          cells = {
+              "smoke": [
+                  {"model_id": "tinyllama-q4km", "prompt_profile": "short"},
+              ],
+              "full-matrix": [
+                  {"model_id": "tinyllama-q4km", "prompt_profile": "short"},
+                  {"model_id": "tinyllama-q8_0", "prompt_profile": "short"},
+                  {"model_id": "mistral-7b-q4km", "prompt_profile": "short"},
+                  {"model_id": "mistral-7b-q4km", "prompt_profile": "long"},
+              ],
+              "mistral-only": [
+                  {"model_id": "mistral-7b-q4km", "prompt_profile": "short"},
+                  {"model_id": "mistral-7b-q4km", "prompt_profile": "long"},
+              ],
+              "tinyllama-quants": [
+                  {"model_id": "tinyllama-q4km", "prompt_profile": "short"},
+                  {"model_id": "tinyllama-q4_0", "prompt_profile": "short"},
+                  {"model_id": "tinyllama-q8_0", "prompt_profile": "short"},
+              ],
+          }
+          selected = cells.get(suite, cells["smoke"])
+          for c in selected:
+              c["outer_repeats"] = outer
+          matrix = {"include": selected}
+          print("suite=", suite, "cells=", len(selected), "outer=", outer)
+          print(json.dumps(matrix, indent=2))
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as f:
+              f.write(f"matrix={json.dumps(matrix)}\n")
+              f.write(f"outer_repeats={outer}\n")
+          PY
+
   validate:
+    needs: prepare
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
+    name: ${{ matrix.model_id }} / ${{ matrix.prompt_profile }}
     env:
       LLAMA_DIR: ${{ github.workspace }}/_llama.cpp
       MODEL_PATH: ${{ github.workspace }}/_models/model.gguf
       RESULTS_DIR: ${{ github.workspace }}/_bench_out
-      MODEL_ID: ${{ github.event.inputs.model_id || 'tinyllama-q4km' }}
-      PROMPT_PROFILE: ${{ github.event.inputs.prompt_profile || 'short' }}
-      OUTER_REPEATS: ${{ github.event.inputs.outer_repeats || '1' }}
+      MODEL_ID: ${{ matrix.model_id }}
+      PROMPT_PROFILE: ${{ matrix.prompt_profile }}
+      OUTER_REPEATS: ${{ matrix.outer_repeats }}
 
     steps:
       - uses: actions/checkout@v4
@@ -62,7 +103,6 @@ jobs:
           test "$(uname -m)" = "aarch64"
           echo "MODEL_ID=$MODEL_ID PROMPT_PROFILE=$PROMPT_PROFILE OUTER_REPEATS=$OUTER_REPEATS"
           lscpu || true
-          # Surface extensions relevant to KleidiAI (may be empty on some runners)
           grep -E 'Flags|Features' /proc/cpuinfo | head -n 5 || true
 
       - name: Install build tools
@@ -78,22 +118,27 @@ jobs:
             tinyllama-q4km)
               URL="https://huggingface.co/TheBloke/TinyLlama-1.1B-Chat-v1.0-GGUF/resolve/main/tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf"
               LABEL="TinyLlama 1.1B Chat Q4_K_M"
+              QUANT="Q4_K_M"
               ;;
             tinyllama-q8_0)
               URL="https://huggingface.co/TheBloke/TinyLlama-1.1B-Chat-v1.0-GGUF/resolve/main/tinyllama-1.1b-chat-v1.0.Q8_0.gguf"
               LABEL="TinyLlama 1.1B Chat Q8_0"
+              QUANT="Q8_0"
               ;;
             tinyllama-q4_0)
               URL="https://huggingface.co/TheBloke/TinyLlama-1.1B-Chat-v1.0-GGUF/resolve/main/tinyllama-1.1b-chat-v1.0.Q4_0.gguf"
               LABEL="TinyLlama 1.1B Chat Q4_0"
+              QUANT="Q4_0"
               ;;
             mistral-7b-q4km)
               URL="https://huggingface.co/TheBloke/Mistral-7B-Instruct-v0.2-GGUF/resolve/main/mistral-7b-instruct-v0.2.Q4_K_M.gguf"
               LABEL="Mistral 7B Instruct v0.2 Q4_K_M"
+              QUANT="Q4_K_M"
               ;;
             mistral-7b-q8_0)
               URL="https://huggingface.co/TheBloke/Mistral-7B-Instruct-v0.2-GGUF/resolve/main/mistral-7b-instruct-v0.2.Q8_0.gguf"
               LABEL="Mistral 7B Instruct v0.2 Q8_0"
+              QUANT="Q8_0"
               ;;
             *)
               echo "Unknown MODEL_ID=$MODEL_ID" >&2
@@ -102,23 +147,19 @@ jobs:
           esac
 
           case "$PROMPT_PROFILE" in
-            short)
-              P=128; N=64; R=3
-              ;;
-            long)
-              P=512; N=128; R=3
-              ;;
-            *)
-              echo "Unknown PROMPT_PROFILE=$PROMPT_PROFILE" >&2
-              exit 1
-              ;;
+            short) P=128; N=64; R=3 ;;
+            long)  P=512; N=128; R=3 ;;
+            *) echo "Unknown PROMPT_PROFILE=$PROMPT_PROFILE" >&2; exit 1 ;;
           esac
 
-          echo "model_url=$URL" >> "$GITHUB_OUTPUT"
-          echo "model_label=$LABEL" >> "$GITHUB_OUTPUT"
-          echo "p=$P" >> "$GITHUB_OUTPUT"
-          echo "n=$N" >> "$GITHUB_OUTPUT"
-          echo "r=$R" >> "$GITHUB_OUTPUT"
+          {
+            echo "model_url=$URL"
+            echo "model_label=$LABEL"
+            echo "quant=$QUANT"
+            echo "p=$P"
+            echo "n=$N"
+            echo "r=$R"
+          } >> "$GITHUB_OUTPUT"
           echo "Resolved: $LABEL  -p $P -n $N -r $R  outer=$OUTER_REPEATS"
 
       - name: Clone llama.cpp
@@ -135,7 +176,6 @@ jobs:
             -DLLAMA_CURL=OFF
           cmake --build build-generic --config Release -j"$(nproc)" --target llama-bench
           test -x build-generic/bin/llama-bench
-          echo "GENERIC_BUILD=ok"
 
       - name: Build KleidiAI-optimized llama.cpp
         working-directory: ${{ env.LLAMA_DIR }}
@@ -147,7 +187,6 @@ jobs:
           cmake --build build-kleidi --config Release -j"$(nproc)" --target llama-bench
           test -x build-kleidi/bin/llama-bench
           grep -E "GGML_CPU_KLEIDIAI:BOOL=ON" build-kleidi/CMakeCache.txt
-          echo "KLEIDI_BUILD=ok"
 
       - name: Download GGUF model
         run: |
@@ -158,7 +197,6 @@ jobs:
 
       - name: Benchmark both builds (N pairs, alternating order)
         env:
-          MODEL_LABEL: ${{ steps.cfg.outputs.model_label }}
           BENCH_P: ${{ steps.cfg.outputs.p }}
           BENCH_N: ${{ steps.cfg.outputs.n }}
           BENCH_R: ${{ steps.cfg.outputs.r }}
@@ -183,7 +221,6 @@ jobs:
             fi
           }
 
-          # Alternate order across outer repeats to reduce warm-up / thermal bias.
           for i in $(seq 1 "$OUTER_REPEATS"); do
             echo "=== outer run $i / $OUTER_REPEATS ==="
             if [ $((i % 2)) -eq 1 ]; then
@@ -201,6 +238,7 @@ jobs:
       - name: Summarize results
         env:
           MODEL_LABEL: ${{ steps.cfg.outputs.model_label }}
+          QUANT_OUT: ${{ steps.cfg.outputs.quant }}
           MODEL_ID_OUT: ${{ env.MODEL_ID }}
           BENCH_P: ${{ steps.cfg.outputs.p }}
           BENCH_N: ${{ steps.cfg.outputs.n }}
@@ -269,18 +307,13 @@ jobs:
                       }
               return empty
 
-          generic_tg, kleidi_tg = [], []
-          generic_pp, kleidi_pp = [], []
-          per_run = []
+          generic_tg, kleidi_tg, generic_pp, kleidi_pp, per_run = [], [], [], [], []
           for base in sorted(results.glob("run*-generic")):
-              stem = base.name  # run1-generic
+              stem = base.name
               run_id = stem.split("-", 1)[0]
               g = parse_file(results / stem)
               k = parse_file(results / f"{run_id}-kleidi")
-              order = ""
-              op = results / f"{run_id}-order.txt"
-              if op.exists():
-                  order = op.read_text().strip()
+              order = (results / f"{run_id}-order.txt").read_text().strip() if (results / f"{run_id}-order.txt").exists() else ""
               per_run.append({"run": run_id, "order": order, "generic": g, "kleidi": k})
               if g.get("generation_tps") is not None:
                   generic_tg.append(g["generation_tps"])
@@ -305,6 +338,7 @@ jobs:
 
           now = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
           model_label = os.environ.get("MODEL_LABEL", "unknown")
+          quant = os.environ.get("QUANT_OUT", "")
           model_id = os.environ.get("MODEL_ID_OUT", "")
           profile = os.environ.get("PROMPT_PROFILE_OUT", "")
           p, n, r = os.environ.get("BENCH_P"), os.environ.get("BENCH_N"), os.environ.get("BENCH_R")
@@ -313,9 +347,7 @@ jobs:
               return f"{x:.2f}" if x is not None else "n/a"
 
           def fmt_range(lo, hi):
-              if lo is None:
-                  return "n/a"
-              return f"{lo:.2f}–{hi:.2f}"
+              return "n/a" if lo is None else f"{lo:.2f}–{hi:.2f}"
 
           lines = [
               f"# CI benchmark run — {now}",
@@ -333,27 +365,24 @@ jobs:
               "",
           ]
           if pct is not None:
-              lines.append(
-                  f"**Generation Δ (headline):** {pct:+.1f}% "
-                  f"(KleidiAI {k_tg:.2f} vs generic {g_tg:.2f} t/s, median of {len(per_run)} pairs)"
-              )
               decision = "go" if pct >= 15 else "no-go"
-              # Ready-to-paste row for docs/ci/test-matrix.md
               matrix_row = (
-                  f"| {model_label} | (see model_id) | GH `ubuntu-24.04-arm` | {profile} "
-                  f"| {g_tg:.2f} | {k_tg:.2f} | **{pct:+.1f}%** | {len(per_run)} | done — {decision} |"
+                  f"| {model_label.split(' Q')[0] if ' Q' in model_label else model_label} | {quant} | "
+                  f"GH `ubuntu-24.04-arm` | {profile} | {g_tg:.2f} | {k_tg:.2f} | "
+                  f"**{pct:+.1f}%** | {len(per_run)} | done — {decision} |"
               )
               lines += [
+                  f"**Generation Δ (headline):** {pct:+.1f}% "
+                  f"(KleidiAI {k_tg:.2f} vs generic {g_tg:.2f} t/s, median of {len(per_run)} pairs)",
                   "",
                   f"**Go/no-go vs 15% bar (this cell only):** `{decision}`",
                   "",
-                  "Paste into `docs/ci/test-matrix.md` (do not drop the honest number):",
-                  "",
-                  "```",
+                  "MATRIX_ROW:",
                   matrix_row,
-                  "```",
+                  "",
               ]
           else:
+              matrix_row = None
               lines.append("**Note:** Could not parse tokens/sec — inspect `_bench_out/` in the artifact.")
           lines.append("")
 
@@ -361,6 +390,7 @@ jobs:
               "date_utc": now,
               "model_id": model_id,
               "model_label": model_label,
+              "quant": quant,
               "prompt_profile": profile,
               "p": int(p) if p else None,
               "n": int(n) if n else None,
@@ -377,6 +407,7 @@ jobs:
               "improvement_pct_generation": pct,
               "per_run": per_run,
               "go_no_go_15pct": ("go" if pct is not None and pct >= 15 else "no-go") if pct is not None else None,
+              "matrix_row": matrix_row,
           }
           pathlib.Path("ci-benchmark-results.json").write_text(json.dumps(meta, indent=2) + "\n")
           out.write_text("\n".join(lines) + "\n")
@@ -388,7 +419,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: arm-benchmark-${{ env.MODEL_ID }}-${{ env.PROMPT_PROFILE }}
+          name: arm-benchmark-${{ matrix.model_id }}-${{ matrix.prompt_profile }}
           path: |
             ci-benchmark-results.md
             ci-benchmark-results.json
