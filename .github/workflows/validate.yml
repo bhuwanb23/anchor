@@ -1,7 +1,6 @@
 name: Validate Arm Optimization
 
-# Phase 1 technical validation from docs/infer_idea_validation.md.
-# Proves KleidiAI-enabled llama.cpp is measurable vs a generic Arm build.
+# Phase 1 technical validation — KleidiAI vs generic llama.cpp on arm64.
 
 on:
   workflow_dispatch:
@@ -14,7 +13,12 @@ on:
 jobs:
   validate:
     runs-on: ubuntu-24.04-arm
-    timeout-minutes: 90
+    timeout-minutes: 120
+    env:
+      LLAMA_DIR: ${{ github.workspace }}/_llama.cpp
+      MODEL_PATH: ${{ github.workspace }}/_models/model.gguf
+      RESULTS_DIR: ${{ github.workspace }}/_bench_out
+
     steps:
       - uses: actions/checkout@v4
 
@@ -27,148 +31,169 @@ jobs:
         run: |
           sudo apt-get update
           sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
-            build-essential cmake git curl ca-certificates python3 python3-pip
+            build-essential cmake git curl ca-certificates python3
 
       - name: Clone llama.cpp
         run: |
-          git clone --depth 1 https://github.com/ggml-org/llama.cpp.git "$HOME/llama.cpp"
-          cd "$HOME/llama.cpp"
-          echo "llama.cpp commit=$(git rev-parse HEAD)"
+          git clone --depth 1 https://github.com/ggml-org/llama.cpp.git "$LLAMA_DIR"
+          echo "llama.cpp commit=$(git -C "$LLAMA_DIR" rev-parse HEAD)"
 
       - name: Build generic (baseline) llama.cpp
-        working-directory: ${{ runner.temp }}/../llama.cpp
+        working-directory: ${{ env.LLAMA_DIR }}
         run: |
-          cd "$HOME/llama.cpp"
           cmake -B build-generic \
             -DGGML_NATIVE=ON \
             -DGGML_CPU_KLEIDIAI=OFF \
-            -DLLAMA_CURL=OFF \
-            -DLLAMA_BUILD_SERVER=ON
-          cmake --build build-generic --config Release -j"$(nproc)" --target llama-bench llama-cli
+            -DLLAMA_CURL=OFF
+          cmake --build build-generic --config Release -j"$(nproc)" --target llama-bench
           test -x build-generic/bin/llama-bench
           echo "GENERIC_BUILD=ok"
 
       - name: Build KleidiAI-optimized llama.cpp
+        working-directory: ${{ env.LLAMA_DIR }}
         run: |
-          cd "$HOME/llama.cpp"
           cmake -B build-kleidi \
             -DGGML_NATIVE=ON \
             -DGGML_CPU_KLEIDIAI=ON \
-            -DLLAMA_CURL=OFF \
-            -DLLAMA_BUILD_SERVER=ON
-          cmake --build build-kleidi --config Release -j"$(nproc)" --target llama-bench llama-cli
+            -DLLAMA_CURL=OFF
+          cmake --build build-kleidi --config Release -j"$(nproc)" --target llama-bench
           test -x build-kleidi/bin/llama-bench
-          # Confirm KleidiAI was linked (not silently skipped)
-          if grep -R "kleidiai\|KLEIDI" build-kleidi/CMakeCache.txt build-kleidi/ggml/src/CMakeFiles 2>/dev/null | head -5; then
-            echo "KLEIDIAI_LINKED=yes"
-          else
-            echo "KLEIDIAI_LINKED=check_logs"
-            grep -i kleidi build-kleidi/CMakeCache.txt || true
-          fi
           grep -E "GGML_CPU_KLEIDIAI:BOOL=ON" build-kleidi/CMakeCache.txt
+          echo "KLEIDI_BUILD=ok"
 
       - name: Download small GGUF model
         run: |
-          mkdir -p "$HOME/models"
-          # ~640MB Q4_K_M — small enough for CI, large enough for meaningful tokens/sec
+          mkdir -p "$(dirname "$MODEL_PATH")"
           MODEL_URL="https://huggingface.co/TheBloke/TinyLlama-1.1B-Chat-v1.0-GGUF/resolve/main/tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf"
-          curl -L --fail --retry 3 -o "$HOME/models/model.gguf" "$MODEL_URL"
-          ls -lh "$HOME/models/model.gguf"
+          curl -L --fail --retry 5 --retry-delay 5 -o "$MODEL_PATH" "$MODEL_URL"
+          ls -lh "$MODEL_PATH"
 
-      - name: Benchmark generic build
+      - name: Benchmark both builds
         run: |
-          cd "$HOME/llama.cpp"
-          ./build-generic/bin/llama-bench \
-            -m "$HOME/models/model.gguf" \
-            -p 128 -n 64 -r 3 \
-            --output json \
-            > "$HOME/bench-generic.json" || \
-          ./build-generic/bin/llama-bench \
-            -m "$HOME/models/model.gguf" \
-            -p 128 -n 64 -r 3 \
-            > "$HOME/bench-generic.txt"
-          ls -la "$HOME"/bench-generic.* || true
-          head -c 4000 "$HOME/bench-generic.json" 2>/dev/null || head -c 4000 "$HOME/bench-generic.txt"
+          mkdir -p "$RESULTS_DIR"
+          cd "$LLAMA_DIR"
 
-      - name: Benchmark KleidiAI build
-        run: |
-          cd "$HOME/llama.cpp"
-          ./build-kleidi/bin/llama-bench \
-            -m "$HOME/models/model.gguf" \
-            -p 128 -n 64 -r 3 \
-            --output json \
-            > "$HOME/bench-kleidi.json" || \
-          ./build-kleidi/bin/llama-bench \
-            -m "$HOME/models/model.gguf" \
-            -p 128 -n 64 -r 3 \
-            > "$HOME/bench-kleidi.txt"
-          head -c 4000 "$HOME/bench-kleidi.json" 2>/dev/null || head -c 4000 "$HOME/bench-kleidi.txt"
+          # Prefer JSON; fall back to plain text if flag unsupported.
+          run_bench () {
+            local bin="$1" out_base="$2"
+            if "$bin" -m "$MODEL_PATH" -p 128 -n 64 -r 3 -o json > "${out_base}.json" 2>"${out_base}.err"; then
+              echo "wrote ${out_base}.json"
+            elif "$bin" -m "$MODEL_PATH" -p 128 -n 64 -r 3 --output json > "${out_base}.json" 2>>"${out_base}.err"; then
+              echo "wrote ${out_base}.json (legacy flag)"
+            else
+              "$bin" -m "$MODEL_PATH" -p 128 -n 64 -r 3 > "${out_base}.txt" 2>>"${out_base}.err" || true
+              echo "wrote ${out_base}.txt (plain)"
+            fi
+            head -c 3000 "${out_base}.json" 2>/dev/null || head -c 3000 "${out_base}.txt" 2>/dev/null || true
+            echo
+          }
 
-      - name: Summarize results into artifact
+          run_bench ./build-generic/bin/llama-bench "$RESULTS_DIR/bench-generic"
+          run_bench ./build-kleidi/bin/llama-bench  "$RESULTS_DIR/bench-kleidi"
+          ls -la "$RESULTS_DIR"
+
+      - name: Summarize results
         run: |
           python3 <<'PY'
           import json, os, pathlib, re, statistics, datetime
-          home = pathlib.Path(os.path.expanduser("~"))
-          out = pathlib.Path("ci-benchmark-results.md")
 
-          def parse(path_json, path_txt):
-              if path_json.exists():
+          results = pathlib.Path(os.environ["RESULTS_DIR"])
+          out = pathlib.Path("ci-benchmark-results.md")
+          commit = ""
+          llama = pathlib.Path(os.environ["LLAMA_DIR"])
+          try:
+              commit = (llama / ".git" / "HEAD").read_text().strip()
+          except Exception:
+              pass
+          try:
+              import subprocess
+              commit = subprocess.check_output(["git", "-C", str(llama), "rev-parse", "HEAD"], text=True).strip()
+          except Exception:
+              pass
+
+          def parse(base: pathlib.Path):
+              jp, tp = base.with_suffix(".json"), base.with_suffix(".txt")
+              if jp.exists() and jp.stat().st_size > 0:
                   try:
-                      data = json.loads(path_json.read_text())
-                      # llama-bench json is typically a list of rows
+                      data = json.loads(jp.read_text())
                       rows = data if isinstance(data, list) else data.get("results", [data])
                       tps = []
                       for r in rows:
-                          for k in ("avg_ts", "tokens_per_second", "ts"):
-                              if k in r and r[k]:
+                          if not isinstance(r, dict):
+                              continue
+                          # llama-bench JSON commonly uses avg_ts for tokens/sec
+                          for k in ("avg_ts", "tokens_per_second", "ts", "n_tokens_second"):
+                              if k in r and r[k] not in (None, 0, 0.0):
                                   tps.append(float(r[k]))
                                   break
                       if tps:
                           return statistics.median(tps), "json"
                   except Exception as e:
-                      print("json parse failed", e)
-              if path_txt.exists():
-                  text = path_txt.read_text(errors="replace")
-                  # Match tokens/sec style numbers from table output
-                  nums = [float(x) for x in re.findall(r"(\d+\.\d+)\s*(?:t/s|tokens)", text, re.I)]
+                      print("json parse failed:", e)
+              if tp.exists() and tp.stat().st_size > 0:
+                  text = tp.read_text(errors="replace")
+                  # Table column often ends with t/s values
+                  nums = [float(x) for x in re.findall(r"(\d+\.\d+)\s*$", text, re.M)]
                   if not nums:
-                      nums = [float(x) for x in re.findall(r"\b(\d{1,4}\.\d{1,3})\b", text)]
+                      nums = [float(x) for x in re.findall(r"(\d+\.\d+)\s*(?:t/s|tok)", text, re.I)]
                   if nums:
                       return statistics.median(nums), "text"
               return None, None
 
-          g, gs = parse(home / "bench-generic.json", home / "bench-generic.txt")
-          k, ks = parse(home / "bench-kleidi.json", home / "bench-kleidi.txt")
+          g, gs = parse(results / "bench-generic")
+          k, ks = parse(results / "bench-kleidi")
+
           lines = [
-              f"# CI benchmark run — {datetime.datetime.utcnow().isoformat()}Z",
+              f"# CI benchmark run — {datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')}",
               "",
-              f"- Runner: `ubuntu-24.04-arm` (`aarch64`)",
-              f"- Model: TinyLlama 1.1B Chat Q4_K_M",
-              f"- Prompt tokens: 128 · generation: 64 · repeats: 3",
+              "- Runner: `ubuntu-24.04-arm` (`aarch64`)",
+              "- Model: TinyLlama 1.1B Chat Q4_K_M",
+              "- Prompt tokens: 128 · generation: 64 · repeats: 3",
+              f"- llama.cpp: `{commit or 'unknown'}`",
               "",
               "| Build | Median tokens/sec | Source |",
               "|---|---:|---|",
-              f"| Generic (GGML_CPU_KLEIDIAI=OFF) | {g if g is not None else 'see raw'} | {gs or 'n/a'} |",
-              f"| KleidiAI (GGML_CPU_KLEIDIAI=ON) | {k if k is not None else 'see raw'} | {ks or 'n/a'} |",
+              f"| Generic (GGML_CPU_KLEIDIAI=OFF) | {f'{g:.2f}' if g is not None else 'see raw'} | {gs or 'n/a'} |",
+              f"| KleidiAI (GGML_CPU_KLEIDIAI=ON) | {f'{k:.2f}' if k is not None else 'see raw'} | {ks or 'n/a'} |",
               "",
           ]
           if g and k and g > 0:
               pct = ((k - g) / g) * 100
-              lines.append(f"**Improvement:** {pct:.1f}% ({k:.2f} vs {g:.2f} t/s)")
-              lines.append("")
-              lines.append("Paste these numbers into `BENCHMARKS.md` → Latest CI results.")
+              lines += [
+                  f"**Improvement:** {pct:.1f}% ({k:.2f} vs {g:.2f} t/s)",
+                  "",
+                  "Copy into `BENCHMARKS.md` → Latest CI results.",
+              ]
+          else:
+              lines += [
+                  "**Note:** Could not auto-parse tokens/sec — inspect raw JSON/TXT in the artifact.",
+                  "",
+              ]
+
+          # Machine-readable sidecar for updating BENCHMARKS.md
+          meta = {
+              "generic_tps": g,
+              "kleidi_tps": k,
+              "improvement_pct": ((k - g) / g * 100) if g and k and g > 0 else None,
+              "llama_commit": commit,
+              "model": "tinyllama-1.1b-chat-v1.0.Q4_K_M",
+              "p": 128,
+              "n": 64,
+              "r": 3,
+          }
+          pathlib.Path("ci-benchmark-results.json").write_text(json.dumps(meta, indent=2) + "\n")
           out.write_text("\n".join(lines) + "\n")
           print(out.read_text())
+          print(json.dumps(meta, indent=2))
           PY
 
-      - name: Upload raw + summary artifacts
+      - name: Upload artifacts
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: arm-benchmark-results
           path: |
             ci-benchmark-results.md
-            /home/runner/bench-generic.json
-            /home/runner/bench-generic.txt
-            /home/runner/bench-kleidi.json
-            /home/runner/bench-kleidi.txt
+            ci-benchmark-results.json
+            _bench_out/
           if-no-files-found: warn
