@@ -8,7 +8,7 @@ on:
     paths:
       - ".github/workflows/validate.yml"
       - "infer/**"
-      - "BENCHMARKS.md"
+      # Intentionally NOT BENCHMARKS.md / docs/ci — avoids loops when results are committed
 
 jobs:
   validate:
@@ -95,86 +95,121 @@ jobs:
       - name: Summarize results
         run: |
           python3 <<'PY'
-          import json, os, pathlib, re, statistics, datetime
+          import json, os, pathlib, re, statistics, datetime, subprocess
 
           results = pathlib.Path(os.environ["RESULTS_DIR"])
           out = pathlib.Path("ci-benchmark-results.md")
-          commit = ""
           llama = pathlib.Path(os.environ["LLAMA_DIR"])
+          commit = ""
           try:
-              commit = (llama / ".git" / "HEAD").read_text().strip()
-          except Exception:
-              pass
-          try:
-              import subprocess
-              commit = subprocess.check_output(["git", "-C", str(llama), "rev-parse", "HEAD"], text=True).strip()
+              commit = subprocess.check_output(
+                  ["git", "-C", str(llama), "rev-parse", "HEAD"], text=True
+              ).strip()
           except Exception:
               pass
 
+          def row_tps(r: dict):
+              for k in ("avg_ts", "tokens_per_second", "ts", "n_tokens_second"):
+                  if k in r and r[k] not in (None, 0, 0.0):
+                      return float(r[k])
+              return None
+
           def parse(base: pathlib.Path):
+              """Return dict with prompt_tps, generation_tps, blended_median, source."""
+              empty = {
+                  "prompt_tps": None,
+                  "generation_tps": None,
+                  "blended_median": None,
+                  "source": None,
+              }
               jp, tp = base.with_suffix(".json"), base.with_suffix(".txt")
               if jp.exists() and jp.stat().st_size > 0:
                   try:
                       data = json.loads(jp.read_text())
                       rows = data if isinstance(data, list) else data.get("results", [data])
-                      tps = []
+                      pp, tg, all_tps = [], [], []
                       for r in rows:
                           if not isinstance(r, dict):
                               continue
-                          # llama-bench JSON commonly uses avg_ts for tokens/sec
-                          for k in ("avg_ts", "tokens_per_second", "ts", "n_tokens_second"):
-                              if k in r and r[k] not in (None, 0, 0.0):
-                                  tps.append(float(r[k]))
-                                  break
-                      if tps:
-                          return statistics.median(tps), "json"
+                          tps = row_tps(r)
+                          if tps is None:
+                              continue
+                          all_tps.append(tps)
+                          n_prompt = int(r.get("n_prompt") or 0)
+                          n_gen = int(r.get("n_gen") or 0)
+                          if n_prompt > 0 and n_gen == 0:
+                              pp.append(tps)
+                          elif n_gen > 0:
+                              tg.append(tps)
+                          elif len(all_tps) == 1:
+                              # Single row without flags — treat as generation
+                              tg.append(tps)
+                      if all_tps:
+                          return {
+                              "prompt_tps": statistics.median(pp) if pp else None,
+                              "generation_tps": statistics.median(tg) if tg else None,
+                              "blended_median": statistics.median(all_tps),
+                              "source": "json",
+                          }
                   except Exception as e:
                       print("json parse failed:", e)
               if tp.exists() and tp.stat().st_size > 0:
                   text = tp.read_text(errors="replace")
-                  # Table column often ends with t/s values
                   nums = [float(x) for x in re.findall(r"(\d+\.\d+)\s*$", text, re.M)]
                   if not nums:
                       nums = [float(x) for x in re.findall(r"(\d+\.\d+)\s*(?:t/s|tok)", text, re.I)]
                   if nums:
-                      return statistics.median(nums), "text"
-              return None, None
+                      return {
+                          "prompt_tps": None,
+                          "generation_tps": statistics.median(nums),
+                          "blended_median": statistics.median(nums),
+                          "source": "text",
+                      }
+              return empty
 
-          g, gs = parse(results / "bench-generic")
-          k, ks = parse(results / "bench-kleidi")
+          g = parse(results / "bench-generic")
+          k = parse(results / "bench-kleidi")
+          now = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+          def fmt(x):
+              return f"{x:.2f}" if x is not None else "n/a"
+
+          g_tg, k_tg = g["generation_tps"], k["generation_tps"]
+          pct_tg = ((k_tg - g_tg) / g_tg * 100) if g_tg and k_tg and g_tg > 0 else None
+          g_b, k_b = g["blended_median"], k["blended_median"]
+          pct_b = ((k_b - g_b) / g_b * 100) if g_b and k_b and g_b > 0 else None
 
           lines = [
-              f"# CI benchmark run — {datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')}",
+              f"# CI benchmark run — {now}",
               "",
               "- Runner: `ubuntu-24.04-arm` (`aarch64`)",
               "- Model: TinyLlama 1.1B Chat Q4_K_M",
               "- Prompt tokens: 128 · generation: 64 · repeats: 3",
               f"- llama.cpp: `{commit or 'unknown'}`",
               "",
-              "| Build | Median tokens/sec | Source |",
-              "|---|---:|---|",
-              f"| Generic (GGML_CPU_KLEIDIAI=OFF) | {f'{g:.2f}' if g is not None else 'see raw'} | {gs or 'n/a'} |",
-              f"| KleidiAI (GGML_CPU_KLEIDIAI=ON) | {f'{k:.2f}' if k is not None else 'see raw'} | {ks or 'n/a'} |",
+              "| Build | Prompt (pp) t/s | Generation (tg) t/s | Blended median | Source |",
+              "|---|---:|---:|---:|---|",
+              f"| Generic (KLEIDIAI=OFF) | {fmt(g['prompt_tps'])} | {fmt(g_tg)} | {fmt(g_b)} | {g['source'] or 'n/a'} |",
+              f"| KleidiAI (KLEIDIAI=ON) | {fmt(k['prompt_tps'])} | {fmt(k_tg)} | {fmt(k_b)} | {k['source'] or 'n/a'} |",
               "",
           ]
-          if g and k and g > 0:
-              pct = ((k - g) / g) * 100
-              lines += [
-                  f"**Improvement:** {pct:.1f}% ({k:.2f} vs {g:.2f} t/s)",
-                  "",
-                  "Copy into `BENCHMARKS.md` → Latest CI results.",
-              ]
+          if pct_tg is not None:
+              lines.append(f"**Generation improvement (headline):** {pct_tg:.1f}% ({k_tg:.2f} vs {g_tg:.2f} t/s)")
+          if pct_b is not None:
+              lines.append(f"**Blended median (pp+tg, informational):** {pct_b:.1f}% ({k_b:.2f} vs {g_b:.2f} t/s)")
+          if pct_tg is None and pct_b is None:
+              lines.append("**Note:** Could not auto-parse tokens/sec — inspect raw JSON/TXT in the artifact.")
           else:
-              lines += [
-                  "**Note:** Could not auto-parse tokens/sec — inspect raw JSON/TXT in the artifact.",
-                  "",
-              ]
+              decision = "no-go" if (pct_tg is not None and pct_tg < 15) or (pct_tg is None and pct_b is not None and pct_b < 15) else "go"
+              lines += ["", f"**Go/no-go vs 15% bar:** `{decision}` — copy into `BENCHMARKS.md`."]
+          lines.append("")
 
-          # Machine-readable sidecar for updating BENCHMARKS.md
           meta = {
-              "generic_tps": g,
-              "kleidi_tps": k,
-              "improvement_pct": ((k - g) / g * 100) if g and k and g > 0 else None,
+              "date_utc": now,
+              "generic": g,
+              "kleidi": k,
+              "improvement_pct_generation": pct_tg,
+              "improvement_pct_blended": pct_b,
               "llama_commit": commit,
               "model": "tinyllama-1.1b-chat-v1.0.Q4_K_M",
               "p": 128,

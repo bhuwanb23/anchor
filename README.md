@@ -34,7 +34,7 @@ Anchor is a self-hosted mini-cloud platform with three parts:
 | 📊 **Health monitoring** | CPU, RAM, disk, container status, and network rates reported every 30 seconds |
 | 🖥️ **Live logs** | Stream any container's logs in the dashboard in real time over WebSocket |
 | 🛟 **Plain-English alerts** | "Your disk is almost full" — not a 400-line stack trace |
-| 🧠 **Anchor Infer** | Deploy OpenAI-compatible LLM endpoints on Arm with KleidiAI-optimized builds + before/after benchmarks |
+| 🧠 **Anchor Infer** | Deploy OpenAI-compatible LLM endpoints on Arm64 (quantized GGUF, arch-aware images, before/after bench card) |
 
 ## Who Anchor is for
 
@@ -95,14 +95,14 @@ The full, exhaustively documented layer-by-layer reference lives in [`docs/layer
 ## Anchor Infer (AI on your Arm server)
 
 Anchor Infer extends the same agent + control plane + dashboard to deploy a live,
-OpenAI-compatible LLM endpoint — picking an Arm-optimized llama.cpp image when
-the hardware supports it, then benchmarking **generic vs optimized** so you can
-see a real percentage improvement.
+OpenAI-compatible LLM endpoint on your server — detecting Arm64 features, selecting
+a matching llama.cpp image tag, serving a quantized GGUF, and recording
+**generic vs optimized** bench numbers in the dashboard.
 
 | Typical submission | Anchor Infer |
 |---|---|
 | One-off notebook / script benchmark | Productized deploy path inside an existing platform |
-| Manual KleidiAI build notes | Agent detects Arm features and selects the image tag |
+| Manual build notes only | Agent detects arch/features and selects the image tag |
 | Screenshots of a terminal | Dashboard: progress → live endpoint → benchmark card |
 
 ### Quick path
@@ -113,10 +113,17 @@ see a real percentage improvement.
 4. Open the dashboard **Infer** page (`/infer`) → Detect hardware → Deploy **LLM Chat**.
 5. Pre-demo check: `./scripts/demo-prep.sh --control-plane=… --token=… --server=…`
 
-### Proof of measurable Arm improvement
+### Benchmark evidence (Phase 1)
 
-Real KleidiAI vs generic numbers live in [`BENCHMARKS.md`](BENCHMARKS.md), produced by
-the arm64 workflow [`.github/workflows/validate.yml`](.github/workflows/validate.yml).
+Arm64 CI numbers live in [`BENCHMARKS.md`](BENCHMARKS.md) (workflow:
+[`.github/workflows/validate.yml`](.github/workflows/validate.yml)).
+
+**2026-08-14 go/no-go:** KleidiAI vs generic on GitHub `ubuntu-24.04-arm` with
+TinyLlama Q4_K_M was only **~0.7–2.9%** — not enough to claim a large KleidiAI
+uplift. The honest product story is **Arm path + quantization + live OpenAI
+endpoint + automated bench card**. Images may still build with KleidiAI enabled
+where the CPU supports it; treat any extra speed as best-effort until a stronger
+runner/model shows a clear gap.
 
 ### Add another model template
 
@@ -153,7 +160,7 @@ Free tier: both services sleep when idle; SQLite is ephemeral (no disks on free)
 
 **Done:** install layer, server preflight, Docker management, Caddy management with auto-HTTPS, agent lifecycle + reconnection, command executor with offline queue, metrics collection (Layer 4C, fully tested), control-plane API with migrations, emerald dashboard UX, Render Blueprint for cloud deploy, **Anchor Infer** (platform detect, deploy, dual benchmark, `/infer` UI).
 
-**In progress:** publishing Infer runtime images to GHCR, first arm64 CI numbers into `BENCHMARKS.md`, backup UI polish, billing, multi-server polish, publishing agent release binaries for `/releases`.
+**In progress:** publishing Infer runtime images to GHCR, backup UI polish, billing, multi-server polish, publishing agent release binaries for `/releases`. Phase 1 Arm CI numbers are in `BENCHMARKS.md` (KleidiAI uplift no-go on shared runners; story narrowed to Arm path + quantization).
 
 **Explicitly not being built:** custom hypervisor, storage clustering (Ceph/Gluster), multi-region auto-scaling, Kubernetes-style orchestration, custom container runtime, custom TLS engine.
 

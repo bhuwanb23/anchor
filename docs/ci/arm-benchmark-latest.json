@@ -1,0 +1,24 @@
+{
+  "date_utc": "2026-08-14T05:37:44Z",
+  "runner": "ubuntu-24.04-arm",
+  "arch": "aarch64",
+  "model": "tinyllama-1.1b-chat-v1.0.Q4_K_M",
+  "llama_commit": "2bacf9ea5cf9e191430d4c786202d5984df7c193",
+  "p": 128,
+  "n": 64,
+  "r": 3,
+  "n_threads": 4,
+  "generic": {
+    "prompt_tps": 147.539116,
+    "generation_tps": 50.578651,
+    "blended_median_tps": 99.0588835
+  },
+  "kleidi": {
+    "generation_tps": 52.036405,
+    "blended_median_tps": 99.7698345
+  },
+  "improvement_pct_blended": 0.7177054443582481,
+  "improvement_pct_generation": 2.882,
+  "go_no_go": "no-go",
+  "claim": "Arm path + quantization; do not claim large KleidiAI uplift from this run"
+}
