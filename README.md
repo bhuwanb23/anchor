@@ -34,7 +34,7 @@ Anchor is a self-hosted mini-cloud platform with three parts:
 | 📊 **Health monitoring** | CPU, RAM, disk, container status, and network rates reported every 30 seconds |
 | 🖥️ **Live logs** | Stream any container's logs in the dashboard in real time over WebSocket |
 | 🛟 **Plain-English alerts** | "Your disk is almost full" — not a 400-line stack trace |
-| 🧠 **Anchor Infer** | Deploy OpenAI-compatible LLM endpoints on Arm64 (quantized GGUF, arch-aware images, before/after bench card) |
+| 🧠 **Anchor Infer** | Arm64 LLM deploy path that detects hardware, serves quantized GGUF, and **measures** generic vs optimized — honest numbers, not assumed speedups |
 
 ## Who Anchor is for
 
@@ -94,16 +94,20 @@ The full, exhaustively documented layer-by-layer reference lives in [`docs/layer
 
 ## Anchor Infer (AI on your Arm server)
 
-Anchor Infer extends the same agent + control plane + dashboard to deploy a live,
-OpenAI-compatible LLM endpoint on your server — detecting Arm64 features, selecting
-a matching llama.cpp image tag, serving a quantized GGUF, and recording
-**generic vs optimized** bench numbers in the dashboard.
+**Pitch:** Anchor Infer is an automated Arm64 deployment path — architecture
+detection, quantized GGUF, OpenAI-compatible endpoint, and a dual-benchmark card —
+built to **surface real KleidiAI gains where hardware supports them**, and to report
+honestly when they do not.
 
 | Typical submission | Anchor Infer |
 |---|---|
-| One-off notebook / script benchmark | Productized deploy path inside an existing platform |
-| Manual build notes only | Agent detects arch/features and selects the image tag |
-| Screenshots of a terminal | Dashboard: progress → live endpoint → benchmark card |
+| “Arm made it faster” with a vague % | Measured generic vs optimized, real Δ in the UI + CI matrix |
+| One-off notebook benchmark | Productized detect → deploy → bench → live API |
+| Cherry-picked single run | One-variable test matrix + median-of-N methodology |
+
+If a judge asks “how much faster?”: answer with the filled cell in
+[`docs/ci/test-matrix.md`](docs/ci/test-matrix.md) (model, hardware, median tg, Δ%, N) —
+never “Arm-optimized, faster inference” without the number.
 
 ### Quick path
 
@@ -115,15 +119,12 @@ a matching llama.cpp image tag, serving a quantized GGUF, and recording
 
 ### Benchmark evidence (Phase 1)
 
-Arm64 CI numbers live in [`BENCHMARKS.md`](BENCHMARKS.md) (workflow:
-[`.github/workflows/validate.yml`](.github/workflows/validate.yml)).
+- Methodology + matrix: [`docs/ci/test-matrix.md`](docs/ci/test-matrix.md)
+- Numbers + go/no-go: [`BENCHMARKS.md`](BENCHMARKS.md)
+- Workflow: [`.github/workflows/validate.yml`](.github/workflows/validate.yml)
 
-**2026-08-14 go/no-go:** KleidiAI vs generic on GitHub `ubuntu-24.04-arm` with
-TinyLlama Q4_K_M was only **~0.7–2.9%** — not enough to claim a large KleidiAI
-uplift. The honest product story is **Arm path + quantization + live OpenAI
-endpoint + automated bench card**. Images may still build with KleidiAI enabled
-where the CPU supports it; treat any extra speed as best-effort until a stronger
-runner/model shows a clear gap.
+**TinyLlama / GH arm64 (2026-08-14):** generation **+2.9%** (50.58 → 52.04 t/s) — **no-go**
+for a KleidiAI uplift headline. Next cell: Mistral 7B Q4_K_M, same runner, `outer_repeats=3`.
 
 ### Add another model template
 
@@ -160,7 +161,7 @@ Free tier: both services sleep when idle; SQLite is ephemeral (no disks on free)
 
 **Done:** install layer, server preflight, Docker management, Caddy management with auto-HTTPS, agent lifecycle + reconnection, command executor with offline queue, metrics collection (Layer 4C, fully tested), control-plane API with migrations, emerald dashboard UX, Render Blueprint for cloud deploy, **Anchor Infer** (platform detect, deploy, dual benchmark, `/infer` UI).
 
-**In progress:** publishing Infer runtime images to GHCR, backup UI polish, billing, multi-server polish, publishing agent release binaries for `/releases`. Phase 1 Arm CI numbers are in `BENCHMARKS.md` (KleidiAI uplift no-go on shared runners; story narrowed to Arm path + quantization).
+**In progress:** publishing Infer runtime images to GHCR; Arm bench matrix (Mistral 7B cell next); backup UI polish, billing, multi-server polish, agent release binaries.
 
 **Explicitly not being built:** custom hypervisor, storage clustering (Ceph/Gluster), multi-region auto-scaling, Kubernetes-style orchestration, custom container runtime, custom TLS engine.
 

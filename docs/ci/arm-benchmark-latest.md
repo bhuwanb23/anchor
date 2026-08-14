@@ -13,4 +13,5 @@
 **Blended improvement:** 0.7% (99.77 vs 99.06 t/s)  
 **Generation improvement:** 2.9% (52.04 vs 50.58 t/s)
 
-**Decision:** below 15–20% bar → narrow product claims to Arm path + quantization (see `BENCHMARKS.md`).
+**Decision:** below 15% bar → measure-and-report pitch (see `BENCHMARKS.md` + `test-matrix.md`).  
+**Next cell:** Mistral 7B Q4_K_M · same runner · short · outer_repeats=3.

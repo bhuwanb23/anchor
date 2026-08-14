@@ -1,79 +1,91 @@
 # Anchor Infer — Arm optimization benchmarks
 
-This file is the **Phase 1 proof artifact** from [`docs/infer_idea_validation.md`](docs/infer_idea_validation.md):
-measurable tokens/sec of a KleidiAI-enabled llama.cpp build vs a generic Arm build.
+Phase 1 proof artifact from [`docs/infer_idea_validation.md`](docs/infer_idea_validation.md).
+**Living decision tool:** the one-variable test matrix in
+[`docs/ci/test-matrix.md`](docs/ci/test-matrix.md) — fill it before locking the submission story.
 
-Numbers below come from a real `ubuntu-24.04-arm` run (GitHub Actions workflow
-[`.github/workflows/validate.yml`](.github/workflows/validate.yml)) — never estimated.
+Numbers come only from real `ubuntu-24.04-arm` runs (or named manual hardware), via
+[`.github/workflows/validate.yml`](.github/workflows/validate.yml). Never estimate.
 
 ---
 
-## How to reproduce
+## Headline claim (lock only after the matrix says so)
 
-1. Ensure Actions can use **arm64** runners (`ubuntu-24.04-arm`) on this repository.
-2. Run **Actions → Validate Arm Optimization → Run workflow** (or push a change under `infer/` / the workflow file).
-3. Download the `arm-benchmark-results` artifact.
-4. Copy the tokens/sec lines into **Latest CI results** below (keep prior rows in history if useful).
+**Current locked claim (after TinyLlama cell only):**
 
-### Local equivalent (on an aarch64 Linux box)
+> Anchor Infer is an automated Arm64 deployment path — architecture detection,
+> quantized GGUF, OpenAI-compatible endpoint, and a dual-benchmark card, built to
+> **surface real KleidiAI gains where hardware and model support them**.
+
+We do **not** claim a large KleidiAI speedup until a matrix cell shows Δ ≥ ~15% with
+median-of-N rigor. Until then the honest number for TinyLlama on GH arm64 is **+2.9% tg**.
+
+---
+
+## How to reproduce / extend
+
+1. Actions → **Validate Arm Optimization** → Run workflow.
+2. Change **one** input: `model_id` *or* `prompt_profile` *or* hardware (manual).
+3. Prefer `outer_repeats=3` (alternating generic/KleidiAI order).
+4. Download the artifact → copy the generation Δ row into [`docs/ci/test-matrix.md`](docs/ci/test-matrix.md).
+
+### Local equivalent (aarch64)
 
 ```bash
 git clone --depth 1 https://github.com/ggml-org/llama.cpp.git && cd llama.cpp
-
-# Generic
 cmake -B build-generic -DGGML_NATIVE=ON -DGGML_CPU_KLEIDIAI=OFF -DLLAMA_CURL=OFF
 cmake --build build-generic --config Release -j"$(nproc)" --target llama-bench
-
-# KleidiAI
 cmake -B build-kleidi -DGGML_NATIVE=ON -DGGML_CPU_KLEIDIAI=ON -DLLAMA_CURL=OFF
 cmake --build build-kleidi --config Release -j"$(nproc)" --target llama-bench
 # Confirm: grep GGML_CPU_KLEIDIAI:BOOL=ON build-kleidi/CMakeCache.txt
 
-# Model (TinyLlama 1.1B Q4_K_M)
-mkdir -p ~/models
+# Example — Mistral 7B Q4_K_M (Test 1)
 curl -L -o ~/models/model.gguf \
-  https://huggingface.co/TheBloke/TinyLlama-1.1B-Chat-v1.0-GGUF/resolve/main/tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf
+  https://huggingface.co/TheBloke/Mistral-7B-Instruct-v0.2-GGUF/resolve/main/mistral-7b-instruct-v0.2.Q4_K_M.gguf
 
+# Alternate order across pairs; report median tg
 ./build-generic/bin/llama-bench -m ~/models/model.gguf -p 128 -n 64 -r 3 -o json
 ./build-kleidi/bin/llama-bench  -m ~/models/model.gguf -p 128 -n 64 -r 3 -o json
 ```
 
-### Fixed parameters
+### Fixed methodology
 
-| Parameter | Value |
+| Rule | Detail |
 |---|---|
-| Runner | GitHub `ubuntu-24.04-arm` (`aarch64`) |
-| Model | TinyLlama 1.1B Chat v1.0 Q4_K_M |
-| Prompt tokens (`-p`) | 128 |
-| Generation tokens (`-n`) | 64 |
-| Repeats (`-r`) | 3 |
-| Threads | 4 (runner default in this run) |
-| Metric | `llama-bench` `avg_ts` (tokens/sec), prompt vs generation reported separately |
+| One variable at a time | Model size → quant → hardware → prompt length (see matrix doc) |
+| Headline metric | Generation `avg_ts` (tg), not blended pp+tg |
+| Stats | Inner `llama-bench -r 3`; outer pairs N=3–5 with **alternating** build order |
+| Report | Median tg + range; exact model/quant/hardware/prompt |
+| Go/no-go | Per-cell Δ ≥ ~15% before any “faster with KleidiAI” marketing |
 
 ---
 
-## Latest CI results
+## Completed cells
 
-| Date (UTC) | Generic pp t/s | Generic tg t/s | KleidiAI pp t/s | KleidiAI tg t/s | tg Δ | llama.cpp |
-|---|---:|---:|---:|---:|---:|---|
-| 2026-08-14 | 147.54 | 50.58 | ~147.5* | 52.04 | **+2.9%** | `2bacf9e` |
+### 2026-08-14 — TinyLlama 1.1B Q4_K_M · GH `ubuntu-24.04-arm` · short
 
-\*KleidiAI JSON from this run exposed one clear generation row at **52.04 t/s**; CI’s blended median across pp+tg rows was **99.77 vs 99.06 t/s (+0.7%)**. Headline claim uses **generation (tg)** only.
+| Build | Prompt pp t/s | Generation tg t/s |
+|---|---:|---:|
+| Generic (`GGML_CPU_KLEIDIAI=OFF`) | 147.54 | 50.58 |
+| KleidiAI (`GGML_CPU_KLEIDIAI=ON`) | ~147.5 | 52.04 |
 
-### Go / no-go decision (2026-08-14)
+- **Δ tg: +2.9%** (blended median of pp+tg rows was +0.7% — informational only)
+- Inner repeats: 3 · Outer pairs: 1 (noise bounds not established)
+- llama.cpp: `2bacf9e`
+- **Decision:** no-go for uplift claim on this cell
 
-**No-go for a KleidiAI uplift story.** Measured improvement is **~0.7% blended / ~2.9% generation** on this runner + TinyLlama Q4_K_M — far below the ~15–20% bar in the validation plan.
+Sidecar: [`docs/ci/arm-benchmark-latest.md`](docs/ci/arm-benchmark-latest.md)
 
-**Product claim going forward:** Anchor Infer is an **Arm64 deploy path** (arch detect → quantized GGUF → OpenAI-compatible endpoint → dual bench card). Do **not** market “large KleidiAI speedups” until a later run on hardware with i8mm/SME (or a heavier model) shows a real gap. Keep building with `GGML_CPU_KLEIDIAI=ON` where supported; treat it as best-effort, not the headline.
+### Pending — next run
 
-Sidecar copy of the CI summary: [`docs/ci/arm-benchmark-latest.md`](docs/ci/arm-benchmark-latest.md).
+**Test 1:** Mistral 7B Instruct Q4_K_M · same runner · short · `outer_repeats=3`  
+Dispatch defaults in the workflow already point at this cell.
 
 ---
 
-## Relationship to Anchor product benchmarks
+## Relationship to product benchmarks
 
-- This file proves the **compiler/runtime** comparison (KleidiAI vs generic) in isolation.
-- The dashboard **generic vs optimized** card comes from the agent dual-image deploy path
-  (`deploy_inference` / `run_benchmark`) using tags from `ANCHOR_INFER_IMAGE_BASE`.
-- Both should agree directionally once Infer images are built with KleidiAI (`infer/docker/`).
-  Expect small deltas on GitHub’s shared arm64 runners; larger deltas need featureful Arm CPUs.
+- This file + the matrix prove the **compiler/runtime** comparison in isolation.
+- Dashboard generic vs optimized comes from agent dual-image deploy
+  (`deploy_inference` / `run_benchmark`) via `ANCHOR_INFER_IMAGE_BASE`.
+- Same honesty rule applies on demo day: show the card’s real %, never invent one.

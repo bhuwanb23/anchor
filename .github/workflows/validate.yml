@@ -1,30 +1,57 @@
 name: Validate Arm Optimization
 
-# Phase 1 technical validation — KleidiAI vs generic llama.cpp on arm64.
-# Phase 1 technical validation — KleidiAI vs generic llama.cpp on arm64.
+# KleidiAI vs generic llama.cpp on arm64 — one variable at a time.
+# Default (push): TinyLlama Q4_K_M short prompt (baseline cell).
+# Manual runs: pick model / quant / prompt profile / outer repeats via workflow_dispatch.
 
 on:
   workflow_dispatch:
+    inputs:
+      model_id:
+        description: "Model + quant (change only this for Test 1 / Test 2)"
+        type: choice
+        required: true
+        default: mistral-7b-q4km
+        options:
+          - tinyllama-q4km
+          - tinyllama-q8_0
+          - tinyllama-q4_0
+          - mistral-7b-q4km
+          - mistral-7b-q8_0
+      prompt_profile:
+        description: "Prompt/gen length (Test 4)"
+        type: choice
+        required: true
+        default: short
+        options:
+          - short
+          - long
+      outer_repeats:
+        description: "Full generic+Kleidi pairs to run (median across these; alternate order)"
+        type: choice
+        required: true
+        default: "3"
+        options:
+          - "1"
+          - "3"
+          - "5"
   push:
     paths:
       - ".github/workflows/validate.yml"
       - "infer/**"
-      # Intentionally NOT BENCHMARKS.md / docs/ci — avoids loops when results are committed
+      # Intentionally NOT BENCHMARKS.md / docs/ci
 
 jobs:
   validate:
     runs-on: ubuntu-24.04-arm
-    timeout-minutes: 120
+    timeout-minutes: 180
     env:
       LLAMA_DIR: ${{ github.workspace }}/_llama.cpp
       MODEL_PATH: ${{ github.workspace }}/_models/model.gguf
       RESULTS_DIR: ${{ github.workspace }}/_bench_out
-
-    timeout-minutes: 120
-    env:
-      LLAMA_DIR: ${{ github.workspace }}/_llama.cpp
-      MODEL_PATH: ${{ github.workspace }}/_models/model.gguf
-      RESULTS_DIR: ${{ github.workspace }}/_bench_out
+      MODEL_ID: ${{ github.event.inputs.model_id || 'tinyllama-q4km' }}
+      PROMPT_PROFILE: ${{ github.event.inputs.prompt_profile || 'short' }}
+      OUTER_REPEATS: ${{ github.event.inputs.outer_repeats || '1' }}
 
     steps:
       - uses: actions/checkout@v4
@@ -33,23 +60,73 @@ jobs:
         run: |
           uname -m
           test "$(uname -m)" = "aarch64"
+          echo "MODEL_ID=$MODEL_ID PROMPT_PROFILE=$PROMPT_PROFILE OUTER_REPEATS=$OUTER_REPEATS"
+          lscpu || true
+          # Surface extensions relevant to KleidiAI (may be empty on some runners)
+          grep -E 'Flags|Features' /proc/cpuinfo | head -n 5 || true
 
       - name: Install build tools
         run: |
           sudo apt-get update
           sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
             build-essential cmake git curl ca-certificates python3
-            build-essential cmake git curl ca-certificates python3
+
+      - name: Resolve model URL and bench flags
+        id: cfg
+        run: |
+          case "$MODEL_ID" in
+            tinyllama-q4km)
+              URL="https://huggingface.co/TheBloke/TinyLlama-1.1B-Chat-v1.0-GGUF/resolve/main/tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf"
+              LABEL="TinyLlama 1.1B Chat Q4_K_M"
+              ;;
+            tinyllama-q8_0)
+              URL="https://huggingface.co/TheBloke/TinyLlama-1.1B-Chat-v1.0-GGUF/resolve/main/tinyllama-1.1b-chat-v1.0.Q8_0.gguf"
+              LABEL="TinyLlama 1.1B Chat Q8_0"
+              ;;
+            tinyllama-q4_0)
+              URL="https://huggingface.co/TheBloke/TinyLlama-1.1B-Chat-v1.0-GGUF/resolve/main/tinyllama-1.1b-chat-v1.0.Q4_0.gguf"
+              LABEL="TinyLlama 1.1B Chat Q4_0"
+              ;;
+            mistral-7b-q4km)
+              URL="https://huggingface.co/TheBloke/Mistral-7B-Instruct-v0.2-GGUF/resolve/main/mistral-7b-instruct-v0.2.Q4_K_M.gguf"
+              LABEL="Mistral 7B Instruct v0.2 Q4_K_M"
+              ;;
+            mistral-7b-q8_0)
+              URL="https://huggingface.co/TheBloke/Mistral-7B-Instruct-v0.2-GGUF/resolve/main/mistral-7b-instruct-v0.2.Q8_0.gguf"
+              LABEL="Mistral 7B Instruct v0.2 Q8_0"
+              ;;
+            *)
+              echo "Unknown MODEL_ID=$MODEL_ID" >&2
+              exit 1
+              ;;
+          esac
+
+          case "$PROMPT_PROFILE" in
+            short)
+              P=128; N=64; R=3
+              ;;
+            long)
+              P=512; N=128; R=3
+              ;;
+            *)
+              echo "Unknown PROMPT_PROFILE=$PROMPT_PROFILE" >&2
+              exit 1
+              ;;
+          esac
+
+          echo "model_url=$URL" >> "$GITHUB_OUTPUT"
+          echo "model_label=$LABEL" >> "$GITHUB_OUTPUT"
+          echo "p=$P" >> "$GITHUB_OUTPUT"
+          echo "n=$N" >> "$GITHUB_OUTPUT"
+          echo "r=$R" >> "$GITHUB_OUTPUT"
+          echo "Resolved: $LABEL  -p $P -n $N -r $R  outer=$OUTER_REPEATS"
 
       - name: Clone llama.cpp
         run: |
           git clone --depth 1 https://github.com/ggml-org/llama.cpp.git "$LLAMA_DIR"
           echo "llama.cpp commit=$(git -C "$LLAMA_DIR" rev-parse HEAD)"
-          git clone --depth 1 https://github.com/ggml-org/llama.cpp.git "$LLAMA_DIR"
-          echo "llama.cpp commit=$(git -C "$LLAMA_DIR" rev-parse HEAD)"
 
       - name: Build generic (baseline) llama.cpp
-        working-directory: ${{ env.LLAMA_DIR }}
         working-directory: ${{ env.LLAMA_DIR }}
         run: |
           cmake -B build-generic \
@@ -57,13 +134,10 @@ jobs:
             -DGGML_CPU_KLEIDIAI=OFF \
             -DLLAMA_CURL=OFF
           cmake --build build-generic --config Release -j"$(nproc)" --target llama-bench
-            -DLLAMA_CURL=OFF
-          cmake --build build-generic --config Release -j"$(nproc)" --target llama-bench
           test -x build-generic/bin/llama-bench
           echo "GENERIC_BUILD=ok"
 
       - name: Build KleidiAI-optimized llama.cpp
-        working-directory: ${{ env.LLAMA_DIR }}
         working-directory: ${{ env.LLAMA_DIR }}
         run: |
           cmake -B build-kleidi \
@@ -71,55 +145,69 @@ jobs:
             -DGGML_CPU_KLEIDIAI=ON \
             -DLLAMA_CURL=OFF
           cmake --build build-kleidi --config Release -j"$(nproc)" --target llama-bench
-            -DLLAMA_CURL=OFF
-          cmake --build build-kleidi --config Release -j"$(nproc)" --target llama-bench
           test -x build-kleidi/bin/llama-bench
           grep -E "GGML_CPU_KLEIDIAI:BOOL=ON" build-kleidi/CMakeCache.txt
           echo "KLEIDI_BUILD=ok"
-          echo "KLEIDI_BUILD=ok"
 
-      - name: Download small GGUF model
+      - name: Download GGUF model
         run: |
           mkdir -p "$(dirname "$MODEL_PATH")"
-          mkdir -p "$(dirname "$MODEL_PATH")"
-          MODEL_URL="https://huggingface.co/TheBloke/TinyLlama-1.1B-Chat-v1.0-GGUF/resolve/main/tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf"
-          curl -L --fail --retry 5 --retry-delay 5 -o "$MODEL_PATH" "$MODEL_URL"
-          ls -lh "$MODEL_PATH"
-          curl -L --fail --retry 5 --retry-delay 5 -o "$MODEL_PATH" "$MODEL_URL"
+          curl -L --fail --retry 5 --retry-delay 5 \
+            -o "$MODEL_PATH" "${{ steps.cfg.outputs.model_url }}"
           ls -lh "$MODEL_PATH"
 
-      - name: Benchmark both builds
-      - name: Benchmark both builds
+      - name: Benchmark both builds (N pairs, alternating order)
+        env:
+          MODEL_LABEL: ${{ steps.cfg.outputs.model_label }}
+          BENCH_P: ${{ steps.cfg.outputs.p }}
+          BENCH_N: ${{ steps.cfg.outputs.n }}
+          BENCH_R: ${{ steps.cfg.outputs.r }}
         run: |
           mkdir -p "$RESULTS_DIR"
           cd "$LLAMA_DIR"
+          GENERIC=./build-generic/bin/llama-bench
+          KLEIDI=./build-kleidi/bin/llama-bench
 
-          # Prefer JSON; fall back to plain text if flag unsupported.
-          run_bench () {
+          run_one () {
             local bin="$1" out_base="$2"
-            if "$bin" -m "$MODEL_PATH" -p 128 -n 64 -r 3 -o json > "${out_base}.json" 2>"${out_base}.err"; then
+            if "$bin" -m "$MODEL_PATH" -p "$BENCH_P" -n "$BENCH_N" -r "$BENCH_R" -o json \
+                 > "${out_base}.json" 2>"${out_base}.err"; then
               echo "wrote ${out_base}.json"
-            elif "$bin" -m "$MODEL_PATH" -p 128 -n 64 -r 3 --output json > "${out_base}.json" 2>>"${out_base}.err"; then
+            elif "$bin" -m "$MODEL_PATH" -p "$BENCH_P" -n "$BENCH_N" -r "$BENCH_R" --output json \
+                 > "${out_base}.json" 2>>"${out_base}.err"; then
               echo "wrote ${out_base}.json (legacy flag)"
             else
-              "$bin" -m "$MODEL_PATH" -p 128 -n 64 -r 3 > "${out_base}.txt" 2>>"${out_base}.err" || true
+              "$bin" -m "$MODEL_PATH" -p "$BENCH_P" -n "$BENCH_N" -r "$BENCH_R" \
+                > "${out_base}.txt" 2>>"${out_base}.err" || true
               echo "wrote ${out_base}.txt (plain)"
             fi
-            head -c 3000 "${out_base}.json" 2>/dev/null || head -c 3000 "${out_base}.txt" 2>/dev/null || true
-            echo
           }
 
-          run_bench ./build-generic/bin/llama-bench "$RESULTS_DIR/bench-generic"
-          run_bench ./build-kleidi/bin/llama-bench  "$RESULTS_DIR/bench-kleidi"
+          # Alternate order across outer repeats to reduce warm-up / thermal bias.
+          for i in $(seq 1 "$OUTER_REPEATS"); do
+            echo "=== outer run $i / $OUTER_REPEATS ==="
+            if [ $((i % 2)) -eq 1 ]; then
+              run_one "$GENERIC" "$RESULTS_DIR/run${i}-generic"
+              run_one "$KLEIDI"  "$RESULTS_DIR/run${i}-kleidi"
+              echo "order=generic-then-kleidi" > "$RESULTS_DIR/run${i}-order.txt"
+            else
+              run_one "$KLEIDI"  "$RESULTS_DIR/run${i}-kleidi"
+              run_one "$GENERIC" "$RESULTS_DIR/run${i}-generic"
+              echo "order=kleidi-then-generic" > "$RESULTS_DIR/run${i}-order.txt"
+            fi
+          done
           ls -la "$RESULTS_DIR"
 
       - name: Summarize results
-      - name: Summarize results
+        env:
+          MODEL_LABEL: ${{ steps.cfg.outputs.model_label }}
+          MODEL_ID_OUT: ${{ env.MODEL_ID }}
+          BENCH_P: ${{ steps.cfg.outputs.p }}
+          BENCH_N: ${{ steps.cfg.outputs.n }}
+          BENCH_R: ${{ steps.cfg.outputs.r }}
+          PROMPT_PROFILE_OUT: ${{ env.PROMPT_PROFILE }}
         run: |
           python3 <<'PY'
-          import json, os, pathlib, re, statistics, datetime, subprocess
-
-          results = pathlib.Path(os.environ["RESULTS_DIR"])
           import json, os, pathlib, re, statistics, datetime, subprocess
 
           results = pathlib.Path(os.environ["RESULTS_DIR"])
@@ -139,149 +227,161 @@ jobs:
                       return float(r[k])
               return None
 
-          def parse(base: pathlib.Path):
-              """Return dict with prompt_tps, generation_tps, blended_median, source."""
-              empty = {
-                  "prompt_tps": None,
-                  "generation_tps": None,
-                  "blended_median": None,
-                  "source": None,
-              }
+          def parse_file(base: pathlib.Path):
+              empty = {"prompt_tps": None, "generation_tps": None, "source": None}
               jp, tp = base.with_suffix(".json"), base.with_suffix(".txt")
               if jp.exists() and jp.stat().st_size > 0:
                   try:
                       data = json.loads(jp.read_text())
                       rows = data if isinstance(data, list) else data.get("results", [data])
-                      pp, tg, all_tps = [], [], []
+                      pp, tg = [], []
                       for r in rows:
                           if not isinstance(r, dict):
                               continue
                           tps = row_tps(r)
                           if tps is None:
                               continue
-                          all_tps.append(tps)
                           n_prompt = int(r.get("n_prompt") or 0)
                           n_gen = int(r.get("n_gen") or 0)
                           if n_prompt > 0 and n_gen == 0:
                               pp.append(tps)
                           elif n_gen > 0:
                               tg.append(tps)
-                          elif len(all_tps) == 1:
-                              # Single row without flags — treat as generation
+                          else:
                               tg.append(tps)
-                      if all_tps:
-                          return {
-                              "prompt_tps": statistics.median(pp) if pp else None,
-                              "generation_tps": statistics.median(tg) if tg else None,
-                              "blended_median": statistics.median(all_tps),
-                              "source": "json",
-                          }
+                      return {
+                          "prompt_tps": statistics.median(pp) if pp else None,
+                          "generation_tps": statistics.median(tg) if tg else None,
+                          "source": "json",
+                      }
                   except Exception as e:
-                      print("json parse failed:", e)
-              if tp.exists() and tp.stat().st_size > 0:
-                  text = tp.read_text(errors="replace")
-                  nums = [float(x) for x in re.findall(r"(\d+\.\d+)\s*$", text, re.M)]
                       print("json parse failed:", e)
               if tp.exists() and tp.stat().st_size > 0:
                   text = tp.read_text(errors="replace")
                   nums = [float(x) for x in re.findall(r"(\d+\.\d+)\s*$", text, re.M)]
                   if not nums:
                       nums = [float(x) for x in re.findall(r"(\d+\.\d+)\s*(?:t/s|tok)", text, re.I)]
-                      nums = [float(x) for x in re.findall(r"(\d+\.\d+)\s*(?:t/s|tok)", text, re.I)]
                   if nums:
                       return {
                           "prompt_tps": None,
                           "generation_tps": statistics.median(nums),
-                          "blended_median": statistics.median(nums),
                           "source": "text",
                       }
               return empty
 
-          g = parse(results / "bench-generic")
-          k = parse(results / "bench-kleidi")
+          generic_tg, kleidi_tg = [], []
+          generic_pp, kleidi_pp = [], []
+          per_run = []
+          for base in sorted(results.glob("run*-generic")):
+              stem = base.name  # run1-generic
+              run_id = stem.split("-", 1)[0]
+              g = parse_file(results / stem)
+              k = parse_file(results / f"{run_id}-kleidi")
+              order = ""
+              op = results / f"{run_id}-order.txt"
+              if op.exists():
+                  order = op.read_text().strip()
+              per_run.append({"run": run_id, "order": order, "generic": g, "kleidi": k})
+              if g.get("generation_tps") is not None:
+                  generic_tg.append(g["generation_tps"])
+              if k.get("generation_tps") is not None:
+                  kleidi_tg.append(k["generation_tps"])
+              if g.get("prompt_tps") is not None:
+                  generic_pp.append(g["prompt_tps"])
+              if k.get("prompt_tps") is not None:
+                  kleidi_pp.append(k["prompt_tps"])
+
+          def med(xs):
+              return statistics.median(xs) if xs else None
+
+          def rng(xs):
+              return (min(xs), max(xs)) if xs else (None, None)
+
+          g_tg, k_tg = med(generic_tg), med(kleidi_tg)
+          g_pp, k_pp = med(generic_pp), med(kleidi_pp)
+          g_lo, g_hi = rng(generic_tg)
+          k_lo, k_hi = rng(kleidi_tg)
+          pct = ((k_tg - g_tg) / g_tg * 100) if g_tg and k_tg and g_tg > 0 else None
+
           now = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+          model_label = os.environ.get("MODEL_LABEL", "unknown")
+          model_id = os.environ.get("MODEL_ID_OUT", "")
+          profile = os.environ.get("PROMPT_PROFILE_OUT", "")
+          p, n, r = os.environ.get("BENCH_P"), os.environ.get("BENCH_N"), os.environ.get("BENCH_R")
 
           def fmt(x):
               return f"{x:.2f}" if x is not None else "n/a"
 
-          g_tg, k_tg = g["generation_tps"], k["generation_tps"]
-          pct_tg = ((k_tg - g_tg) / g_tg * 100) if g_tg and k_tg and g_tg > 0 else None
-          g_b, k_b = g["blended_median"], k["blended_median"]
-          pct_b = ((k_b - g_b) / g_b * 100) if g_b and k_b and g_b > 0 else None
+          def fmt_range(lo, hi):
+              if lo is None:
+                  return "n/a"
+              return f"{lo:.2f}–{hi:.2f}"
 
           lines = [
               f"# CI benchmark run — {now}",
-              f"# CI benchmark run — {now}",
               "",
-              "- Runner: `ubuntu-24.04-arm` (`aarch64`)",
-              "- Model: TinyLlama 1.1B Chat Q4_K_M",
-              "- Prompt tokens: 128 · generation: 64 · repeats: 3",
-              f"- llama.cpp: `{commit or 'unknown'}`",
-              "- Runner: `ubuntu-24.04-arm` (`aarch64`)",
-              "- Model: TinyLlama 1.1B Chat Q4_K_M",
-              "- Prompt tokens: 128 · generation: 64 · repeats: 3",
+              f"- Runner: `ubuntu-24.04-arm` (`aarch64`)",
+              f"- Model: {model_label} (`{model_id}`)",
+              f"- Prompt profile: `{profile}` (−p {p} −n {n} −r {r} inner)",
+              f"- Outer pairs (alternating order): {len(per_run)}",
               f"- llama.cpp: `{commit or 'unknown'}`",
               "",
-              "| Build | Prompt (pp) t/s | Generation (tg) t/s | Blended median | Source |",
-              "|---|---:|---:|---:|---|",
-              f"| Generic (KLEIDIAI=OFF) | {fmt(g['prompt_tps'])} | {fmt(g_tg)} | {fmt(g_b)} | {g['source'] or 'n/a'} |",
-              f"| KleidiAI (KLEIDIAI=ON) | {fmt(k['prompt_tps'])} | {fmt(k_tg)} | {fmt(k_b)} | {k['source'] or 'n/a'} |",
+              "| Build | Prompt pp t/s (median) | Generation tg t/s (median) | tg range |",
+              "|---|---:|---:|---:|",
+              f"| Generic | {fmt(g_pp)} | {fmt(g_tg)} | {fmt_range(g_lo, g_hi)} |",
+              f"| KleidiAI | {fmt(k_pp)} | {fmt(k_tg)} | {fmt_range(k_lo, k_hi)} |",
               "",
           ]
-          if pct_tg is not None:
-              lines.append(f"**Generation improvement (headline):** {pct_tg:.1f}% ({k_tg:.2f} vs {g_tg:.2f} t/s)")
-          if pct_b is not None:
-              lines.append(f"**Blended median (pp+tg, informational):** {pct_b:.1f}% ({k_b:.2f} vs {g_b:.2f} t/s)")
-          if pct_tg is None and pct_b is None:
-              lines.append("**Note:** Could not auto-parse tokens/sec — inspect raw JSON/TXT in the artifact.")
+          if pct is not None:
+              lines.append(
+                  f"**Generation Δ (headline):** {pct:+.1f}% "
+                  f"(KleidiAI {k_tg:.2f} vs generic {g_tg:.2f} t/s, median of {len(per_run)} pairs)"
+              )
+              decision = "go" if pct >= 15 else "no-go"
+              lines += [
+                  "",
+                  f"**Go/no-go vs 15% bar (this cell only):** `{decision}`",
+                  "",
+                  "Copy this row into `BENCHMARKS.md` → Test matrix. Do not drop the honest number.",
+              ]
           else:
-              decision = "no-go" if (pct_tg is not None and pct_tg < 15) or (pct_tg is None and pct_b is not None and pct_b < 15) else "go"
-              lines += ["", f"**Go/no-go vs 15% bar:** `{decision}` — copy into `BENCHMARKS.md`."]
+              lines.append("**Note:** Could not parse tokens/sec — inspect `_bench_out/` in the artifact.")
           lines.append("")
 
           meta = {
               "date_utc": now,
-              "generic": g,
-              "kleidi": k,
-              "improvement_pct_generation": pct_tg,
-              "improvement_pct_blended": pct_b,
+              "model_id": model_id,
+              "model_label": model_label,
+              "prompt_profile": profile,
+              "p": int(p) if p else None,
+              "n": int(n) if n else None,
+              "r_inner": int(r) if r else None,
+              "outer_repeats": len(per_run),
               "llama_commit": commit,
-              "model": "tinyllama-1.1b-chat-v1.0.Q4_K_M",
-              "p": 128,
-              "n": 64,
-              "r": 3,
+              "hardware": "github-ubuntu-24.04-arm",
+              "generic_tg_median": g_tg,
+              "kleidi_tg_median": k_tg,
+              "generic_tg_range": [g_lo, g_hi],
+              "kleidi_tg_range": [k_lo, k_hi],
+              "generic_pp_median": g_pp,
+              "kleidi_pp_median": k_pp,
+              "improvement_pct_generation": pct,
+              "per_run": per_run,
+              "go_no_go_15pct": ("go" if pct is not None and pct >= 15 else "no-go") if pct is not None else None,
           }
           pathlib.Path("ci-benchmark-results.json").write_text(json.dumps(meta, indent=2) + "\n")
           out.write_text("\n".join(lines) + "\n")
           print(out.read_text())
-          print(json.dumps(meta, indent=2))
+          print(json.dumps({k: meta[k] for k in meta if k != "per_run"}, indent=2))
           PY
 
       - name: Upload artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: arm-benchmark-results
+          name: arm-benchmark-${{ env.MODEL_ID }}-${{ env.PROMPT_PROFILE }}
           path: |
             ci-benchmark-results.md
             ci-benchmark-results.json
             _bench_out/
-            ci-benchmark-results.json
-            _bench_out/
           if-no-files-found: warn
-
-      - name: Publish results into the repo
-        if: success()
-        run: |
-          mkdir -p docs/ci
-          cp ci-benchmark-results.md docs/ci/arm-benchmark-latest.md
-          cp ci-benchmark-results.json docs/ci/arm-benchmark-latest.json
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add BENCHMARKS.md docs/ci/arm-benchmark-latest.md docs/ci/arm-benchmark-latest.json
-          if git diff --staged --quiet; then
-            echo "No result changes to commit"
-            exit 0
-          fi
-          git commit -m "chore(ci): publish Arm KleidiAI benchmark results [skip ci]"
-          git push
