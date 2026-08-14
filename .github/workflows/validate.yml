@@ -1,6 +1,7 @@
 name: Validate Arm Optimization
 
 # Phase 1 technical validation — KleidiAI vs generic llama.cpp on arm64.
+# Phase 1 technical validation — KleidiAI vs generic llama.cpp on arm64.
 
 on:
   workflow_dispatch:
@@ -13,6 +14,12 @@ on:
 jobs:
   validate:
     runs-on: ubuntu-24.04-arm
+    timeout-minutes: 120
+    env:
+      LLAMA_DIR: ${{ github.workspace }}/_llama.cpp
+      MODEL_PATH: ${{ github.workspace }}/_models/model.gguf
+      RESULTS_DIR: ${{ github.workspace }}/_bench_out
+
     timeout-minutes: 120
     env:
       LLAMA_DIR: ${{ github.workspace }}/_llama.cpp
@@ -32,13 +39,17 @@ jobs:
           sudo apt-get update
           sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
             build-essential cmake git curl ca-certificates python3
+            build-essential cmake git curl ca-certificates python3
 
       - name: Clone llama.cpp
         run: |
           git clone --depth 1 https://github.com/ggml-org/llama.cpp.git "$LLAMA_DIR"
           echo "llama.cpp commit=$(git -C "$LLAMA_DIR" rev-parse HEAD)"
+          git clone --depth 1 https://github.com/ggml-org/llama.cpp.git "$LLAMA_DIR"
+          echo "llama.cpp commit=$(git -C "$LLAMA_DIR" rev-parse HEAD)"
 
       - name: Build generic (baseline) llama.cpp
+        working-directory: ${{ env.LLAMA_DIR }}
         working-directory: ${{ env.LLAMA_DIR }}
         run: |
           cmake -B build-generic \
@@ -46,10 +57,13 @@ jobs:
             -DGGML_CPU_KLEIDIAI=OFF \
             -DLLAMA_CURL=OFF
           cmake --build build-generic --config Release -j"$(nproc)" --target llama-bench
+            -DLLAMA_CURL=OFF
+          cmake --build build-generic --config Release -j"$(nproc)" --target llama-bench
           test -x build-generic/bin/llama-bench
           echo "GENERIC_BUILD=ok"
 
       - name: Build KleidiAI-optimized llama.cpp
+        working-directory: ${{ env.LLAMA_DIR }}
         working-directory: ${{ env.LLAMA_DIR }}
         run: |
           cmake -B build-kleidi \
@@ -57,17 +71,24 @@ jobs:
             -DGGML_CPU_KLEIDIAI=ON \
             -DLLAMA_CURL=OFF
           cmake --build build-kleidi --config Release -j"$(nproc)" --target llama-bench
+            -DLLAMA_CURL=OFF
+          cmake --build build-kleidi --config Release -j"$(nproc)" --target llama-bench
           test -x build-kleidi/bin/llama-bench
           grep -E "GGML_CPU_KLEIDIAI:BOOL=ON" build-kleidi/CMakeCache.txt
+          echo "KLEIDI_BUILD=ok"
           echo "KLEIDI_BUILD=ok"
 
       - name: Download small GGUF model
         run: |
           mkdir -p "$(dirname "$MODEL_PATH")"
+          mkdir -p "$(dirname "$MODEL_PATH")"
           MODEL_URL="https://huggingface.co/TheBloke/TinyLlama-1.1B-Chat-v1.0-GGUF/resolve/main/tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf"
           curl -L --fail --retry 5 --retry-delay 5 -o "$MODEL_PATH" "$MODEL_URL"
           ls -lh "$MODEL_PATH"
+          curl -L --fail --retry 5 --retry-delay 5 -o "$MODEL_PATH" "$MODEL_URL"
+          ls -lh "$MODEL_PATH"
 
+      - name: Benchmark both builds
       - name: Benchmark both builds
         run: |
           mkdir -p "$RESULTS_DIR"
@@ -93,8 +114,12 @@ jobs:
           ls -la "$RESULTS_DIR"
 
       - name: Summarize results
+      - name: Summarize results
         run: |
           python3 <<'PY'
+          import json, os, pathlib, re, statistics, datetime, subprocess
+
+          results = pathlib.Path(os.environ["RESULTS_DIR"])
           import json, os, pathlib, re, statistics, datetime, subprocess
 
           results = pathlib.Path(os.environ["RESULTS_DIR"])
@@ -156,7 +181,12 @@ jobs:
               if tp.exists() and tp.stat().st_size > 0:
                   text = tp.read_text(errors="replace")
                   nums = [float(x) for x in re.findall(r"(\d+\.\d+)\s*$", text, re.M)]
+                      print("json parse failed:", e)
+              if tp.exists() and tp.stat().st_size > 0:
+                  text = tp.read_text(errors="replace")
+                  nums = [float(x) for x in re.findall(r"(\d+\.\d+)\s*$", text, re.M)]
                   if not nums:
+                      nums = [float(x) for x in re.findall(r"(\d+\.\d+)\s*(?:t/s|tok)", text, re.I)]
                       nums = [float(x) for x in re.findall(r"(\d+\.\d+)\s*(?:t/s|tok)", text, re.I)]
                   if nums:
                       return {
@@ -181,7 +211,12 @@ jobs:
 
           lines = [
               f"# CI benchmark run — {now}",
+              f"# CI benchmark run — {now}",
               "",
+              "- Runner: `ubuntu-24.04-arm` (`aarch64`)",
+              "- Model: TinyLlama 1.1B Chat Q4_K_M",
+              "- Prompt tokens: 128 · generation: 64 · repeats: 3",
+              f"- llama.cpp: `{commit or 'unknown'}`",
               "- Runner: `ubuntu-24.04-arm` (`aarch64`)",
               "- Model: TinyLlama 1.1B Chat Q4_K_M",
               "- Prompt tokens: 128 · generation: 64 · repeats: 3",
@@ -231,4 +266,22 @@ jobs:
             ci-benchmark-results.md
             ci-benchmark-results.json
             _bench_out/
+            ci-benchmark-results.json
+            _bench_out/
           if-no-files-found: warn
+
+      - name: Publish results into the repo
+        if: success()
+        run: |
+          mkdir -p docs/ci
+          cp ci-benchmark-results.md docs/ci/arm-benchmark-latest.md
+          cp ci-benchmark-results.json docs/ci/arm-benchmark-latest.json
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add BENCHMARKS.md docs/ci/arm-benchmark-latest.md docs/ci/arm-benchmark-latest.json
+          if git diff --staged --quiet; then
+            echo "No result changes to commit"
+            exit 0
+          fi
+          git commit -m "chore(ci): publish Arm KleidiAI benchmark results [skip ci]"
+          git push
