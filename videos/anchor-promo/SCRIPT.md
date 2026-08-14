@@ -1,7 +1,8 @@
 # SCRIPT — anchor-promo (105s how-to ending)
 
-**Voice:** Captions-only (karaoke). Optional Kokoro `am_michael` if TTS is configured later.
-**Voice direction:** Calm, confident, unhurried. A knowledgeable colleague — not a pitchman.
+**Voice:** Kokoro local — `am_michael` (warm male baritone). Files in `assets/vo/vo-*.wav`.
+**Voice settings:** speed 1.0 · captions stay as karaoke under the VO
+**Voice direction:** Calm, confident, unhurried. A knowledgeable colleague, not a pitchman.
 
 ---
 

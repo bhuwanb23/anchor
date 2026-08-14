@@ -14,7 +14,7 @@ captions: enabled
 - **Motion:** every frame `entrance → development → settle`. Ease `power3.out` arrivals. Idle budget: ONE living element per frame max.
 - **Negative list:** no invented product screenshots or live URLs; no purple AI gradients; no drop shadows; no blanket “Arm is X% faster” — only scoped TinyLlama Q8_0 +15.6%.
 - **Caption band:** bottom ~180px reserved (y≥892). Primary content clears that band.
-- **Narration:** captions-only + BGM + SFX (no VO track required).
+- **Narration:** Kokoro `am_michael` voiceover in `assets/vo/` + captions karaoke + ducked BGM/SFX.
 
 ### Verified facts
 

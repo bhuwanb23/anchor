@@ -3,16 +3,20 @@
   "voice_id": "am_michael",
   "bgm": {
     "path": "assets/bgm/track.mp3",
-    "volume": 0.28,
+    "volume": 0.14,
     "mode": "ffmpeg-pad",
-    "query": "calm warm confident minimal electronic corporate underscore, gentle pulse around 92 bpm, soft synth pads, no vocals",
     "duration_s": 105.0
   },
-  "bgm_pending": false,
-  "bgm_provider": "ffmpeg-lavfi",
-  "bgm_mode": "ffmpeg-pad",
-  "bgm_target_duration_s": 105,
-  "voices": [],
-  "sfx": [],
+  "voices": [
+    { "id": "01", "file": "assets/vo/vo-01.wav", "offset_s": 0.6, "duration_s": 3.904, "volume": 0.95 },
+    { "id": "02", "file": "assets/vo/vo-02.wav", "offset_s": 8.5, "duration_s": 7.595, "volume": 0.95 },
+    { "id": "03", "file": "assets/vo/vo-03.wav", "offset_s": 17.6, "duration_s": 5.589, "volume": 0.95 },
+    { "id": "04", "file": "assets/vo/vo-04.wav", "offset_s": 25.5, "duration_s": 11.029, "volume": 0.95 },
+    { "id": "05", "file": "assets/vo/vo-05.wav", "offset_s": 37.6, "duration_s": 8.619, "volume": 0.95 },
+    { "id": "07", "file": "assets/vo/vo-07.wav", "offset_s": 49.6, "duration_s": 6.763, "volume": 0.95 },
+    { "id": "08", "file": "assets/vo/vo-08.wav", "offset_s": 61.6, "duration_s": 8.405, "volume": 0.95 },
+    { "id": "09", "file": "assets/vo/vo-09.wav", "offset_s": 73.8, "duration_s": 9.6, "volume": 0.95 },
+    { "id": "06", "file": "assets/vo/vo-06.wav", "offset_s": 91.2, "duration_s": 3.776, "volume": 0.95 }
+  ],
   "total_duration_s": 105
 }
