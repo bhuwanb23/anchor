@@ -16,7 +16,7 @@
 ifeq ($(OS),Windows_NT)
 dev:
 	@echo Starting control plane in a new window...
-	start "anchor-control-plane" cmd /k "cd /d $(CURDIR)\control-plane && air"
+	start "anchor-control-plane" cmd /k "cd /d $(CURDIR)\control-plane && (air || go run ./cmd/server/...)"
 	@echo Starting dashboard on http://localhost:3000 ...
 	cd dashboard && pnpm dev
 else
@@ -29,6 +29,7 @@ dev-backend:
 	cd control-plane && air
 
 dev-agent:
+	@echo Ensure agent/config.yaml has registration_token or agent_token from Servers → Add server
 	cd agent && go run ./cmd/agent/... run
 
 dev-frontend:

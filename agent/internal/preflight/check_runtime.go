@@ -264,11 +264,12 @@ func checkConfig() CheckResult {
 		missingFields = append(missingFields, "control_plane_url")
 	}
 
-	hasToken := raw["registration_token"] != nil && raw["registration_token"] != ""
+	hasToken := (raw["registration_token"] != nil && raw["registration_token"] != "") ||
+		(raw["agent_token"] != nil && raw["agent_token"] != "")
 	hasCredentials := (raw["agent_id"] != nil && raw["agent_id"] != "") && (raw["agent_secret"] != nil && raw["agent_secret"] != "")
 
 	if !hasToken && !hasCredentials {
-		missingFields = append(missingFields, "either registration_token or agent_id+agent_secret")
+		missingFields = append(missingFields, "either registration_token (or agent_token) or agent_id+agent_secret")
 	}
 
 	if len(missingFields) > 0 {

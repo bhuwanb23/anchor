@@ -80,6 +80,24 @@ function ServersPageInner() {
     }
   }
 
+  function localAgentConfig(): string {
+    const token = newServer?.token ?? "<paste-token>";
+    return [
+      "control_plane_url: http://localhost:8080",
+      `registration_token: ${token}`,
+      "docker_socket: npipe:////./pipe/dockerDesktopLinuxEngine",
+      "caddy_config_dir: ./caddy",
+      "backup_dest: ./backups",
+      "ws_reconnect_sec: 5",
+      "log_level: info",
+    ].join("\n");
+  }
+
+  function copyLocalConfig() {
+    navigator.clipboard.writeText(localAgentConfig());
+    toast.success("Local agent config copied");
+  }
+
   function closeDialog() {
     setDialogOpen(false);
     setNewServer(null);
@@ -144,6 +162,27 @@ function ServersPageInner() {
                       size="sm"
                       className="shrink-0"
                       onClick={copyInstallCommand}
+                    >
+                      <Copy className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-[var(--color-muted)]">
+                    Or local agent (Windows / make dev-agent)
+                  </p>
+                  <p className="text-xs text-[var(--color-muted)]">
+                    Paste into <code className="font-mono">agent/config.yaml</code>, start Docker
+                    Desktop, then run <code className="font-mono">make dev-agent</code>.
+                  </p>
+                  <div className="flex items-start gap-2 rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-paper-2)] p-3 font-mono text-xs leading-relaxed text-[var(--color-ink)]">
+                    <pre className="flex-1 whitespace-pre-wrap break-all">{localAgentConfig()}</pre>
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      size="sm"
+                      className="shrink-0"
+                      onClick={copyLocalConfig}
                     >
                       <Copy className="h-4 w-4" />
                     </Button>

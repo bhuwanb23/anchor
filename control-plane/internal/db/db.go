@@ -142,22 +142,29 @@ func Migrate(database *sql.DB) error {
 		}
 
 		if _, err := tx.Exec(string(data)); err != nil {
-			tx.Rollback()
+			_ = tx.Rollback()
 			// Backwards compatibility: databases created by the pre-tracking
 			// runner may already have columns that a later ALTER migration
 			// adds. A duplicate-column error means the change is already
-			// present, so record it as applied and move on.
+			// present — but the transaction is dead after Rollback, so record
+			// the migration on the outer connection and continue.
 			if isDuplicateColumn(err) {
 				slog.Warn("migration column already present, skipping", "migration", m.name, "error", err)
-			} else {
-				return fmt.Errorf("run migration %s: %w", m.name, err)
+				if _, err := database.Exec(
+					"INSERT INTO schema_migrations (name) VALUES (?)", m.name,
+				); err != nil {
+					return fmt.Errorf("record migration %s: %w", m.name, err)
+				}
+				applied++
+				continue
 			}
+			return fmt.Errorf("run migration %s: %w", m.name, err)
 		}
 
 		if _, err := tx.Exec(
 			"INSERT INTO schema_migrations (name) VALUES (?)", m.name,
 		); err != nil {
-			tx.Rollback()
+			_ = tx.Rollback()
 			return fmt.Errorf("record migration %s: %w", m.name, err)
 		}
 

@@ -1,0 +1,14 @@
+# Copy to config.yaml and fill registration_token from Servers → Add server.
+control_plane_url: http://localhost:8080
+registration_token: # paste token from dashboard (or use agent_token / AGENT_TOKEN)
+# After first successful register, agent_id + agent_secret are written here.
+
+# Windows + Docker Desktop:
+docker_socket: npipe:////./pipe/dockerDesktopLinuxEngine
+# Linux:
+# docker_socket: unix:///var/run/docker.sock
+
+caddy_config_dir: ./caddy
+backup_dest: ./backups
+ws_reconnect_sec: 5
+log_level: info

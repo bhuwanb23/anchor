@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"runtime"
 
 	"github.com/joho/godotenv"
 	"gopkg.in/yaml.v3"
@@ -12,6 +13,8 @@ type Config struct {
 	ControlPlaneURL string `yaml:"control_plane_url"`
 	// Registration mode (first run)
 	RegistrationToken string `yaml:"registration_token,omitempty"`
+	// AgentToken is an accepted alias for registration_token (install docs / local configs).
+	AgentToken string `yaml:"agent_token,omitempty"`
 	// Authenticated mode (after registration)
 	AgentID     string `yaml:"agent_id,omitempty"`
 	AgentSecret string `yaml:"agent_secret,omitempty"`
@@ -61,18 +64,35 @@ func Load(path string) (*Config, error) {
 		return nil, fmt.Errorf("parse config: %w", err)
 	}
 
+	if cfg.RegistrationToken == "" && cfg.AgentToken != "" {
+		cfg.RegistrationToken = cfg.AgentToken
+	}
+
 	if v := os.Getenv("CONTROL_PLANE_URL"); v != "" {
 		cfg.ControlPlaneURL = v
 	}
 	if v := os.Getenv("AGENT_TOKEN"); v != "" {
 		cfg.RegistrationToken = v
 	}
+	if v := os.Getenv("AGENT_ID"); v != "" {
+		cfg.AgentID = v
+	}
+	if v := os.Getenv("AGENT_SECRET"); v != "" {
+		cfg.AgentSecret = v
+	}
 	if v := os.Getenv("SERVER_ID"); v != "" {
 		cfg.ServerID = v
 	}
+	if v := os.Getenv("DOCKER_SOCKET"); v != "" {
+		cfg.DockerSocket = v
+	}
 
 	if cfg.DockerSocket == "" {
-		cfg.DockerSocket = "unix:///var/run/docker.sock"
+		if runtime.GOOS == "windows" {
+			cfg.DockerSocket = "npipe:////./pipe/dockerDesktopLinuxEngine"
+		} else {
+			cfg.DockerSocket = "unix:///var/run/docker.sock"
+		}
 	}
 	if cfg.CaddyConfigDir == "" {
 		cfg.CaddyConfigDir = "/etc/caddy"
@@ -128,7 +148,7 @@ func (c *Config) Validate() error {
 	hasToken := c.RegistrationToken != ""
 	hasCredentials := c.AgentID != "" && c.AgentSecret != ""
 	if !hasToken && !hasCredentials {
-		return fmt.Errorf("either registration_token or agent_id+agent_secret is required")
+		return fmt.Errorf("either registration_token (or agent_token / AGENT_TOKEN) or agent_id+agent_secret is required — create a server in the dashboard and paste the token into agent/config.yaml")
 	}
 	return nil
 }

@@ -22,8 +22,9 @@ Expected: tidy/test/build succeed. Lint may print React Compiler **warnings** (n
 # Terminal A — API + dashboard
 make dev
 # Windows opens control-plane in a new window; dashboard: http://localhost:3000
+# If the API never responds on :8080, use: make dev-backend-plain
 
-# Terminal B — agent (after you create a server + install token, or local agent .env)
+# Terminal B — agent (after you create a server + token)
 make dev-agent
 ```
 
@@ -33,6 +34,8 @@ Copy env if needed:
 cp control-plane/.env.example control-plane/.env
 cp agent/.env.example agent/.env
 ```
+
+**Local agent on Windows:** In the dashboard, **Servers → Add server → Generate**. Copy the **local agent** YAML into `agent/config.yaml` (or set `AGENT_TOKEN` in `agent/.env`). Start **Docker Desktop**, then `make dev-agent`.
 
 ## 2. First-run UI (no onboarding wizard)
 
