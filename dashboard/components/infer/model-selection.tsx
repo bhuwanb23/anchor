@@ -68,11 +68,13 @@ interface ModelSelectionProps {
   platform: PlatformInfo | null;
   platformLoading: boolean;
   platformError: string | null;
+  detecting?: boolean;
   selectedTemplateId: string | null;
   deploying: boolean;
   onSelectTemplate: (id: string) => void;
   onDeploy: (templateId: string) => void;
   onPickServer: () => void;
+  onDetectPlatform?: () => void;
 }
 
 export function ModelSelection({
@@ -87,14 +89,17 @@ export function ModelSelection({
   platform,
   platformLoading,
   platformError,
+  detecting = false,
   selectedTemplateId,
   deploying,
   onSelectTemplate,
   onDeploy,
   onPickServer,
+  onDetectPlatform,
 }: ModelSelectionProps) {
   const optimization = formatOptimization(platform);
   const hardware = formatHardware(platform);
+  const blocked = platform != null && platform.can_run_inference === false;
 
   return (
     <section className="space-y-6">
@@ -159,6 +164,24 @@ export function ModelSelection({
             {serversCount > 1 && (
               <Button variant="secondary" size="sm" onClick={onPickServer}>
                 Switch server
+              </Button>
+            )}
+            {onDetectPlatform && (
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={onDetectPlatform}
+                disabled={!serverConnected || detecting}
+              >
+                {detecting ? (
+                  <>
+                    <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> Detecting…
+                  </>
+                ) : platform ? (
+                  "Re-detect"
+                ) : (
+                  "Detect hardware"
+                )}
               </Button>
             )}
           </CardContent>
@@ -267,13 +290,21 @@ export function ModelSelection({
       {/* Deploy button */}
       <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[var(--color-border)] pt-5">
         <p className="text-sm text-[var(--color-muted)]">
-          {selectedTemplateId
-            ? "Ready to deploy. The agent picks the optimized build for your hardware."
-            : "Select a model to enable deployment."}
+          {blocked
+            ? platform?.block_reason || "This server cannot run inference right now."
+            : selectedTemplateId
+              ? "Ready to deploy. The agent picks the optimized build for your hardware."
+              : "Select a model to enable deployment."}
         </p>
         <Button
           size="lg"
-          disabled={!selectedTemplateId || deploying || !serverId}
+          disabled={
+            !selectedTemplateId ||
+            deploying ||
+            !serverId ||
+            !serverConnected ||
+            blocked
+          }
           onClick={() => selectedTemplateId && onDeploy(selectedTemplateId)}
           className="gap-2"
         >

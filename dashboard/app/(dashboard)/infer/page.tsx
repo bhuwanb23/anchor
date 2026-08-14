@@ -46,7 +46,8 @@ export default function InferPage() {
 
   const { templates, isLoading: templatesLoading, error: templatesError } =
     useInferTemplates();
-  const { platform, error: platformError } = usePlatformInfo(serverId);
+  const { platform, error: platformError, detecting, detectPlatform } =
+    usePlatformInfo(serverId);
 
   const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null);
   const deploy = useInferDeploy(serverId);
@@ -173,10 +174,12 @@ export default function InferPage() {
           platform={platform}
           platformLoading={!platform && !platformError}
           platformError={platformError}
+          detecting={detecting}
           selectedTemplateId={selectedTemplateId}
           deploying={deploy.phase === "deploying"}
           onSelectTemplate={setSelectedTemplateId}
           onDeploy={handleDeploy}
+          onDetectPlatform={() => void detectPlatform()}
           onPickServer={() => {
             if (servers.length === 0) {
               router.push("/onboarding/connect-server");
