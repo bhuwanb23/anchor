@@ -8,7 +8,10 @@ on:
     paths:
       - ".github/workflows/validate.yml"
       - "infer/**"
-      - "BENCHMARKS.md"
+      # Intentionally NOT BENCHMARKS.md / docs/ci — avoids loops when CI commits results
+
+permissions:
+  contents: write
 
 jobs:
   validate:
@@ -73,7 +76,6 @@ jobs:
           mkdir -p "$RESULTS_DIR"
           cd "$LLAMA_DIR"
 
-          # Prefer JSON; fall back to plain text if flag unsupported.
           run_bench () {
             local bin="$1" out_base="$2"
             if "$bin" -m "$MODEL_PATH" -p 128 -n 64 -r 3 -o json > "${out_base}.json" 2>"${out_base}.err"; then
@@ -95,18 +97,13 @@ jobs:
       - name: Summarize results
         run: |
           python3 <<'PY'
-          import json, os, pathlib, re, statistics, datetime
+          import json, os, pathlib, re, statistics, datetime, subprocess
 
           results = pathlib.Path(os.environ["RESULTS_DIR"])
           out = pathlib.Path("ci-benchmark-results.md")
-          commit = ""
           llama = pathlib.Path(os.environ["LLAMA_DIR"])
+          commit = ""
           try:
-              commit = (llama / ".git" / "HEAD").read_text().strip()
-          except Exception:
-              pass
-          try:
-              import subprocess
               commit = subprocess.check_output(["git", "-C", str(llama), "rev-parse", "HEAD"], text=True).strip()
           except Exception:
               pass
@@ -121,7 +118,6 @@ jobs:
                       for r in rows:
                           if not isinstance(r, dict):
                               continue
-                          # llama-bench JSON commonly uses avg_ts for tokens/sec
                           for k in ("avg_ts", "tokens_per_second", "ts", "n_tokens_second"):
                               if k in r and r[k] not in (None, 0, 0.0):
                                   tps.append(float(r[k]))
@@ -132,7 +128,6 @@ jobs:
                       print("json parse failed:", e)
               if tp.exists() and tp.stat().st_size > 0:
                   text = tp.read_text(errors="replace")
-                  # Table column often ends with t/s values
                   nums = [float(x) for x in re.findall(r"(\d+\.\d+)\s*$", text, re.M)]
                   if not nums:
                       nums = [float(x) for x in re.findall(r"(\d+\.\d+)\s*(?:t/s|tok)", text, re.I)]
@@ -142,9 +137,11 @@ jobs:
 
           g, gs = parse(results / "bench-generic")
           k, ks = parse(results / "bench-kleidi")
+          now = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+          pct = ((k - g) / g * 100) if g and k and g > 0 else None
 
           lines = [
-              f"# CI benchmark run — {datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')}",
+              f"# CI benchmark run — {now}",
               "",
               "- Runner: `ubuntu-24.04-arm` (`aarch64`)",
               "- Model: TinyLlama 1.1B Chat Q4_K_M",
@@ -157,34 +154,50 @@ jobs:
               f"| KleidiAI (GGML_CPU_KLEIDIAI=ON) | {f'{k:.2f}' if k is not None else 'see raw'} | {ks or 'n/a'} |",
               "",
           ]
-          if g and k and g > 0:
-              pct = ((k - g) / g) * 100
-              lines += [
-                  f"**Improvement:** {pct:.1f}% ({k:.2f} vs {g:.2f} t/s)",
-                  "",
-                  "Copy into `BENCHMARKS.md` → Latest CI results.",
-              ]
+          if pct is not None:
+              lines += [f"**Improvement:** {pct:.1f}% ({k:.2f} vs {g:.2f} t/s)", ""]
           else:
-              lines += [
-                  "**Note:** Could not auto-parse tokens/sec — inspect raw JSON/TXT in the artifact.",
-                  "",
-              ]
+              lines += ["**Note:** Could not auto-parse tokens/sec — inspect raw JSON/TXT in the artifact.", ""]
 
-          # Machine-readable sidecar for updating BENCHMARKS.md
           meta = {
+              "date_utc": now,
               "generic_tps": g,
               "kleidi_tps": k,
-              "improvement_pct": ((k - g) / g * 100) if g and k and g > 0 else None,
+              "improvement_pct": pct,
               "llama_commit": commit,
               "model": "tinyllama-1.1b-chat-v1.0.Q4_K_M",
               "p": 128,
               "n": 64,
               "r": 3,
+              "run_url": os.environ.get("GITHUB_SERVER_URL", "https://github.com")
+              + "/"
+              + os.environ.get("GITHUB_REPOSITORY", "")
+              + "/actions/runs/"
+              + os.environ.get("GITHUB_RUN_ID", ""),
           }
           pathlib.Path("ci-benchmark-results.json").write_text(json.dumps(meta, indent=2) + "\n")
           out.write_text("\n".join(lines) + "\n")
           print(out.read_text())
           print(json.dumps(meta, indent=2))
+
+          bench = pathlib.Path("BENCHMARKS.md")
+          if bench.exists() and g is not None and k is not None:
+              text = bench.read_text()
+              row = (
+                  f"| {now[:10]} | {g:.2f} | {k:.2f} | "
+                  f"{pct:.1f}% | `{commit[:7] if commit else 'n/a'}` · "
+                  f"[run]({meta['run_url']}) |"
+              )
+              marker = "| _pending first workflow run_ | — | — | — | Fill from `ci-benchmark-results.md` artifact |"
+              if marker in text:
+                  text = text.replace(marker, row)
+              else:
+                  needle = "|---|---:|---:|---:|---|\n"
+                  idx = text.find(needle)
+                  if idx != -1:
+                      insert_at = idx + len(needle)
+                      text = text[:insert_at] + row + "\n" + text[insert_at:]
+              bench.write_text(text)
           PY
 
       - name: Upload artifacts
@@ -197,3 +210,19 @@ jobs:
             ci-benchmark-results.json
             _bench_out/
           if-no-files-found: warn
+
+      - name: Publish results into the repo
+        if: success()
+        run: |
+          mkdir -p docs/ci
+          cp ci-benchmark-results.md docs/ci/arm-benchmark-latest.md
+          cp ci-benchmark-results.json docs/ci/arm-benchmark-latest.json
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add BENCHMARKS.md docs/ci/arm-benchmark-latest.md docs/ci/arm-benchmark-latest.json
+          if git diff --staged --quiet; then
+            echo "No result changes to commit"
+            exit 0
+          fi
+          git commit -m "chore(ci): publish Arm KleidiAI benchmark results [skip ci]"
+          git push
