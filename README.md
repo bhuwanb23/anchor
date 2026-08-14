@@ -34,6 +34,7 @@ Anchor is a self-hosted mini-cloud platform with three parts:
 | 📊 **Health monitoring** | CPU, RAM, disk, container status, and network rates reported every 30 seconds |
 | 🖥️ **Live logs** | Stream any container's logs in the dashboard in real time over WebSocket |
 | 🛟 **Plain-English alerts** | "Your disk is almost full" — not a 400-line stack trace |
+| 🧠 **Anchor Infer** | Deploy OpenAI-compatible LLM endpoints on Arm with KleidiAI-optimized builds + before/after benchmarks |
 
 ## Who Anchor is for
 
@@ -91,6 +92,40 @@ One Go binary with three active responsibilities and three service managers:
 
 The full, exhaustively documented layer-by-layer reference lives in [`docs/layers.md`](docs/layers.md).
 
+## Anchor Infer (AI on your Arm server)
+
+Anchor Infer extends the same agent + control plane + dashboard to deploy a live,
+OpenAI-compatible LLM endpoint — picking an Arm-optimized llama.cpp image when
+the hardware supports it, then benchmarking **generic vs optimized** so you can
+see a real percentage improvement.
+
+| Typical submission | Anchor Infer |
+|---|---|
+| One-off notebook / script benchmark | Productized deploy path inside an existing platform |
+| Manual KleidiAI build notes | Agent detects Arm features and selects the image tag |
+| Screenshots of a terminal | Dashboard: progress → live endpoint → benchmark card |
+
+### Quick path
+
+1. Connect a Linux agent (Arm64 recommended).
+2. Build/push Infer runtime images: `./infer/docker/build.sh ghcr.io/<you>/anchor-infer --push`
+3. On the agent host: `export ANCHOR_INFER_IMAGE_BASE=ghcr.io/<you>/anchor-infer` (or set in systemd).
+4. Open the dashboard **Infer** page (`/infer`) → Detect hardware → Deploy **LLM Chat**.
+5. Pre-demo check: `./scripts/demo-prep.sh --control-plane=… --token=… --server=…`
+
+### Proof of measurable Arm improvement
+
+Real KleidiAI vs generic numbers live in [`BENCHMARKS.md`](BENCHMARKS.md), produced by
+the arm64 workflow [`.github/workflows/validate.yml`](.github/workflows/validate.yml).
+
+### Add another model template
+
+Templates are JSON under `agent/internal/infer/templates/` (embedded at build time).
+Add a file, rebuild the agent — the control plane list in `ListTemplates` should stay in sync
+for the dashboard catalog.
+
+Deep dive: [`docs/infer_ai_model.md`](docs/infer_ai_model.md) · validation plan: [`docs/infer_idea_validation.md`](docs/infer_idea_validation.md).
+
 ## Self-host in 10 minutes
 
 Prerequisites: Go 1.22+, Node 20+ with pnpm, Docker.
@@ -116,9 +151,9 @@ Free tier: both services sleep when idle; SQLite is ephemeral (no disks on free)
 
 ## Project status
 
-**Done:** install layer, server preflight, Docker management, Caddy management with auto-HTTPS, agent lifecycle + reconnection, command executor with offline queue, metrics collection (Layer 4C, fully tested), control-plane API with migrations, emerald dashboard UX, Render Blueprint for cloud deploy.
+**Done:** install layer, server preflight, Docker management, Caddy management with auto-HTTPS, agent lifecycle + reconnection, command executor with offline queue, metrics collection (Layer 4C, fully tested), control-plane API with migrations, emerald dashboard UX, Render Blueprint for cloud deploy, **Anchor Infer** (platform detect, deploy, dual benchmark, `/infer` UI).
 
-**In progress:** backup UI polish, billing, multi-server polish, publishing agent release binaries for `/releases`.
+**In progress:** publishing Infer runtime images to GHCR, first arm64 CI numbers into `BENCHMARKS.md`, backup UI polish, billing, multi-server polish, publishing agent release binaries for `/releases`.
 
 **Explicitly not being built:** custom hypervisor, storage clustering (Ceph/Gluster), multi-region auto-scaling, Kubernetes-style orchestration, custom container runtime, custom TLS engine.
 
@@ -129,6 +164,8 @@ Free tier: both services sleep when idle; SQLite is ephemeral (no disks on free)
 | `agent/` | Go agent — runs on user servers (`cmd/agent`, `internal/*`) |
 | `control-plane/` | Go API server (`cmd/server`, `internal/*`, SQL migrations, Dockerfile) |
 | `dashboard/` | Next.js web UI (Dockerfile) |
+| `infer/docker/` | Dockerfiles + build script for llama.cpp Infer runtime images |
+| `BENCHMARKS.md` | Phase 1 KleidiAI vs generic proof numbers |
 | `docs/` | Architecture, per-layer plans, and project overview |
 | `docs/deploy-render.md` | Render Blueprint deploy guide |
 | `render.yaml` | Render Blueprint (API + dashboard) |

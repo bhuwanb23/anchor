@@ -1371,8 +1371,10 @@ Connected end-to-end through the same agent WS hub, auth, and commands table:
     → detect_platform → nested PlatformInfo in command result → upserted
     → deploy_inference → model pull, dual bench, Caddy route, endpoint test
 
-  Still required for a live Arm demo (not code gaps):
-    → Pullable KleidiAI/llama.cpp images (replace ghcr.io/yourname/infer:* placeholders)
+  Still required for a live Arm demo (operator steps):
+    → Build/push images: ./infer/docker/build.sh ghcr.io/<you>/anchor-infer --push
+    → export ANCHOR_INFER_IMAGE_BASE=ghcr.io/<you>/anchor-infer on the agent
     → Connected Arm64 agent with enough RAM/disk
+    → Run Actions workflow validate.yml and paste numbers into BENCHMARKS.md
     → Optional: Whisper template, Performix, checksum validation
 ```
