@@ -180,6 +180,38 @@ export function usePlatformInfo(serverId: string | null) {
     }
   }, [serverId]);
 
+  const [detecting, setDetecting] = useState(false);
+
+  const detectPlatform = useCallback(async () => {
+    if (!serverId) return;
+    setDetecting(true);
+    try {
+      await api.post(`/api/v1/servers/${serverId}/platform/detect`);
+      // Agent usually finishes detect_platform in a few seconds.
+      for (let i = 0; i < 15; i++) {
+        await new Promise((r) => setTimeout(r, 1000));
+        try {
+          const res = await api.get<PlatformInfo>(
+            `/api/v1/servers/${serverId}/platform`
+          );
+          if (mountedRef.current && res.data) {
+            setPlatform(res.data);
+            setError(null);
+            break;
+          }
+        } catch {
+          /* keep polling */
+        }
+      }
+    } catch (e) {
+      if (mountedRef.current) {
+        setError(e instanceof Error ? e.message : "Platform detection failed");
+      }
+    } finally {
+      if (mountedRef.current) setDetecting(false);
+    }
+  }, [serverId]);
+
   useEffect(() => {
     mountedRef.current = true;
     if (serverId) fetchPlatform();
@@ -188,7 +220,7 @@ export function usePlatformInfo(serverId: string | null) {
     };
   }, [serverId, fetchPlatform]);
 
-  return { platform, isLoading, error, refetch: fetchPlatform };
+  return { platform, isLoading, error, detecting, refetch: fetchPlatform, detectPlatform };
 }
 
 // ---------------------------------------------------------------------------
