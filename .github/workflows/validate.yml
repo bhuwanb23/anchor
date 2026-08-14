@@ -338,11 +338,20 @@ jobs:
                   f"(KleidiAI {k_tg:.2f} vs generic {g_tg:.2f} t/s, median of {len(per_run)} pairs)"
               )
               decision = "go" if pct >= 15 else "no-go"
+              # Ready-to-paste row for docs/ci/test-matrix.md
+              matrix_row = (
+                  f"| {model_label} | (see model_id) | GH `ubuntu-24.04-arm` | {profile} "
+                  f"| {g_tg:.2f} | {k_tg:.2f} | **{pct:+.1f}%** | {len(per_run)} | done — {decision} |"
+              )
               lines += [
                   "",
                   f"**Go/no-go vs 15% bar (this cell only):** `{decision}`",
                   "",
-                  "Copy this row into `BENCHMARKS.md` → Test matrix. Do not drop the honest number.",
+                  "Paste into `docs/ci/test-matrix.md` (do not drop the honest number):",
+                  "",
+                  "```",
+                  matrix_row,
+                  "```",
               ]
           else:
               lines.append("**Note:** Could not parse tokens/sec — inspect `_bench_out/` in the artifact.")

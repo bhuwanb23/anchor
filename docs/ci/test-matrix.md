@@ -26,13 +26,13 @@ flags, paste into the matrix with hardware = that instance.
 | Model | Quant | Hardware | Prompt | Generic tg (median) | KleidiAI tg (median) | Δ% | N pairs | Status |
 |---|---|---|---|---:|---:|---:|---:|---|
 | TinyLlama 1.1B | Q4_K_M | GH `ubuntu-24.04-arm` | short (−p128 −n64) | 50.58 | 52.04 | **+2.9%** | 1* | done — no-go |
-| Mistral 7B Instruct | Q4_K_M | GH `ubuntu-24.04-arm` | short | — | — | — | 3 | **next** |
+| Mistral 7B Instruct | Q4_K_M | GH `ubuntu-24.04-arm` | short | — | — | — | 3 | **next — run via workflow_dispatch** |
 | Mistral 7B Instruct | Q4_K_M | GH `ubuntu-24.04-arm` | long (−p512 −n128) | — | — | — | 3 | pending |
 | TinyLlama 1.1B | Q8_0 | GH `ubuntu-24.04-arm` | short | — | — | — | 3 | pending |
 | Mistral 7B Instruct | Q4_K_M | Graviton4 / Axion (manual) | short | — | — | — | ≥3 | pending |
 
-\*First cell used a single outer pair (`llama-bench -r 3` inner only). Re-run with
-`outer_repeats=3` if you need noise bounds on TinyLlama.
+\*First cell used a single outer pair (`llama-bench -r 3` inner only).  
+**Note (2026-08-14):** Actions run [#4](https://github.com/bhuwanb23/anchor/actions/runs/31774666953) succeeded but was a **push** with defaults → artifact `arm-benchmark-tinyllama-q4km-short` only (~5m). That does **not** fill the Mistral row. Test 1 requires **Run workflow** (dispatch), not a docs push.
 
 ## Decision log
 
