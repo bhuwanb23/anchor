@@ -88,9 +88,9 @@ func (e *Executor) executeDeployInference(ctx context.Context, cmd Command, resu
 	SendProgress(e.progressSender, cmd.ID, "pulling", "Pulling inference runtime images...", 10)
 
 	optimizedImage := plat.Build.ImageTag
-	genericImage := platform.InferImageBase + ":arm64"
+	genericImage := platform.ImageBase() + ":arm64"
 	if !plat.IsArm64 {
-		genericImage = platform.InferImageBase + ":x86_64"
+		genericImage = platform.ImageBase() + ":x86_64"
 	}
 
 	// Pull optimized image (primary)
@@ -144,8 +144,12 @@ func (e *Executor) executeDeployInference(ctx context.Context, cmd Command, resu
 		})
 		if err == nil {
 			_ = e.docker.StartContainerWithWait(ctx, markerCheck, 5*time.Second)
-			output, _ := e.docker.ExecInContainer(ctx, markerCheck, []string{"test", "-f", "/models/.download_complete"})
-			if output == "" {
+			// ExecInContainer does not surface exit codes — print a token on
+			// success so we never treat a missing marker as "already downloaded".
+			output, err := e.docker.ExecInContainer(ctx, markerCheck, []string{
+				"sh", "-c", "test -f /models/.download_complete && echo EXISTS",
+			})
+			if err == nil && strings.Contains(output, "EXISTS") {
 				modelAlreadyExists = true
 				slog.Info("model already exists in volume, skipping download", "quant", quantKey)
 			}
@@ -213,9 +217,9 @@ func (e *Executor) executeDeployInference(ctx context.Context, cmd Command, resu
 	if e.docker != nil && e.inferRegistry != nil {
 		SendProgress(e.progressSender, cmd.ID, "benchmarking", "Running baseline benchmark (generic build)...", 47)
 
-		genericImage := platform.InferImageBase + ":arm64"
+		genericImage := platform.ImageBase() + ":arm64"
 		if !plat.IsArm64 {
-			genericImage = platform.InferImageBase + ":x86_64"
+			genericImage = platform.ImageBase() + ":x86_64"
 		}
 
 		baselineResult, err = infer.RunBenchmark(ctx, infer.BenchmarkOpts{

@@ -309,12 +309,16 @@ func TestE2E_InferBenchmarkRerun(t *testing.T) {
 		t.Errorf("command_id = %q, want cmd- prefix", resp.CommandID)
 	}
 
-	// No benchmark rows yet → empty object, not an error
+	// No benchmark rows yet → available:false, not an error
 	w = e.doWithJWT(http.MethodGet, "/api/v1/servers/"+srv.ID+"/infer/benchmark", token, nil)
 	if w.Code != http.StatusOK {
 		t.Fatalf("empty benchmark = %d, want 200: %s", w.Code, w.Body.String())
 	}
-	if strings.TrimSpace(w.Body.String()) != "{}" {
-		t.Errorf("empty benchmark body = %s, want {}", w.Body.String())
+	var empty struct {
+		Available bool `json:"available"`
+	}
+	decodeJSON(t, w, &empty)
+	if empty.Available {
+		t.Errorf("empty benchmark available = true, want false")
 	}
 }

@@ -76,9 +76,9 @@ func (e *Executor) executeRunBenchmark(ctx context.Context, cmd Command, result 
 	// selection logic the deploy sequence uses.
 	plat := platform.Detect()
 	optimizedImage := plat.Build.ImageTag
-	genericImage := platform.InferImageBase + ":arm64"
+	genericImage := platform.ImageBase() + ":arm64"
 	if !plat.IsArm64 {
-		genericImage = platform.InferImageBase + ":x86_64"
+		genericImage = platform.ImageBase() + ":x86_64"
 	}
 
 	// Collect non-inference containers to pause during benchmarking.
