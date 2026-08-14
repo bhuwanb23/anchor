@@ -26,63 +26,81 @@
     </style>
   </head>
   <body>
-    <div data-hf-id="hf-qbnw" id="root" data-composition-id="main" data-start="0" data-duration="60" data-width="1920" data-height="1080">
-      <!-- Frame 1: Hook - terminal + "Own your server. Don't babysit it." -->
-      <div data-hf-id="hf-tiyz" id="frame-01" class="clip" data-composition-id="01-hook" data-composition-src="compositions/frames/01-hook.html" data-start="0" data-duration="8" data-track-index="1"></div>
+    <div id="root" data-composition-id="main" data-start="0" data-duration="105" data-width="1920" data-height="1080">
+      <!-- Frame 1: Hook -->
+      <div id="frame-01" class="clip" data-composition-id="01-hook" data-composition-src="compositions/frames/01-hook.html" data-start="0" data-duration="8" data-track-index="1"></div>
 
-      <!-- Frame 2: Pain - three animated scenarios -->
-      <div data-hf-id="hf-qkj6" id="frame-02" class="clip" data-composition-id="02-pain" data-composition-src="compositions/frames/02-pain.html" data-start="8" data-duration="9" data-track-index="2"></div>
+      <!-- Frame 2: Pain -->
+      <div id="frame-02" class="clip" data-composition-id="02-pain" data-composition-src="compositions/frames/02-pain.html" data-start="8" data-duration="9" data-track-index="2"></div>
 
-      <!-- Frame 3: Tease - dashboard preview -->
-      <div data-hf-id="hf-t81r" id="frame-03" class="clip" data-composition-id="03-tease" data-composition-src="compositions/frames/03-tease.html" data-start="17" data-duration="8" data-track-index="3"></div>
+      <!-- Frame 3: Tease -->
+      <div id="frame-03" class="clip" data-composition-id="03-tease" data-composition-src="compositions/frames/03-tease.html" data-start="17" data-duration="8" data-track-index="3"></div>
 
-      <!-- Frame 4: Mechanism - animated architecture -->
-      <div data-hf-id="hf-mtaf" id="frame-04" class="clip" data-composition-id="04-mechanism" data-composition-src="compositions/frames/04-mechanism.html" data-start="25" data-duration="12" data-track-index="4"></div>
+      <!-- Frame 4: Mechanism -->
+      <div id="frame-04" class="clip" data-composition-id="04-mechanism" data-composition-src="compositions/frames/04-mechanism.html" data-start="25" data-duration="12" data-track-index="4"></div>
 
-      <!-- Frame 5: Value - three live benefit panels -->
-      <div data-hf-id="hf-gqto" id="frame-05" class="clip" data-composition-id="05-value" data-composition-src="compositions/frames/05-value.html" data-start="37" data-duration="12" data-track-index="5"></div>
+      <!-- Frame 5: Value -->
+      <div id="frame-05" class="clip" data-composition-id="05-value" data-composition-src="compositions/frames/05-value.html" data-start="37" data-duration="12" data-track-index="5"></div>
 
-      <!-- Frame 6: CTA - GitHub call to action -->
-      <div data-hf-id="hf-uk34" id="frame-06" class="clip" data-composition-id="06-cta" data-composition-src="compositions/frames/06-cta.html" data-start="49" data-duration="11" data-track-index="6"></div>
+      <!-- Frame 7: Connect how-to -->
+      <div id="frame-07" class="clip" data-composition-id="07-connect" data-composition-src="compositions/frames/07-connect.html" data-start="49" data-duration="12" data-track-index="6"></div>
+
+      <!-- Frame 8: Deploy how-to -->
+      <div id="frame-08" class="clip" data-composition-id="08-deploy" data-composition-src="compositions/frames/08-deploy.html" data-start="61" data-duration="12" data-track-index="7"></div>
+
+      <!-- Frame 9: Infer graphs -->
+      <div id="frame-09" class="clip" data-composition-id="09-graphs" data-composition-src="compositions/frames/09-graphs.html" data-start="73" data-duration="17" data-track-index="8"></div>
+
+      <!-- Frame 6: CTA (close) -->
+      <div id="frame-06" class="clip" data-composition-id="06-cta" data-composition-src="compositions/frames/06-cta.html" data-start="90" data-duration="15" data-track-index="9"></div>
 
       <!-- Captions track -->
-      <div data-hf-id="hf-jcjo" id="captions" class="clip" data-composition-id="captions" data-composition-src="compositions/captions.html" data-start="0" data-duration="60" data-track-index="100"></div>
+      <div id="captions" class="clip" data-composition-id="captions" data-composition-src="compositions/captions.html" data-start="0" data-duration="105" data-track-index="100"></div>
 
-      <!-- BGM bed (captions-only piece — soft under SFX) -->
-      <audio data-hf-id="hf-bgm0" id="bgm" src="assets/bgm/track.mp3" data-start="0" data-duration="60" data-track-index="190" data-volume="0.28"></audio>
+      <!-- BGM bed -->
+      <audio id="bgm" src="assets/bgm/track.mp3" data-start="0" data-duration="105" data-track-index="190" data-volume="0.28"></audio>
 
-      <!-- SFX — relative paths, storyboard-synced to GSAP beats -->
-      <!-- F1: critical terminal line -->
-      <audio data-hf-id="hf-err1" id="sfx-error" src="assets/sfx/error.mp3" data-start="2.15" data-track-index="200" data-volume="0.32"></audio>
-      <!-- Cuts -->
-      <audio data-hf-id="hf-who1" id="sfx-whoosh-1" src="assets/sfx/whoosh.mp3" data-start="7.9" data-track-index="201" data-volume="0.34"></audio>
-      <!-- F2: first pain card / pager / disk meter -->
-      <audio data-hf-id="hf-imp1" id="sfx-impact-1" src="assets/sfx/impact-bass-1.mp3" data-start="9.05" data-track-index="202" data-volume="0.36"></audio>
-      <audio data-hf-id="hf-ntf1" id="sfx-notification" src="assets/sfx/notification.mp3" data-start="10.6" data-track-index="203" data-volume="0.34"></audio>
-      <audio data-hf-id="hf-clk1" id="sfx-click-1" src="assets/sfx/click.mp3" data-start="11.4" data-track-index="204" data-volume="0.28"></audio>
-      <audio data-hf-id="hf-who2" id="sfx-whoosh-2" src="assets/sfx/whoosh.mp3" data-start="16.9" data-track-index="205" data-volume="0.34"></audio>
-      <!-- F3: relief chime -->
-      <audio data-hf-id="hf-chm1" id="sfx-chime" src="assets/sfx/chime.mp3" data-start="18.5" data-track-index="206" data-volume="0.36"></audio>
-      <audio data-hf-id="hf-who3" id="sfx-whoosh-3" src="assets/sfx/whoosh.mp3" data-start="24.9" data-track-index="207" data-volume="0.34"></audio>
-      <!-- F4: three architecture columns -->
-      <audio data-hf-id="hf-png1" id="sfx-ping-1" src="assets/sfx/ping.mp3" data-start="25.9" data-track-index="208" data-volume="0.32"></audio>
-      <audio data-hf-id="hf-png2" id="sfx-ping-2" src="assets/sfx/ping.mp3" data-start="27.55" data-track-index="209" data-volume="0.32"></audio>
-      <audio data-hf-id="hf-png3" id="sfx-ping-3" src="assets/sfx/ping.mp3" data-start="29.1" data-track-index="210" data-volume="0.32"></audio>
-      <audio data-hf-id="hf-who4" id="sfx-whoosh-4" src="assets/sfx/whoosh.mp3" data-start="36.9" data-track-index="211" data-volume="0.34"></audio>
-      <!-- F5: benefit chips -->
-      <audio data-hf-id="hf-pop1" id="sfx-pop-1" src="assets/sfx/pop.mp3" data-start="38.0" data-track-index="212" data-volume="0.36"></audio>
-      <audio data-hf-id="hf-pop2" id="sfx-pop-2" src="assets/sfx/pop.mp3" data-start="38.42" data-track-index="213" data-volume="0.36"></audio>
-      <audio data-hf-id="hf-pop3" id="sfx-pop-3" src="assets/sfx/pop.mp3" data-start="38.84" data-track-index="214" data-volume="0.36"></audio>
-      <audio data-hf-id="hf-who5" id="sfx-whoosh-5" src="assets/sfx/whoosh.mp3" data-start="48.9" data-track-index="215" data-volume="0.34"></audio>
-      <!-- F6: CTA pill land -->
-      <audio data-hf-id="hf-imp2" id="sfx-impact-2" src="assets/sfx/impact-bass-1.mp3" data-start="53.0" data-track-index="216" data-volume="0.38"></audio>
+      <!-- SFX — Act 1 (unchanged offsets) -->
+      <audio id="sfx-error" src="assets/sfx/error.mp3" data-start="2.15" data-track-index="200" data-volume="0.32"></audio>
+      <audio id="sfx-whoosh-1" src="assets/sfx/whoosh.mp3" data-start="7.9" data-track-index="201" data-volume="0.34"></audio>
+      <audio id="sfx-impact-1" src="assets/sfx/impact-bass-1.mp3" data-start="9.05" data-track-index="202" data-volume="0.36"></audio>
+      <audio id="sfx-notification" src="assets/sfx/notification.mp3" data-start="10.6" data-track-index="203" data-volume="0.34"></audio>
+      <audio id="sfx-click-1" src="assets/sfx/click.mp3" data-start="11.4" data-track-index="204" data-volume="0.28"></audio>
+      <audio id="sfx-whoosh-2" src="assets/sfx/whoosh.mp3" data-start="16.9" data-track-index="205" data-volume="0.34"></audio>
+      <audio id="sfx-chime" src="assets/sfx/chime.mp3" data-start="18.5" data-track-index="206" data-volume="0.36"></audio>
+      <audio id="sfx-whoosh-3" src="assets/sfx/whoosh.mp3" data-start="24.9" data-track-index="207" data-volume="0.34"></audio>
+      <audio id="sfx-ping-1" src="assets/sfx/ping.mp3" data-start="25.9" data-track-index="208" data-volume="0.32"></audio>
+      <audio id="sfx-ping-2" src="assets/sfx/ping.mp3" data-start="27.55" data-track-index="209" data-volume="0.32"></audio>
+      <audio id="sfx-ping-3" src="assets/sfx/ping.mp3" data-start="29.1" data-track-index="210" data-volume="0.32"></audio>
+      <audio id="sfx-whoosh-4" src="assets/sfx/whoosh.mp3" data-start="36.9" data-track-index="211" data-volume="0.34"></audio>
+      <audio id="sfx-pop-1" src="assets/sfx/pop.mp3" data-start="38.0" data-track-index="212" data-volume="0.36"></audio>
+      <audio id="sfx-pop-2" src="assets/sfx/pop.mp3" data-start="38.42" data-track-index="213" data-volume="0.36"></audio>
+      <audio id="sfx-pop-3" src="assets/sfx/pop.mp3" data-start="38.84" data-track-index="214" data-volume="0.36"></audio>
+
+      <!-- Cut into connect -->
+      <audio id="sfx-whoosh-5" src="assets/sfx/whoosh.mp3" data-start="48.9" data-track-index="215" data-volume="0.34"></audio>
+      <!-- F7 connect steps -->
+      <audio id="sfx-click-2" src="assets/sfx/click.mp3" data-start="50.4" data-track-index="216" data-volume="0.28"></audio>
+      <audio id="sfx-click-3" src="assets/sfx/click.mp3" data-start="51.6" data-track-index="217" data-volume="0.28"></audio>
+      <audio id="sfx-chime-2" src="assets/sfx/chime.mp3" data-start="54.1" data-track-index="218" data-volume="0.34"></audio>
+      <!-- Cut into deploy -->
+      <audio id="sfx-whoosh-6" src="assets/sfx/whoosh.mp3" data-start="60.9" data-track-index="219" data-volume="0.34"></audio>
+      <audio id="sfx-ping-4" src="assets/sfx/ping.mp3" data-start="62.4" data-track-index="220" data-volume="0.32"></audio>
+      <audio id="sfx-ping-5" src="assets/sfx/ping.mp3" data-start="63.6" data-track-index="221" data-volume="0.32"></audio>
+      <audio id="sfx-notification-2" src="assets/sfx/notification.mp3" data-start="66.0" data-track-index="222" data-volume="0.32"></audio>
+      <!-- Cut into graphs -->
+      <audio id="sfx-whoosh-7" src="assets/sfx/whoosh.mp3" data-start="72.9" data-track-index="223" data-volume="0.34"></audio>
+      <audio id="sfx-impact-3" src="assets/sfx/impact-bass-1.mp3" data-start="75.0" data-track-index="224" data-volume="0.36"></audio>
+      <audio id="sfx-pop-4" src="assets/sfx/pop.mp3" data-start="77.5" data-track-index="225" data-volume="0.34"></audio>
+      <!-- Cut into CTA -->
+      <audio id="sfx-whoosh-8" src="assets/sfx/whoosh.mp3" data-start="89.9" data-track-index="226" data-volume="0.34"></audio>
+      <audio id="sfx-impact-2" src="assets/sfx/impact-bass-1.mp3" data-start="94.0" data-track-index="227" data-volume="0.38"></audio>
     </div>
 
     <script>
       window.__timelines = window.__timelines || {};
       const tl = gsap.timeline({ paused: true });
-      tl.to({}, { duration: 60 }, 0);
-      // BGM fades are baked into assets/bgm/track.mp3 (avoids scripted-volume browser probe)
+      tl.to({}, { duration: 105 }, 0);
       window.__timelines["main"] = tl;
 
       document.addEventListener("hf-seek", (event) => {
