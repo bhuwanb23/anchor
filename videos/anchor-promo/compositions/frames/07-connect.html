@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<style>
+  @import url("https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap");
+  #root { position: relative; width: 1920px; height: 1080px; overflow: hidden; container-type: size; font-family: "Inter", system-ui, sans-serif; background: #f6f8fa; }
+  .ground { position: absolute; inset: 0; background: #f6f8fa; }
+  .grid-bg { position: absolute; inset: 0; opacity: 0.5;
+    background-image: linear-gradient(rgba(31,111,235,0.05) 1px, transparent 1px), linear-gradient(90deg, rgba(31,111,235,0.05) 1px, transparent 1px);
+    background-size: 64px 64px; }
+
+  .header { position: absolute; left: 5cqw; top: 96px; z-index: 4; }
+  .accent-line { width: 60px; height: 4px; border-radius: 2px; background: #1f6feb; opacity: 0; }
+  .eyebrow { margin-top: 20px; font-family: "Space Grotesk", sans-serif; font-weight: 600; font-size: 16px; letter-spacing: 0.16em; text-transform: uppercase; color: #1e6ce5; opacity: 0; }
+  .h2 { margin: 14px 0 0; font-family: "Space Grotesk", sans-serif; font-weight: 600; font-size: 52px; line-height: 1.08; letter-spacing: -0.025em; color: #0b1b2b; opacity: 0; }
+
+  .diagram-wrap { position: absolute; left: 5cqw; top: 280px; width: 980px; height: 520px; z-index: 3;
+    background: #fff; border: 1.5px solid rgba(31,111,235,0.2); border-radius: 16px; overflow: hidden; opacity: 0; }
+  .diagram-wrap img { width: 100%; height: 100%; object-fit: contain; object-position: center; padding: 18px; }
+
+  .steps { position: absolute; right: 5cqw; top: 300px; width: 540px; display: flex; flex-direction: column; gap: 22px; z-index: 3; }
+  .step { background: #fff; border: 1.5px solid rgba(31,111,235,0.2); border-radius: 14px; padding: 22px 26px; opacity: 0; display: flex; gap: 18px; align-items: flex-start; }
+  .step-num { font-family: "Space Grotesk", sans-serif; font-weight: 700; font-size: 28px; color: #1f6feb; line-height: 1; min-width: 36px; }
+  .step-title { font-family: "Space Grotesk", sans-serif; font-weight: 600; font-size: 24px; color: #0b1b2b; letter-spacing: -0.02em; }
+  .step-sub { margin-top: 6px; font-family: "Inter", sans-serif; font-size: 16px; line-height: 1.45; color: #475569; }
+  .step-status { margin-left: auto; font-family: "JetBrains Mono", monospace; font-size: 13px; color: #15803d; opacity: 0; white-space: nowrap; }
+
+  .footline { position: absolute; left: 5cqw; right: 5cqw; top: 820px; z-index: 3; text-align: center; opacity: 0; }
+  .footline span { font-family: "Space Grotesk", sans-serif; font-weight: 500; font-size: 28px; letter-spacing: -0.02em; color: #0b1b2b; }
+  .footline em { font-style: normal; color: #1f6feb; font-weight: 700; }
+</style>
+</head>
+<body>
+<div id="root" data-composition-id="07-connect" data-width="1920" data-height="1080">
+  <div class="ground"></div>
+  <div class="grid-bg"></div>
+
+  <div class="header">
+    <div class="accent-line" id="cn-accent"></div>
+    <div class="eyebrow" id="cn-eyebrow">HOW TO · STEP 1</div>
+    <h2 class="h2" id="cn-h2">Connect a server in three beats.</h2>
+  </div>
+
+  <div class="diagram-wrap" id="cn-diagram">
+    <img src="assets/seq-connect.png" alt="Connect sequence: name server, install agent, connected" />
+  </div>
+
+  <div class="steps">
+    <div class="step" id="cn-s1">
+      <div class="step-num">1</div>
+      <div>
+        <div class="step-title">Name it</div>
+        <div class="step-sub">In the dashboard, add a server — give it a clear name.</div>
+      </div>
+    </div>
+    <div class="step" id="cn-s2">
+      <div class="step-num">2</div>
+      <div>
+        <div class="step-title">One install step</div>
+        <div class="step-sub">Run the install command on your Linux VPS. No YAML babysitting.</div>
+      </div>
+    </div>
+    <div class="step" id="cn-s3">
+      <div class="step-num">3</div>
+      <div style="flex:1">
+        <div class="step-title">Shows connected</div>
+        <div class="step-sub">When the agent is live, the machine lights up in Servers.</div>
+      </div>
+      <div class="step-status" id="cn-ok">● connected</div>
+    </div>
+  </div>
+
+  <div class="footline" id="cn-foot">
+    <span>Your hardware. <em>One connection.</em> Ready to deploy.</span>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+<script>
+(function () {
+  window.__timelines = window.__timelines || {};
+  var tl = gsap.timeline({ paused: true });
+  var $ = function (id) { return document.getElementById(id); };
+
+  tl.fromTo($("cn-accent"), { scaleX: 0, opacity: 0, transformOrigin: "left center" },
+    { scaleX: 1, opacity: 1, duration: 0.45, ease: "power3.out" }, 0.15);
+  tl.fromTo($("cn-eyebrow"), { y: 12, opacity: 0 }, { y: 0, opacity: 1, duration: 0.4, ease: "power3.out" }, 0.3);
+  tl.fromTo($("cn-h2"), { y: 18, opacity: 0 }, { y: 0, opacity: 1, duration: 0.55, ease: "power3.out" }, 0.42);
+
+  tl.fromTo($("cn-diagram"), { x: -24, opacity: 0 }, { x: 0, opacity: 1, duration: 0.7, ease: "power3.out" }, 0.7);
+
+  [["cn-s1", 1.4], ["cn-s2", 2.6], ["cn-s3", 3.9]].forEach(function (p) {
+    tl.fromTo($(p[0]), { y: 28, opacity: 0 }, { y: 0, opacity: 1, duration: 0.55, ease: "power3.out" }, p[1]);
+  });
+  tl.fromTo($("cn-ok"), { opacity: 0, scale: 0.9 }, { opacity: 1, scale: 1, duration: 0.4, ease: "back.out(1.6)" }, 5.1);
+
+  tl.fromTo($("cn-foot"), { y: 14, opacity: 0 }, { y: 0, opacity: 1, duration: 0.5, ease: "power3.out" }, 6.2);
+
+  // soft idle: connected pulse
+  tl.to($("cn-ok"), { opacity: 0.55, duration: 1.1, ease: "sine.inOut", yoyo: true, repeat: 3 }, 6.8);
+
+  window.__timelines["07-connect"] = tl;
+})();
+</script>
+</body>
+</html>

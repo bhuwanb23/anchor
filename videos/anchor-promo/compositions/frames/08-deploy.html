@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<style>
+  @import url("https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap");
+  #root { position: relative; width: 1920px; height: 1080px; overflow: hidden; container-type: size; font-family: "Inter", system-ui, sans-serif; background: #f6f8fa; }
+  .ground { position: absolute; inset: 0; background: #f6f8fa; }
+  .grid-bg { position: absolute; inset: 0; opacity: 0.5;
+    background-image: linear-gradient(rgba(31,111,235,0.05) 1px, transparent 1px), linear-gradient(90deg, rgba(31,111,235,0.05) 1px, transparent 1px);
+    background-size: 64px 64px; }
+
+  .header { position: absolute; left: 5cqw; top: 96px; z-index: 4; }
+  .accent-line { width: 60px; height: 4px; border-radius: 2px; background: #1f6feb; opacity: 0; }
+  .eyebrow { margin-top: 20px; font-family: "Space Grotesk", sans-serif; font-weight: 600; font-size: 16px; letter-spacing: 0.16em; text-transform: uppercase; color: #1e6ce5; opacity: 0; }
+  .h2 { margin: 14px 0 0; font-family: "Space Grotesk", sans-serif; font-weight: 600; font-size: 52px; line-height: 1.08; letter-spacing: -0.025em; color: #0b1b2b; opacity: 0; }
+
+  .diagram-wrap { position: absolute; right: 5cqw; top: 280px; width: 980px; height: 520px; z-index: 3;
+    background: #fff; border: 1.5px solid rgba(31,111,235,0.2); border-radius: 16px; overflow: hidden; opacity: 0; }
+  .diagram-wrap img { width: 100%; height: 100%; object-fit: contain; object-position: center; padding: 18px; }
+
+  .steps { position: absolute; left: 5cqw; top: 300px; width: 540px; display: flex; flex-direction: column; gap: 22px; z-index: 3; }
+  .step { background: #fff; border: 1.5px solid rgba(31,111,235,0.2); border-radius: 14px; padding: 22px 26px; opacity: 0; }
+  .step-tag { font-family: "Space Grotesk", sans-serif; font-size: 13px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; color: #1f6feb; margin-bottom: 8px; }
+  .step-title { font-family: "Space Grotesk", sans-serif; font-weight: 600; font-size: 26px; color: #0b1b2b; letter-spacing: -0.02em; }
+  .step-sub { margin-top: 8px; font-family: "Inter", sans-serif; font-size: 16px; line-height: 1.45; color: #475569; }
+
+  .alert { margin-top: 12px; background: rgba(31,111,235,0.05); border-left: 4px solid #1f6feb; border-radius: 9px; padding: 14px 16px; opacity: 0; }
+  .alert-t { font-family: "Space Grotesk", sans-serif; font-weight: 600; font-size: 17px; color: #0b1b2b; }
+  .alert-b { margin-top: 4px; font-family: "Inter", sans-serif; font-size: 15px; color: #475569; line-height: 1.45; }
+
+  .footline { position: absolute; left: 5cqw; right: 5cqw; top: 820px; z-index: 3; text-align: center; opacity: 0; }
+  .footline span { font-family: "Space Grotesk", sans-serif; font-weight: 500; font-size: 28px; letter-spacing: -0.02em; color: #0b1b2b; }
+  .footline em { font-style: normal; color: #1f6feb; font-weight: 700; }
+</style>
+</head>
+<body>
+<div id="root" data-composition-id="08-deploy" data-width="1920" data-height="1080">
+  <div class="ground"></div>
+  <div class="grid-bg"></div>
+
+  <div class="header">
+    <div class="accent-line" id="dp-accent"></div>
+    <div class="eyebrow" id="dp-eyebrow">HOW TO · STEP 2</div>
+    <h2 class="h2" id="dp-h2">Deploy an image. Stay in English.</h2>
+  </div>
+
+  <div class="steps">
+    <div class="step" id="dp-s1">
+      <div class="step-tag">Choose</div>
+      <div class="step-title">Pick a Docker image or Infer template</div>
+      <div class="step-sub">LLM Chat, a web app, whatever you need — from the dashboard.</div>
+    </div>
+    <div class="step" id="dp-s2">
+      <div class="step-tag">Ship</div>
+      <div class="step-title">Anchor runs it on hardware you own</div>
+      <div class="step-sub">The agent pulls, starts, and wires HTTPS. You watch progress — not SSH.</div>
+    </div>
+    <div class="step" id="dp-s3">
+      <div class="step-tag">If it fails</div>
+      <div class="step-title">Plain-English diagnosis</div>
+      <div class="step-sub">What broke and what to try next — not a stack dump.</div>
+      <div class="alert" id="dp-alert">
+        <div class="alert-t">Image pull failed</div>
+        <div class="alert-b">Check the tag name, or try a public image. Your other apps keep running.</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="diagram-wrap" id="dp-diagram">
+    <img src="assets/seq-deploy.png" alt="Deploy sequence: pick image, ship to server, live or fail clearly" />
+  </div>
+
+  <div class="footline" id="dp-foot">
+    <span>Doing → done. Or <em>fixable</em> — never silent.</span>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+<script>
+(function () {
+  window.__timelines = window.__timelines || {};
+  var tl = gsap.timeline({ paused: true });
+  var $ = function (id) { return document.getElementById(id); };
+
+  tl.fromTo($("dp-accent"), { scaleX: 0, opacity: 0, transformOrigin: "left center" },
+    { scaleX: 1, opacity: 1, duration: 0.45, ease: "power3.out" }, 0.15);
+  tl.fromTo($("dp-eyebrow"), { y: 12, opacity: 0 }, { y: 0, opacity: 1, duration: 0.4, ease: "power3.out" }, 0.3);
+  tl.fromTo($("dp-h2"), { y: 18, opacity: 0 }, { y: 0, opacity: 1, duration: 0.55, ease: "power3.out" }, 0.42);
+
+  tl.fromTo($("dp-diagram"), { x: 28, opacity: 0 }, { x: 0, opacity: 1, duration: 0.7, ease: "power3.out" }, 0.65);
+
+  [["dp-s1", 1.35], ["dp-s2", 2.55], ["dp-s3", 3.85]].forEach(function (p) {
+    tl.fromTo($(p[0]), { y: 26, opacity: 0 }, { y: 0, opacity: 1, duration: 0.55, ease: "power3.out" }, p[1]);
+  });
+  tl.fromTo($("dp-alert"), { y: 12, opacity: 0 }, { y: 0, opacity: 1, duration: 0.45, ease: "power3.out" }, 5.0);
+
+  tl.fromTo($("dp-foot"), { y: 14, opacity: 0 }, { y: 0, opacity: 1, duration: 0.5, ease: "power3.out" }, 6.4);
+
+  window.__timelines["08-deploy"] = tl;
+})();
+</script>
+</body>
+</html>

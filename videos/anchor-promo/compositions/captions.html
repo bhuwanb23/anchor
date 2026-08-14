@@ -10,7 +10,7 @@
   .caption-pill { max-width: 76%; padding: 18px 42px 22px; background: rgba(31,111,235,0.055); border: 1.5px solid rgba(31,111,235,0.2); border-radius: 14px; backdrop-filter: blur(2px); }
   .caption-line { display: flex; flex-wrap: wrap; justify-content: center; gap: 0.08em 0.3em;
     font-family: "Space Grotesk", system-ui, sans-serif; font-weight: 600; font-size: 44px; line-height: 1.18; letter-spacing: -0.02em; }
-  .caption-word { display: inline-block; padding: 0 0.16em; border-radius: 0.3em; color: #8ba3bd; }
+  .caption-word { display: inline-block; padding: 0 0.16em; border-radius: 0.3em; color: #64748b; }
   .caption-word.is-active { color: #f6f8fa; background: #1f6feb; }
   .caption-word.is-spoken { color: #0b1b2b; background: transparent; }
 </style>
@@ -23,7 +23,7 @@
 <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
 <script>
 (function () {
-  var DURATION = 60;
+  var DURATION = 105;
 
   // Narration lines timed to the frame beats. Captions carry the voice (no VO track).
   var GROUPS = [
@@ -39,8 +39,15 @@
     { start: 37.5, end: 41.2, text: "It deploys from Git or Docker," },
     { start: 41.4, end: 44.9, text: "backs everything up every night," },
     { start: 45.1, end: 48.7, text: "and if something breaks, it tells you in plain English what happened." },
-    { start: 49.6, end: 53.5, text: "Bring any five-dollar box." },
-    { start: 53.7, end: 58.6, text: "Leave the babysitting to Anchor." }
+    { start: 49.6, end: 53.2, text: "Name a server. Anchor gives you one install step." },
+    { start: 53.4, end: 60.4, text: "When the agent is live, the machine shows connected." },
+    { start: 61.5, end: 66.0, text: "Pick an image or an Infer template." },
+    { start: 66.2, end: 72.4, text: "Anchor ships it to hardware you own — and tells you if something fails, in plain English." },
+    { start: 73.6, end: 77.8, text: "On Arm we measure, we don't guess." },
+    { start: 78.0, end: 84.2, text: "KleidiAI helped TinyLlama Q8 by fifteen percent on our CI runner —" },
+    { start: 84.4, end: 89.2, text: "other cells near zero." },
+    { start: 91.0, end: 95.5, text: "Bring any five-dollar box." },
+    { start: 95.7, end: 103.5, text: "Leave the babysitting to Anchor." }
   ];
 
   // Deterministic word timing: distribute each group's window across its words,

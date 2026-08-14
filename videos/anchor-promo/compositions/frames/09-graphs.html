@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<style>
+  @import url("https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap");
+  #root { position: relative; width: 1920px; height: 1080px; overflow: hidden; container-type: size; font-family: "Inter", system-ui, sans-serif; background: #f6f8fa; }
+  .ground { position: absolute; inset: 0; background: #f6f8fa; }
+  .grid-bg { position: absolute; inset: 0; opacity: 0.45;
+    background-image: linear-gradient(rgba(31,111,235,0.05) 1px, transparent 1px), linear-gradient(90deg, rgba(31,111,235,0.05) 1px, transparent 1px);
+    background-size: 64px 64px; }
+
+  .header { position: absolute; left: 5cqw; top: 88px; z-index: 4; }
+  .accent-line { width: 60px; height: 4px; border-radius: 2px; background: #1f6feb; opacity: 0; }
+  .eyebrow { margin-top: 18px; font-family: "Space Grotesk", sans-serif; font-weight: 600; font-size: 16px; letter-spacing: 0.16em; text-transform: uppercase; color: #1e6ce5; opacity: 0; }
+  .h2 { margin: 12px 0 0; font-family: "Space Grotesk", sans-serif; font-weight: 600; font-size: 50px; line-height: 1.08; letter-spacing: -0.025em; color: #0b1b2b; opacity: 0; }
+
+  .stat-card { position: absolute; left: 5cqw; top: 270px; width: 520px; background: #fff; border: 1.5px solid rgba(31,111,235,0.22); border-radius: 16px; padding: 36px 40px; z-index: 4; opacity: 0; }
+  .stat-label { font-family: "Space Grotesk", sans-serif; font-size: 14px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; color: #1f6feb; }
+  .stat-num { margin-top: 12px; font-family: "Space Grotesk", sans-serif; font-weight: 700; font-size: 96px; line-height: 1; letter-spacing: -0.03em; color: #1f6feb; }
+  .stat-unit { font-size: 48px; }
+  .stat-desc { margin-top: 16px; font-family: "Inter", sans-serif; font-size: 18px; line-height: 1.5; color: #475569; }
+  .caveat { margin-top: 22px; display: inline-flex; align-items: center; gap: 10px; padding: 10px 16px; border-radius: 100px; background: rgba(31,111,235,0.08); border: 1px solid rgba(31,111,235,0.2); opacity: 0; }
+  .caveat-dot { width: 8px; height: 8px; border-radius: 50%; background: #1f6feb; }
+  .caveat span { font-family: "Inter", sans-serif; font-size: 14px; font-weight: 500; color: #0b1b2b; }
+
+  .pipe-wrap { position: absolute; left: 5cqw; top: 620px; width: 520px; height: 180px; background: #fff; border: 1.5px solid rgba(31,111,235,0.2); border-radius: 14px; overflow: hidden; opacity: 0; z-index: 3; }
+  .pipe-wrap img { width: 100%; height: 100%; object-fit: cover; object-position: center; }
+
+  .bars-wrap { position: absolute; right: 5cqw; top: 270px; width: 1020px; height: 530px; background: #fff; border: 1.5px solid rgba(31,111,235,0.2); border-radius: 16px; overflow: hidden; opacity: 0; z-index: 3; }
+  .bars-wrap img { width: 100%; height: 100%; object-fit: contain; padding: 20px 24px; }
+
+  .footline { position: absolute; left: 5cqw; right: 5cqw; top: 820px; z-index: 4; text-align: center; opacity: 0; }
+  .footline span { font-family: "Space Grotesk", sans-serif; font-weight: 500; font-size: 26px; letter-spacing: -0.02em; color: #0b1b2b; }
+  .footline em { font-style: normal; color: #1f6feb; font-weight: 700; }
+</style>
+</head>
+<body>
+<div id="root" data-composition-id="09-graphs" data-width="1920" data-height="1080">
+  <div class="ground"></div>
+  <div class="grid-bg"></div>
+
+  <div class="header">
+    <div class="accent-line" id="gr-accent"></div>
+    <div class="eyebrow" id="gr-eyebrow">ANCHOR INFER · MEASURED</div>
+    <h2 class="h2" id="gr-h2">On Arm we measure. We don't guess.</h2>
+  </div>
+
+  <div class="stat-card" id="gr-stat">
+    <div class="stat-label">TinyLlama Q8_0 · KleidiAI vs generic</div>
+    <div class="stat-num" id="gr-num">+0.0<span class="stat-unit">%</span></div>
+    <div class="stat-desc">Tokens/sec lift on GitHub Actions<br/>ubuntu-24.04-arm CI runner</div>
+    <div class="caveat" id="gr-caveat">
+      <span class="caveat-dot"></span>
+      <span>Scoped go — Q4 / Mistral cells ~0%</span>
+    </div>
+  </div>
+
+  <div class="pipe-wrap" id="gr-pipe">
+    <img src="assets/infer-pipeline.png" alt="Infer deploy pipeline" />
+  </div>
+
+  <div class="bars-wrap" id="gr-bars">
+    <img src="assets/bench-bars.png" alt="Benchmark comparison bars" />
+  </div>
+
+  <div class="footline" id="gr-foot">
+    <span>Same pipeline for any template — <em>CI proves when KleidiAI helps.</em></span>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+<script>
+(function () {
+  window.__timelines = window.__timelines || {};
+  var tl = gsap.timeline({ paused: true });
+  var $ = function (id) { return document.getElementById(id); };
+
+  tl.fromTo($("gr-accent"), { scaleX: 0, opacity: 0, transformOrigin: "left center" },
+    { scaleX: 1, opacity: 1, duration: 0.45, ease: "power3.out" }, 0.12);
+  tl.fromTo($("gr-eyebrow"), { y: 12, opacity: 0 }, { y: 0, opacity: 1, duration: 0.4, ease: "power3.out" }, 0.28);
+  tl.fromTo($("gr-h2"), { y: 18, opacity: 0 }, { y: 0, opacity: 1, duration: 0.55, ease: "power3.out" }, 0.4);
+
+  tl.fromTo($("gr-stat"), { y: 24, opacity: 0 }, { y: 0, opacity: 1, duration: 0.6, ease: "power3.out" }, 0.85);
+  tl.fromTo($("gr-bars"), { x: 30, opacity: 0 }, { x: 0, opacity: 1, duration: 0.7, ease: "power3.out" }, 1.1);
+  tl.fromTo($("gr-pipe"), { y: 16, opacity: 0 }, { y: 0, opacity: 1, duration: 0.55, ease: "power3.out" }, 1.6);
+
+  // count-up +15.6%
+  var counter = { v: 0 };
+  tl.to(counter, {
+    v: 15.6,
+    duration: 2.2,
+    ease: "power2.out",
+    onUpdate: function () {
+      var n = counter.v.toFixed(1);
+      $("gr-num").innerHTML = "+" + n + '<span class="stat-unit">%</span>';
+    }
+  }, 2.0);
+
+  tl.fromTo($("gr-caveat"), { y: 10, opacity: 0 }, { y: 0, opacity: 1, duration: 0.45, ease: "power3.out" }, 4.4);
+  tl.fromTo($("gr-foot"), { y: 14, opacity: 0 }, { y: 0, opacity: 1, duration: 0.5, ease: "power3.out" }, 5.6);
+
+  // subtle bars settle pulse
+  tl.to($("gr-bars"), { scale: 1.01, duration: 2.4, ease: "sine.inOut", yoyo: true, repeat: 2, transformOrigin: "50% 50%" }, 6.5);
+
+  window.__timelines["09-graphs"] = tl;
+})();
+</script>
+</body>
+</html>
