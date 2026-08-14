@@ -47,7 +47,8 @@ Run `./scripts/demo-prep.sh` the morning of the demo.
 
 - [ ] Public GitHub repo (arm64 Actions enabled)
 - [ ] README Infer section uses measure-and-report pitch (not inflated speedup)
-- [ ] `BENCHMARKS.md` + matrix: TinyLlama cell filled; Mistral 7B cell after next CI run
+- [ ] [`docs/infer-for-judges.md`](../infer-for-judges.md) linked from README (setup / Arm / opts / evidence)
+- [ ] `BENCHMARKS.md` + matrix filled; diagrams in `docs/assets/infer/`
 - [ ] Demo video (2–3 min) — say the real % out loud
 - [ ] Devpost page: elevator pitch above + project story
 - [ ] Built with tags: go, llama.cpp, kleidiai, arm64, github-actions, nextjs

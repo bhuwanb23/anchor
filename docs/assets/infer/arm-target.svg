@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="820" viewBox="0 0 1400 820">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#F4FBF7"/>
+      <stop offset="100%" stop-color="#E4EFE9"/>
+    </linearGradient>
+  </defs>
+  <rect width="1400" height="820" fill="url(#bg)"/>
+  <text x="700" y="52" text-anchor="middle" font-family="Georgia,serif" font-size="32" font-weight="700" fill="#0B1B2B">How Anchor Infer targets Arm</text>
+  <text x="700" y="84" text-anchor="middle" font-family="system-ui,sans-serif" font-size="16" fill="#3D5A4C">Use Arm as the inference host | prefer KleidiAI when features allow | always measure</text>
+  <g font-family="system-ui,sans-serif">
+    <rect x="50" y="130" width="400" height="420" rx="16" fill="#FFFFFF" stroke="#0F6B4D" stroke-width="2"/>
+    <rect x="50" y="130" width="400" height="64" rx="16" fill="#0F6B4D"/>
+    <rect x="50" y="170" width="400" height="24" fill="#0F6B4D"/>
+    <text x="250" y="172" text-anchor="middle" font-size="20" font-weight="700" fill="#FFFFFF">USE</text>
+    <text x="80" y="240" font-size="16" font-weight="700" fill="#0B1B2B">Arm64 as the runtime</text>
+    <text x="80" y="280" font-size="14" fill="#3D5A4C">- Agent runs on Linux arm64 VPS</text>
+    <text x="80" y="310" font-size="14" fill="#3D5A4C">- llama.cpp CPU inference (GGUF)</text>
+    <text x="80" y="340" font-size="14" fill="#3D5A4C">- OpenAI-compatible local endpoint</text>
+    <text x="80" y="370" font-size="14" fill="#3D5A4C">- Your silicon, your data plane</text>
+    <text x="80" y="430" font-size="13" fill="#57606A">Code: agent/ | infer/docker/</text>
+    <text x="80" y="460" font-size="13" fill="#57606A">make release - linux/arm64 binary</text>
+    <rect x="500" y="130" width="400" height="420" rx="16" fill="#FFFFFF" stroke="#0F6B4D" stroke-width="2"/>
+    <rect x="500" y="130" width="400" height="64" rx="16" fill="#0F6B4D"/>
+    <rect x="500" y="170" width="400" height="24" fill="#0F6B4D"/>
+    <text x="700" y="172" text-anchor="middle" font-size="20" font-weight="700" fill="#FFFFFF">TARGET</text>
+    <text x="530" y="240" font-size="16" font-weight="700" fill="#0B1B2B">Arm-specific acceleration</text>
+    <text x="530" y="280" font-size="14" fill="#3D5A4C">- Detect arch + CPU features</text>
+    <text x="530" y="310" font-size="14" fill="#3D5A4C">- Select KleidiAI image tag when fit</text>
+    <text x="530" y="340" font-size="14" fill="#3D5A4C">- Build with GGML_CPU_KLEIDIAI=ON</text>
+    <text x="530" y="370" font-size="14" fill="#3D5A4C">- Same model for generic baseline</text>
+    <text x="530" y="430" font-size="13" fill="#57606A">Code: agent/internal/platform/</text>
+    <text x="530" y="460" font-size="13" fill="#57606A">CI: validate.yml on ubuntu-24.04-arm</text>
+    <rect x="950" y="130" width="400" height="420" rx="16" fill="#FFFFFF" stroke="#0F6B4D" stroke-width="2"/>
+    <rect x="950" y="130" width="400" height="64" rx="16" fill="#0F6B4D"/>
+    <rect x="950" y="170" width="400" height="24" fill="#0F6B4D"/>
+    <text x="1150" y="172" text-anchor="middle" font-size="20" font-weight="700" fill="#FFFFFF">IMPROVE</text>
+    <text x="980" y="240" font-size="16" font-weight="700" fill="#0B1B2B">Developer experience on Arm</text>
+    <text x="980" y="280" font-size="14" fill="#3D5A4C">- One-click Infer UI (/infer)</text>
+    <text x="980" y="310" font-size="14" fill="#3D5A4C">- Dual-bench card (honest delta)</text>
+    <text x="980" y="340" font-size="14" fill="#3D5A4C">- Parallel CI matrix (model x quant)</text>
+    <text x="980" y="370" font-size="14" fill="#3D5A4C">- demo-prep.sh for repeatable demos</text>
+    <text x="980" y="430" font-size="13" fill="#57606A">Docs: BENCHMARKS.md | test-matrix</text>
+    <text x="980" y="460" font-size="13" fill="#57606A">Pitch: measure-and-report, not hype</text>
+  </g>
+  <rect x="50" y="590" width="1300" height="170" rx="14" fill="#0B1B2B"/>
+  <text x="700" y="645" text-anchor="middle" font-family="system-ui,sans-serif" font-size="18" font-weight="700" fill="#FFFFFF">Not 'Arm made it faster' - 'Arm path that proves whether KleidiAI helped'</text>
+  <text x="700" y="685" text-anchor="middle" font-family="system-ui,sans-serif" font-size="15" fill="#C5E0D4">Scoped win on GH arm64: TinyLlama Q8_0 +15.6% tg | Q4_K_M and Mistral 7B Q4 ~ 0%</text>
+  <text x="700" y="720" text-anchor="middle" font-family="system-ui,sans-serif" font-size="14" fill="#8FA89A">Full numbers: docs/ci/test-matrix.md | Actions run 31775408483</text>
+</svg>

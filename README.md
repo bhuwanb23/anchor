@@ -18,6 +18,23 @@
 
 ---
 
+## For judges (Arm Infer track)
+
+**Start here:** [`docs/infer-for-judges.md`](docs/infer-for-judges.md) — setup, how we target Arm, what we optimized, and honest benchmarks with diagrams.
+
+| | |
+|---|---|
+| **Live dashboard** | https://anchor-web-tvir.onrender.com |
+| **Live API** | https://anchor-api-o1ba.onrender.com/health |
+| **CI Arm matrix** | [Actions → Validate Arm Optimization](https://github.com/bhuwanb23/anchor/actions/workflows/validate.yml) |
+| **Numbers** | [`BENCHMARKS.md`](BENCHMARKS.md) · [`docs/ci/test-matrix.md`](docs/ci/test-matrix.md) |
+
+<img src="docs/assets/infer/bench-bars.png" alt="Before/after generation tokens/sec — TinyLlama Q8_0 +15.6%, other cells ~0%" width="1400">
+
+**Headline (scoped):** On GitHub `ubuntu-24.04-arm`, KleidiAI helped **TinyLlama Q8_0 (+15.6% tg)**. TinyLlama Q4_K_M and Mistral 7B Q4_K_M were **~0%**. We measure and report; we do not invent a blanket speedup.
+
+---
+
 ## What Anchor is
 
 Anchor is a self-hosted mini-cloud platform with three parts:
@@ -99,15 +116,20 @@ detection, quantized GGUF, OpenAI-compatible endpoint, and a dual-benchmark card
 built to **surface real KleidiAI gains where hardware supports them**, and to report
 honestly when they do not.
 
+<img src="docs/assets/infer/infer-pipeline.png" alt="Infer deploy pipeline — template, detect, select image, serve, measure" width="1400">
+
+<img src="docs/assets/infer/arm-target.png" alt="How Anchor Infer uses, targets, and improves Arm platforms" width="1400">
+
 | Typical submission | Anchor Infer |
 |---|---|
 | “Arm made it faster” with a vague % | Measured generic vs optimized, real Δ in the UI + CI matrix |
 | One-off notebook benchmark | Productized detect → deploy → bench → live API |
 | Cherry-picked single run | One-variable test matrix + median-of-N methodology |
 
-If a judge asks “how much faster?”: answer with the filled cell in
-[`docs/ci/test-matrix.md`](docs/ci/test-matrix.md) (model, hardware, median tg, Δ%, N) —
-never “Arm-optimized, faster inference” without the number.
+**Judge packet:** [`docs/infer-for-judges.md`](docs/infer-for-judges.md)  
+If asked “how much faster?”: answer with the filled cell in
+[`docs/ci/test-matrix.md`](docs/ci/test-matrix.md) — never “Arm-optimized, faster inference”
+without the number.
 
 ### Quick path
 
@@ -163,7 +185,7 @@ Free tier: both services sleep when idle; SQLite is ephemeral (no disks on free)
 
 **Done:** install layer, server preflight, Docker management, Caddy management with auto-HTTPS, agent lifecycle + reconnection, command executor with offline queue, metrics collection (Layer 4C, fully tested), control-plane API with migrations, emerald dashboard UX, Render Blueprint for cloud deploy, **Anchor Infer** (platform detect, deploy, dual benchmark, `/infer` UI).
 
-**In progress:** publishing Infer runtime images to GHCR; Arm bench matrix (Mistral 7B cell next); backup UI polish, billing, multi-server polish, agent release binaries.
+**In progress:** publishing Infer runtime images to GHCR; optional Graviton4/Axion manual cell; backup UI polish, billing, multi-server polish, agent release binaries.
 
 **Explicitly not being built:** custom hypervisor, storage clustering (Ceph/Gluster), multi-region auto-scaling, Kubernetes-style orchestration, custom container runtime, custom TLS engine.
 
@@ -176,6 +198,8 @@ Free tier: both services sleep when idle; SQLite is ephemeral (no disks on free)
 | `dashboard/` | Next.js web UI (Dockerfile) |
 | `infer/docker/` | Dockerfiles + build script for llama.cpp Infer runtime images |
 | `BENCHMARKS.md` | Phase 1 KleidiAI vs generic proof numbers |
+| `docs/infer-for-judges.md` | Judge-facing setup / Arm / optimizations / evidence |
+| `docs/assets/infer/` | Infer pipeline, Arm targeting, and bench bar diagrams |
 | `docs/` | Architecture, per-layer plans, and project overview |
 | `docs/deploy-render.md` | Render Blueprint deploy guide |
 | `render.yaml` | Render Blueprint (API + dashboard) |

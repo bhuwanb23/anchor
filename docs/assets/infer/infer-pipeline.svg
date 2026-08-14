@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="720" viewBox="0 0 1400 720">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#F4FBF7"/>
+      <stop offset="100%" stop-color="#E8F3EE"/>
+    </linearGradient>
+    <marker id="arr" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
+      <path d="M0,0 L9,3 L0,6 z" fill="#0F6B4D"/>
+    </marker>
+  </defs>
+  <rect width="1400" height="720" fill="url(#bg)"/>
+  <text x="700" y="52" text-anchor="middle" font-family="Georgia,serif" font-size="32" font-weight="700" fill="#0B1B2B">Anchor Infer - Deploy pipeline</text>
+  <text x="700" y="84" text-anchor="middle" font-family="system-ui,sans-serif" font-size="16" fill="#3D5A4C">Template - detect Arm - image tag - live OpenAI API - dual benchmark</text>
+  <g font-family="system-ui,sans-serif">
+    <rect x="40" y="160" width="220" height="160" rx="14" fill="#FFFFFF" stroke="#0F6B4D" stroke-width="2"/>
+    <text x="150" y="210" text-anchor="middle" font-size="15" font-weight="700" fill="#0F6B4D">1. Template</text>
+    <text x="150" y="240" text-anchor="middle" font-size="13" fill="#0B1B2B">Model JSON</text>
+    <text x="150" y="262" text-anchor="middle" font-size="13" fill="#3D5A4C">family / size / quant</text>
+    <text x="150" y="284" text-anchor="middle" font-size="12" fill="#57606A">agent/internal/infer/</text>
+    <rect x="310" y="160" width="220" height="160" rx="14" fill="#FFFFFF" stroke="#0F6B4D" stroke-width="2"/>
+    <text x="420" y="210" text-anchor="middle" font-size="15" font-weight="700" fill="#0F6B4D">2. Detect</text>
+    <text x="420" y="240" text-anchor="middle" font-size="13" fill="#0B1B2B">uname + CPU features</text>
+    <text x="420" y="262" text-anchor="middle" font-size="13" fill="#3D5A4C">arm64 / i8mm path</text>
+    <text x="420" y="284" text-anchor="middle" font-size="12" fill="#57606A">platform/</text>
+    <rect x="580" y="160" width="220" height="160" rx="14" fill="#FFFFFF" stroke="#0F6B4D" stroke-width="2"/>
+    <text x="690" y="210" text-anchor="middle" font-size="15" font-weight="700" fill="#0F6B4D">3. Select image</text>
+    <text x="690" y="240" text-anchor="middle" font-size="13" fill="#0B1B2B">KleidiAI tag or generic</text>
+    <text x="690" y="262" text-anchor="middle" font-size="13" fill="#3D5A4C">ANCHOR_INFER_IMAGE_BASE</text>
+    <text x="690" y="284" text-anchor="middle" font-size="12" fill="#57606A">infer/docker/</text>
+    <rect x="850" y="160" width="220" height="160" rx="14" fill="#FFFFFF" stroke="#0F6B4D" stroke-width="2"/>
+    <text x="960" y="210" text-anchor="middle" font-size="15" font-weight="700" fill="#0F6B4D">4. Serve</text>
+    <text x="960" y="240" text-anchor="middle" font-size="13" fill="#0B1B2B">llama-server</text>
+    <text x="960" y="262" text-anchor="middle" font-size="13" fill="#3D5A4C">OpenAI-compatible</text>
+    <text x="960" y="284" text-anchor="middle" font-size="12" fill="#57606A">/v1/chat/completions</text>
+    <rect x="1120" y="160" width="220" height="160" rx="14" fill="#0F6B4D"/>
+    <text x="1230" y="210" text-anchor="middle" font-size="15" font-weight="700" fill="#FFFFFF">5. Measure</text>
+    <text x="1230" y="240" text-anchor="middle" font-size="13" fill="#E8F3EE">generic vs optimized</text>
+    <text x="1230" y="262" text-anchor="middle" font-size="13" fill="#E8F3EE">honest delta % card</text>
+    <text x="1230" y="284" text-anchor="middle" font-size="12" fill="#C5E0D4">+ CI matrix</text>
+  </g>
+  <line x1="260" y1="240" x2="310" y2="240" stroke="#0F6B4D" stroke-width="2.5" marker-end="url(#arr)"/>
+  <line x1="530" y1="240" x2="580" y2="240" stroke="#0F6B4D" stroke-width="2.5" marker-end="url(#arr)"/>
+  <line x1="800" y1="240" x2="850" y2="240" stroke="#0F6B4D" stroke-width="2.5" marker-end="url(#arr)"/>
+  <line x1="1070" y1="240" x2="1120" y2="240" stroke="#0F6B4D" stroke-width="2.5" marker-end="url(#arr)"/>
+  <rect x="40" y="400" width="640" height="250" rx="14" fill="#FFFFFF" stroke="#C5D9CF" stroke-width="1.5"/>
+  <text x="70" y="450" font-family="system-ui,sans-serif" font-size="18" font-weight="700" fill="#0B1B2B">Where it runs</text>
+  <text x="70" y="490" font-family="system-ui,sans-serif" font-size="15" fill="#3D5A4C">Dashboard + control plane: cloud (e.g. Render)</text>
+  <text x="70" y="520" font-family="system-ui,sans-serif" font-size="15" fill="#3D5A4C">Agent + llama.cpp + GGUF: your Arm64 Linux VPS</text>
+  <text x="70" y="550" font-family="system-ui,sans-serif" font-size="15" fill="#3D5A4C">Workloads never leave hardware you own</text>
+  <text x="70" y="600" font-family="system-ui,sans-serif" font-size="14" fill="#57606A">Demo UI: /infer  |  scripts/demo-prep.sh</text>
+  <rect x="720" y="400" width="640" height="250" rx="14" fill="#FFFFFF" stroke="#C5D9CF" stroke-width="1.5"/>
+  <text x="750" y="450" font-family="system-ui,sans-serif" font-size="18" font-weight="700" fill="#0B1B2B">What judges should click</text>
+  <text x="750" y="490" font-family="system-ui,sans-serif" font-size="15" fill="#3D5A4C">1. Connect Arm agent - Detect hardware</text>
+  <text x="750" y="520" font-family="system-ui,sans-serif" font-size="15" fill="#3D5A4C">2. Deploy LLM Chat (pre-warm for demos)</text>
+  <text x="750" y="550" font-family="system-ui,sans-serif" font-size="15" fill="#3D5A4C">3. Send a live chat prompt</text>
+  <text x="750" y="580" font-family="system-ui,sans-serif" font-size="15" fill="#3D5A4C">4. Read the dual-bench card - real %</text>
+  <text x="750" y="610" font-family="system-ui,sans-serif" font-size="14" fill="#57606A">CI proof: Actions - Validate Arm Optimization</text>
+</svg>
