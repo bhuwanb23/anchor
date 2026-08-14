@@ -1,49 +1,42 @@
-# SCRIPT — anchor-promo
+# SCRIPT — anchor-promo (105s how-to ending)
 
-**Voice:** Kokoro local — `am_michael` (warm, steady male baritone, no credential required)
-**Voice settings:** speed 1.0, natural pacing
-**Voice direction:** Calm, confident, unhurried. A knowledgeable colleague, not a pitchman. Plain words about servers that don't need babysitting.
+**Voice:** Captions-only (karaoke). Optional Kokoro `am_michael` if TTS is configured later.
+**Voice direction:** Calm, confident, unhurried. A knowledgeable colleague — not a pitchman.
 
 ---
 
-## Line 1 — Hook (Frame 1)
-
-**Time:** 0.0 – 7.0s
-**Delivery:** Even, direct-address. Let the last four words land.
+## Line 1 — Hook (Frame 1) · 0.0 – 8.0s
 
     You own a server. It runs your business. It shouldn't run you.
 
-## Line 2 — The babysit loop (Frame 2)
-
-**Time:** 7.0 – 16.0s
-**Delivery:** Slightly weary on the list, brighter on the close.
+## Line 2 — The babysit loop (Frame 2) · 8.0 – 17.0s
 
     Tonight it's a full disk. Tomorrow, an expired certificate. Another hour gone to a machine you already pay for.
 
-## Line 3 — One dashboard (Frame 3)
-
-**Time:** 16.0 – 24.0s
-**Delivery:** Relief. Lift on "only thing you touch."
+## Line 3 — One dashboard (Frame 3) · 17.0 – 25.0s
 
     Anchor turns it into your own private cloud — and the dashboard is the only thing you touch.
 
-## Line 4 — How it works (Frame 4)
-
-**Time:** 24.0 – 36.0s
-**Delivery:** Clear, tutorial-calm. Match the left-to-right diagram walk.
+## Line 4 — How it works (Frame 4) · 25.0 – 37.0s
 
     A small agent lives on your server. Your apps stay on hardware you own, with automatic HTTPS — while health and commands travel over one connection.
 
-## Line 5 — What the agent does (Frame 5)
-
-**Time:** 36.0 – 48.0s
-**Delivery:** Rule of three. Give each benefit its own beat.
+## Line 5 — What the agent does (Frame 5) · 37.0 – 49.0s
 
     It deploys from Git or Docker, backs everything up every night, and if something breaks, it tells you in plain English what happened.
 
-## Line 6 — CTA (Frame 6)
+## Line 6 — Connect (Frame 7) · 49.0 – 61.0s
 
-**Time:** 48.0 – 58.0s
-**Delivery:** Quiet confidence. Short and settled.
+    Name a server. Anchor gives you one install step. When the agent is live, the machine shows connected.
+
+## Line 7 — Deploy (Frame 8) · 61.0 – 73.0s
+
+    Pick an image or an Infer template. Anchor ships it to hardware you own — and tells you if something fails, in plain English.
+
+## Line 8 — Graphs (Frame 9) · 73.0 – 90.0s
+
+    On Arm we measure, we don't guess. KleidiAI helped TinyLlama Q8 by fifteen percent on our CI runner — other cells near zero.
+
+## Line 9 — CTA (Frame 6) · 90.0 – 105.0s
 
     Bring any five-dollar box. Leave the babysitting to Anchor.

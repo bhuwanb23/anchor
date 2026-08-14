@@ -1,8 +1,8 @@
 ---
 format: 1920x1080
-duration: 60s
-message: "Own your server. Don't babysit it."
-arc: Before → After tease → Bridge (product) → Steps 1-2-3 → CTA
+duration: 105s
+message: "Own your server — connect, deploy, measure on Arm."
+arc: Before → After tease → Bridge → Benefits → How-to connect → Deploy → Infer graphs → CTA
 audience: "freelance developers and small agencies babysitting a $5–40 VPS with no sysadmin"
 music: "calm, warm, confident, minimal electronic underscore, gentle pulse ~92 BPM, no vocals"
 captions: enabled
@@ -10,145 +10,72 @@ captions: enabled
 
 ## Video direction
 
-- **Palette system (from frame.md):** warm cream ground `#F6F8FA` everywhere; single cobalt `#1F6FEB` carries every accent (eyebrow, numeral, CTA, progress bar, highlight rule); headlines near-black `#0B1B2B` (never cobalt); body muted `#0055D6`. Tinted cards: 4% cobalt fill / 20% cobalt 1.5px border / 10–14px radius, **no shadows**.
-- **Motion defaults + shot model:** every frame is a directed shot — `entrance → development → settle`. Default ease `power3.out` for arrivals, `power2.inOut` for repositioning, `circ.inOut` for camera moves. Idle budget: ONE living element per frame maximum (wordmark glow, camera micro-drift, or a CTA sheen) — everything else settles and holds.
-- **Negative list:** no slideshow enter-then-freeze; no screensaver (everything drifting independently); no purple-blue AI gradients; no invented product screenshots, domain names, or live URLs (project is pre-launch — use "your domain" wording and the repo's own diagrams only); no drop shadows on content; no second accent color.
-- **Stillness allocation:** Frame 6 (CTA) is the sole held frame — wordmark + ring pulse only, letting the promise land. Every other frame develops mid-shot.
-- **Caption band:** bottom ~180px is the caption pill's zone; all primary content lives above it. Implemented as `.caption-stage` at y=892–1064; every frame's lowest element must clear y=892.
+- **Palette system (from frame.md):** warm cream ground `#F6F8FA`; single cobalt `#1F6FEB`; headlines `#0B1B2B`; body muted `#0055D6`. Tinted cards: 4% cobalt fill / 20% cobalt border / 10–14px radius, **no shadows**.
+- **Motion:** every frame `entrance → development → settle`. Ease `power3.out` arrivals. Idle budget: ONE living element per frame max.
+- **Negative list:** no invented product screenshots or live URLs; no purple AI gradients; no drop shadows; no blanket “Arm is X% faster” — only scoped TinyLlama Q8_0 +15.6%.
+- **Caption band:** bottom ~180px reserved (y≥892). Primary content clears that band.
+- **Narration:** captions-only + BGM + SFX (no VO track required).
 
-### Recorded deviations from frame.md
+### Verified facts
 
-Deliberate, reviewed exceptions — not drift. Anything not listed here should follow `frame.md` exactly.
-
-1. **Frame 2 (pain) uses semantic warning/error color as fill.** `frame.md` says "no second accent color" and restricts positive/negative to inline text only, never fills. Frame 2 uses amber (`#e8833a` / `#c2410c`) on the disk meter and cert numeral, and red (`#b91c1c`) on the pager, including tinted icon-chip fills. **Rationale:** the pain frame's whole job is to read as alarm; rendering failure states in cobalt would neutralise the one beat that must feel wrong. The exception is scoped to Frame 2 only — Frames 1, 3, 4, 5, 6 remain single-accent cobalt. **Accepted.**
-2. **Frame 5 uses a green status affordance** (`#22c55e` dot / `#15803d` text) on the "valid / verified / readable" chips, same inline-only spirit as above, as the visual answer to Frame 2's alarm. Scoped to status chips and TLS lock glyphs. **Accepted.**
-3. **Cards use solid white (`#fff`) rather than 4% cobalt tint.** Retains the no-shadow rule; the white card on cream ground gives the UI-panel read the brief asked for. **Accepted.**
-
-### Verified facts (do not re-invent)
-
-- Repo URL is `github.com/bhuwanb23/anchor` — confirmed from `git remote -v`, not guessed. Frame 6 may cite it.
-- No voiceover track exists. TTS is unconfigured (no Kokoro deps, no provider key); **captions carry the narration**. The audio bed is BGM + SFX only.
+- Repo: `github.com/bhuwanb23/anchor`
+- TinyLlama Q8_0 short: **+15.6%** KleidiAI vs generic on GH `ubuntu-24.04-arm` (see `BENCHMARKS.md`)
 
 ---
 
-## Frame 1 — Hook: Your server, your business
+## Frame 1 — Hook · 0–8s · compositions/frames/01-hook.html
 
-- scene: Cover treatment — cream ground, diagonal cobalt-tint panel at right, the Anchor wordmark (hero-banner) as the dominant block under a cobalt accent-line
-- voiceover: "You own a server. It runs your business. It shouldn't run you."
-- duration: 7s
-- transition_in: cut
-- status: outline
-- src: compositions/frames/01-hook.html
-- type: hook
-- persuasion: Pain validation
-- beat: tension
-- asset_candidates: assets/hero-banner.png — Anchor wordmark + subline on soft gradient, wide banner
-- effects: spring-pop-entrance, sine-wave-loop, ambient-glow-bloom
-- focal: assets/hero-banner.png
-- roles: hero-banner = foreground hero (dominant, ~55% width, anchored left-center); diagonal panel = background accent
+Unchanged. VO: "You own a server…"
 
-narrativeRole: Name the promise cold — you own the box, it shouldn't own you. Direct-address hook for the exact audience.
-keyMessage: Your server should serve you, not the reverse.
+## Frame 2 — Pain · 8–17s · compositions/frames/02-pain.html
 
-## Frame 2 — The babysit loop
+Unchanged.
 
-- scene: Split pain grid — cream ground, three tinted cards (full disk / expired TLS / 2AM alert) that rise and stack while a calm baseline holds
-- voiceover: "Tonight it's a full disk. Tomorrow, an expired certificate. Another hour gone to a machine you already pay for."
-- duration: 9s
-- transition_in: crossfade
-- status: outline
-- src: compositions/frames/02-pain.html
-- type: pain_point
-- persuasion: Cognitive overload
-- beat: anxiety → frustration
-- asset_candidates: none — typography + frame.md tinted-card primitives only
-- effects: waterfall-entry, ambient-glow-bloom, vignette hold
-- focal: the three stacked pain cards
-- roles: pain cards = foreground sequence; background = cream + faint dot grid only
+## Frame 3 — Tease · 17–25s · compositions/frames/03-tease.html
 
-narrativeRole: Agitate the known pain with concrete nightly failures — the viewer should nod.
-keyMessage: Manual server care is a slow, invisible tax.
+Unchanged.
 
-## Frame 3 — After tease: One dashboard
+## Frame 4 — Mechanism · 25–37s · compositions/frames/04-mechanism.html
 
-- scene: Cream ground open sweep — headline "Your server, managed." with the promise line settling below; empty space becomes the product
-- voiceover: "Anchor turns it into your own private cloud — and the dashboard is the only thing you touch."
-- duration: 8s
-- transition_in: push-slide RIGHT
-- status: outline
-- src: compositions/frames/03-tease.html
-- type: product_intro
-- persuasion: Simplification
-- beat: relief → curiosity
-- asset_candidates: none — pure type frame (cover scale, centered pulse)
-- effects: waterfall-entry, gradient-text-sweep, sine-wave-loop
-- focal: the "Your server, managed." headline (~60% width, centered above caption band)
-- roles: headline = hero; supporting promise line = secondary beneath
+Unchanged.
 
-narrativeRole: The BAB "after" — relief moment. Product named, promise spoken plainly.
-keyMessage: One dashboard. That's the whole interface.
+## Frame 5 — Value · 37–49s · compositions/frames/05-value.html
 
-## Frame 4 — How it works (the mechanism)
+Unchanged.
 
-- scene: architecture diagram (three columns: Your Server ↔ Control Plane ↔ Dashboard) revealed with a slow lateral camera pan left→right as the narration walks the flow
-- voiceover: "A small agent lives on your server. Your apps stay on hardware you own with automatic HTTPS — while health and commands travel over one connection."
+## Frame 7 — Connect · 49–61s · compositions/frames/07-connect.html
+
+- scene: How-to — seq-connect diagram + three step chips (Name → Install → Connected)
+- voiceover: "Name a server. Anchor gives you one install step. When the agent is live, the machine shows connected."
 - duration: 12s
-- transition_in: push-slide RIGHT
-- status: outline
-- src: compositions/frames/04-mechanism.html
-- type: feature_showcase
-- persuasion: Show-don't-tell proof
-- beat: clarity
-- asset_candidates: assets/architecture.png — labeled three-column system diagram (agent, control plane, dashboard)
-- effects: viewport-change, ambient-glow-bloom, coordinate-target-zoom
-- focal: assets/architecture.png (fills ~70% width, top-anchored above caption band)
-- roles: architecture diagram = full-frame hero background-document; headline chip = foreground label
+- asset_candidates: assets/seq-connect.png
+- type: how_to
 
-narrativeRole: Prove it with the real architecture — three boxes, two connections, nothing to maintain.
-keyMessage: Agent on your hardware, control plane only orchestrates, dashboard is all you use.
+## Frame 8 — Deploy · 61–73s · compositions/frames/08-deploy.html
 
-## Frame 5 — What the agent does for you
-
-- scene: agent-layers diagram seat with three value chips (Auto HTTPS · Nightly backups · Plain-English alerts) rising in sequence, each landing with a soft emphasis
-- voiceover: "It deploys from Git or Docker, backs everything up every night, and if something breaks, it tells you in plain English what happened."
+- scene: How-to — seq-deploy diagram + chips (Pick image → Ship → Live / plain-English fail)
+- voiceover: "Pick an image or an Infer template. Anchor ships it to hardware you own — and tells you if something fails, in plain English."
 - duration: 12s
-- transition_in: push-slide RIGHT
-- status: outline
-- src: compositions/frames/05-value.html
-- type: benefit_highlight
-- persuasion: Feature-to-benefit translation (rule of three)
-- beat: confidence → control
-- asset_candidates: assets/agent-layers.png — agent mental-model diagram (4A/4B/4C over 3A/3B/3C)
-- effects: waterfall-entry, spring-pop-entrance, ambient-glow-bloom
-- focal: assets/agent-layers.png (background, dimmed ~35%) with the three chips as foreground sequence
-- roles: agent-layers = soft backdrop proof; three benefit chips = foreground, top-center, above caption band
+- asset_candidates: assets/seq-deploy.png
+- type: how_to
 
-narrativeRole: Convert the mechanism into three felt benefits — the viewer remembers 3 concrete wins.
-keyMessage: Deploys, backups, alerts — handled, in plain English.
+## Frame 9 — Graphs · 73–90s · compositions/frames/09-graphs.html
 
-## Frame 6 — CTA: Bring your own server
+- scene: Infer pipeline + bench bars; +15.6% count-up; scoped caveat chip
+- voiceover: "On Arm we measure, we don't guess. KleidiAI helped TinyLlama Q8 by fifteen percent on our CI runner — other cells near zero."
+- duration: 17s
+- asset_candidates: assets/infer-pipeline.png, assets/bench-bars.png
+- type: proof
 
-- scene: Closing treatment — concentric cobalt rings behind, Anchor wordmark centered, one solid cobalt CTA pill ("Bring your own server — placeholder domain"), progress bar completed
-- voiceover: "Bring any five-dollar box. Leave the babysitting to Anchor."
-- duration: 10s
-- transition_in: cut
-- status: outline
-- src: compositions/frames/06-cta.html
-- type: cta
-- persuasion: Empowerment and control
-- beat: peace of mind
-- asset_candidates: assets/hero-banner.png — Anchor wordmark banner
-- effects: ambient-glow-bloom, spring-pop-entrance, svg-icon-enrichment
-- focal: the wordmark + CTA pill centered above caption band
-- roles: hero-banner wordmark = hero; concentric rings = background atmosphere; CTA pill = single solid cobalt element
+## Frame 6 — CTA · 90–105s · compositions/frames/06-cta.html
 
-narrativeRole: Held, quiet close — the promise lands and the CTA is the single solid element on screen.
-keyMessage: It's yours. Anchor just keeps it running.
+Moved later. VO: "Bring any five-dollar box. Leave the babysitting to Anchor."
+duration: 15s
 
 ---
 
 ## Pacing notes
 
-- Est. total 58s before audio resync (target ~60s).
-- Frames 4–5 form one left-to-right "how it works / what you get" flow (same push-slide RIGHT transition).
-- Real Kokoro voice durations win in Step 5 sync; estimates above are guides.
+- Est. total **105s**.
+- Frames 7–9 are the new how-to / proof act; Frame 6 closes.
+- BGM padded to 105s with soft out-fade.
